@@ -1,0 +1,32 @@
+Erb top dome prototype CAD report
+=================================
+
+Prototype intent:
+- Visual/fit study for a removable R2D2-like hollow top dome.
+- Not yet a final structural or sensor-mount design.
+
+Final outer dimensions:
+- Plain dome: 240.0 W x 240.0 D x 112.0 H mm
+- Sensor mockup dome: 240.0 W x 240.0 D x 116.0 H mm
+
+Design parameters:
+- Dome outside radius: 112.0 mm
+- Shell wall thickness: 3.5 mm
+- Square mounting flange: 240.0 x 240.0 x 6.0 mm
+- Flange holes: M4 clearance, 4.5 mm diameter, at X/Y +/-100.0 mm
+- Rim skirt: 22.0 mm tall cylindrical overlap into the flange
+- Sensor mockup front camera aperture: 26.0 mm diameter, no external pad
+- Sensor mockup top cut: 48.0 mm diameter
+- Top sensor boss: 64.0 mm diameter x 12.0 mm tall, embedded 8.0 mm into the dome
+
+Exported STEP files:
+- exports/step/erb_top_dome_plain.step
+- exports/step/erb_top_dome_prototypes.step
+- exports/step/erb_top_dome_sensor_mockup.step
+
+Print/iteration assumptions:
+- Intended print orientation is flange/open rim down on the bed.
+- The hollow dome is a cover/sensor shell, not a load-bearing chassis part.
+- The 240 mm square flange matches the current lower chassis top footprint for visual scale.
+- The front camera feature is currently just an aperture; a real camera mount should be designed around the selected camera module.
+- The prototype pair STEP is for side-by-side visual comparison only and is not printable as a single object.

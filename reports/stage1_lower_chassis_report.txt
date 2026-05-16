@@ -1,0 +1,128 @@
+Erb Stage 1 lower chassis CAD report
+======================================
+
+Final outer dimensions:
+- Center structural box: 240.0 W x 240.0 D x 240.0 H mm
+- Printable chassis assembly bounding box, excluding reference wheels/axles: 460.0 W x 262.0 D x 410.0 H mm
+- Viewer assembly bounding box, including reference wheels/axles: 480.0 W x 272.0 D x 482.0 H mm
+- Reference wheel envelope: 480.0 mm overall width, 260.0 mm tire diameter, 100.0 mm tire width
+- Reference wheel centers: X +/-190.0 mm, tire inner faces at X +/-140.0 mm
+- Reference tire-to-side-plate clearance: 20.0 mm per side
+
+Axle center height from bottom: 58.0 mm
+Side plate base thickness: 12.0 mm
+Front/rear panel height: 240.0 mm
+Reinforced axle boss total thickness: 30.0 mm
+Replaceable axle cartridge body: 76.0 mm chamfered square x 30.0 mm thick
+Axle cartridge side-plate pocket: 79.0 mm chamfered square through-pocket
+Axle cartridge retention flange: 140.0 W x 116.0 H x 6.0 mm thick
+Axle tab-washer relief pocket: 12.0 mm lateral x 12.0 mm vertical x 3.2 mm deep, off one left/right side of the axle profile on the washer/nut-side cartridge face
+Fit-safe cross-part envelope: 180.0 W x 200.0 D mm
+Front/rear side-rail M5 heat-set pilots: 6.1 mm diameter x 24.0 mm through-cut at Z 35, 105, 175, 220
+Bottom tray panel-to-panel span: 180.0 W x 204.0 D mm
+Top lid footprint: 240.0 W x 240.0 D mm
+Rear panel: no vents, tapered hollow cable pocket from 132.0 W x 192.0 H at the panel to 104.0 W x 164.0 H at the blank outer face, 22.0 mm deep
+Integrated battery tray floor: flush underside, 180.0 W x 204.0 D x 10.0 H mm
+Integrated battery lanes: two 164.0 L x 51.0 W mm lanes for two 155 x 50 x 50 mm packs
+Outer battery retaining ribs: 2.0 W x 148.0 L x 7.0 H mm, shortened clear of the bottom-tray screw holes
+Center electronics spine: full 204.0 mm tray length, 32.0 mm outside width, 28.0 mm usable lower pocket width, 50.0 mm top height
+ESP32/IMU electronics deck: 30.0 W x 204.0 L mm with top surface at Z=50.0 mm
+Front/rear over-battery bridges: 180.0 mm full tray-width span, 37.0 mm side-tower depth, underside Z=63.0 mm, thickness 8.0 mm, top Z=71.0 mm
+Upper wide module blockout: 460.0 W x 226.0 D x 96.0 H mm, split into a 240.0 mm center compute bay and two 110.0 mm over-wheel pods
+Upper adapter deck: 240.0 W x 240.0 D x 8.0 H mm at Z 240.0 mm
+Upper module bottom/top Z: 256.0 / 352.0 mm
+Perception pod blockout: 172.0 W x 76.0 D x 42.0 H mm at Z 360.0 mm, plus 56.0 mm sensor boss
+Flat equipment shelf footprint: 180.0 W x 200.0 D x 6.0 H mm
+Deep side-cable shelf variant: two side-edge notches, 46.0 mm deep x 84.0 mm long
+Shallow side-cable shelf variant: two side-edge notches, 23.0 mm deep x 84.0 mm long
+Default four-way shallow cable shelf variant: four centered edge notches, 23.0 mm deep x 84.0 mm long
+Default four-way shallow equipment shelf assembly levels: Z=74.0 mm, Z=122.0 mm, Z=183.0 mm
+Third-shelf spacer block: 20.0 W x 50.0 D x 55.0 H mm with 4.5 mm through-clearance
+Clear height from battery floor top to lower shelf underside: 64.0 mm
+Battery-to-bridge underside clearance: 3.0 mm
+Bridge top to lower shelf underside clearance: 3.0 mm
+Clear height between lower and upper shelves: 42.0 mm
+Clear height from upper shelf top to third shelf underside: 55.0 mm
+Clear height from third shelf top to side-plate top plane: 51.0 mm
+Equipment shelf side ledges: two 54.0 mm long x 38.0 mm deep x 8.0 mm high pads per shelf level on each side plate
+Equipment shelf side-ledge gussets: 22.0 mm tall triangular webs at Y -75, 75
+Panel ventilation: 5 vertical slots centered in the front/rear panel field; front/rear panels carry no shelf supports
+
+Axle insert clearances:
+- tight: 16.3 mm diameter, 12.3 mm flat-to-flat double-D profile
+- medium: 16.6 mm diameter, 12.5 mm flat-to-flat double-D profile
+- loose: 16.9 mm diameter, 12.8 mm flat-to-flat double-D profile
+
+Screw sizes assumed:
+- M5 structural screws: 5.5 mm clearance, 6.1 mm heat-set pilot pockets, 11.0 mm washer/counterbore relief
+- Front/rear panels have M5 heat-set pilot holes in their side rails at X +/-81 mm and Z 35, 105, 175, 220; these line up with the side-panel clearance holes at Y +/-111 mm.
+- M4 service/electronics screws: 4.5 mm clearance
+- M3 electronics/IMU screws: 3.4 mm clearance
+
+Exported STEP files:
+- exports/step/erb_axle_insert_loose.step
+- exports/step/erb_axle_insert_medium.step
+- exports/step/erb_axle_insert_tight.step
+- exports/step/erb_equipment_shelf.step
+- exports/step/erb_equipment_shelf_four_way_cable_shallow.step
+- exports/step/erb_equipment_shelf_side_cable.step
+- exports/step/erb_equipment_shelf_side_cable_shallow.step
+- exports/step/erb_lower_chassis_assembly.step
+- exports/step/erb_lower_chassis_bottom_tray.step
+- exports/step/erb_lower_chassis_front_panel.step
+- exports/step/erb_lower_chassis_left_side_plate.step
+- exports/step/erb_lower_chassis_rear_panel.step
+- exports/step/erb_lower_chassis_rear_panel_vented.step
+- exports/step/erb_lower_chassis_right_side_plate.step
+- exports/step/erb_lower_chassis_top_lid.step
+- exports/step/erb_reference_axle_pair.step
+- exports/step/erb_reference_wheel_axle_pair.step
+- exports/step/erb_reference_wheel_pair.step
+- exports/step/erb_shelf_spacer_block_55mm.step
+- exports/step/erb_upper_perception_pod.step
+- exports/step/erb_upper_wide_center_adapter_deck.step
+- exports/step/erb_upper_wide_center_compute_bay.step
+- exports/step/erb_upper_wide_center_crossmember.step
+- exports/step/erb_upper_wide_left_overwheel_pod.step
+- exports/step/erb_upper_wide_right_overwheel_pod.step
+- exports/step/erb_upper_wide_side_crossmember.step
+
+Assumptions made:
+- Coordinate convention: X is robot width, Y is front/rear depth, Z is vertical.
+- The 240 mm center_box_outer_width is the structural side-plate outside-to-outside width; axle cartridge inserts run through the full reinforced side-plate boss thickness.
+- Cross panels and trays use a 180 x 200 mm fit-safe envelope to clear side-plate rails and axle bosses.
+- The top lid is now a top cap spanning 240 x 240 mm; its underside locating lip stays inside the fit-safe envelope.
+- Front and rear panels extend to the 240 mm side-plate top plane so they meet the top cap without a visible top gap.
+- Top lid screw holes align over side-wall top-rail M4 heat-set pilot pockets.
+- Replaceable axle inserts use a 76 mm chamfered-square through-body in a 79.0 mm chamfered-square pocket. The square pocket carries wheel torque.
+- Each axle insert has a 140 x 116 mm outside retention flange shifted 8 mm upward from the axle center. Four M5 corner bolts land at Y +/-52 mm from the axle center and Z -34/50 mm from the axle center, giving the washer counterbores even edge padding on the shifted flange.
+- Axle inserts include a shallow tab-washer pocket on the washer/nut-side cartridge face: 12 mm lateral x 12 mm vertical x 3.2 mm deep, placed off one left/right side of the axle profile with 1.5 mm clearance.
+- Axle insert bodies are 30 mm thick to match the reinforced boss depth. The right-side insert is rotated in the assembly so the same printable STEP is used on both sides with the flange facing outward.
+- Axle bosses, ribs, and side rails are capped at 30 mm total local side-plate thickness so the support stack is flush with the raised side-wall rails.
+- The wide-over-wheel architecture is now shown as a Stage 2 blockout in the main assembly: a 460 mm wide upper module located above the 10 inch wheel tops, with all individual printable pieces kept under 250 mm in their largest dimension.
+- The upper blockout uses a 240 mm center compute bay for BOSGAME/GPU packaging studies and two side pods over the wheels for power distribution, ESP32, fuses, buck converters, and wiring channels.
+- The active upper skeleton now uses a stacked adapter-deck architecture instead of J-hooks: center adapter deck -> over-wheel wing decks -> upper compute bay.
+- The center adapter deck sits directly on the lower 240 mm side-plate top plane at Z 240 mm. The two over-wheel wing decks sit one layer above it at Z 248 mm and overlap inward to the existing X +/-102 mm lower side-rail bolt line.
+- The vertical clamp stack is upper compute bay -> over-wheel wing where present -> center adapter deck -> lower side-frame heat-set inserts, using the existing X +/-102 mm and Y +/-102 mm M4 bolt line.
+- `erb_upper_wide_center_crossmember.step` and `erb_upper_wide_side_crossmember.step` remain exported as optional straight rail experiments, but neither is placed in the active assembly.
+- The upper center bay remains open at left/right so later side pod walls can turn the wide upper structure into one continuous internal volume for large compute hardware.
+- The previous dome prototype STEP files remain exported for reference, but the main lower chassis assembly no longer places the dome; the wide-over-wheel blockout is now the active top architecture.
+- The four-way shallow cable shelf is used three times in the assembly at Z 74 mm, Z 122 mm, and Z 183 mm.
+- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text.
+- `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.
+- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.
+- `erb_shelf_spacer_block_55mm.step` is a single printable spacer block. Print four copies for the third-shelf stack; it matches the existing shelf-hole centers at X +/-80 mm and Y +/-75 mm.
+- The lower shelf has been lowered to keep the center of mass down while preserving battery clearance; the upper shelf leaves the largest bay for a mini PC on rubber isolation mounts.
+- The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.
+- Equipment shelves are supported by side-plate ledges at X +/-80 mm with M4 shelf holes at Y +/-75 mm.
+- Side-plate shelf ledge pads overlap 6 mm into the side wall, leave the center axle/wheel gap open, and use triangular gussets to keep shelf loads out of the future service doors.
+- The old removable battery cassette is replaced in the active assembly by the integrated bottom tray/cage. The separate cassette generator is kept only as legacy code and is not exported or placed.
+- The integrated tray uses a 10 mm full floor, 2 mm outer ribs set 3 mm in from the 144 mm inside bottleneck, and a full-length 32 mm center electronics spine with a 30 mm wide top deck at Z=50 mm.
+- The front/rear battery cage bridges have 3 mm battery height clearance and 3 mm clearance below the lower equipment shelf.
+- The bottom tray raised side rails are split into front/rear towers to avoid the central axle boss zone; the over-battery bridges use separate inner posts so they do not collide with the side plates.
+- The actual motor shaft is modeled as a double-D axle profile using diameter plus flat-to-flat dimensions.
+- The full assembly STEP uses the medium axle insert variant by default.
+- The full assembly STEP includes non-print reference wheel and shaft geometry: 260 mm diameter x 100 mm wide tires at X +/-190 mm, plus 16 mm x 12 mm double-D shaft references.
+- Reference wheel/axle STEP files are intentionally not printability-checked because the real tires are purchased parts and exceed the printer envelope.
+- Battery retention and controller/PC mounts are intentionally not modeled on the flat shelves yet.
+- STEP files are CAD prototypes for fit and print planning; threaded metal hardware, heat-set insert part numbers, and wheel-side spacers still need final mechanical selection.

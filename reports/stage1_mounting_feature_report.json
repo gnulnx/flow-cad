@@ -1,0 +1,182 @@
+{
+  "checks": [
+    {
+      "status": "ok",
+      "message": "bottom tray central support floor reaches both front/rear panel inner rail faces",
+      "details": {
+        "central_floor_depth_mm": 204.0,
+        "required_bottom_tray_depth_mm": 204.0,
+        "fit_safe_internal_depth_mm": 200.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "front/rear panel M5 heat-set pilots open through side rails and align to side panels",
+      "details": {
+        "rail_width_mm": 18.0,
+        "rail_depth_mm": 18.0,
+        "pilot_diameter_mm": 6.1,
+        "pilot_cut_length_mm": 24.0,
+        "hole_x_centers_mm": [
+          -81.0,
+          81.0
+        ],
+        "global_y_centers_mm": [
+          -111.0,
+          111.0
+        ],
+        "z_levels_mm": [
+          35.0,
+          105.0,
+          175.0,
+          220.0
+        ]
+      }
+    },
+    {
+      "status": "ok",
+      "message": "bottom tray M5 mounting holes are through-cut and have edge margin",
+      "details": {
+        "rail_width_mm": 18.0,
+        "hole_cut_length_mm": 28.0,
+        "hole_positions_y_mm": [
+          -82.0,
+          82.0
+        ],
+        "hole_z_mm": 16.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "bottom tray M5 pilot axes align with left/right side-plate clearance-hole axes",
+      "details": {
+        "tray_pilot_x_centers_mm": [
+          -81.0,
+          81.0
+        ],
+        "shared_y_centers_mm": [
+          -82.0,
+          82.0
+        ],
+        "shared_z_center_mm": 16.0,
+        "max_y_delta_mm": 0.0,
+        "max_z_delta_mm": 0.0,
+        "side_plate_hole_diameter_mm": 5.5,
+        "tray_pilot_diameter_mm": 6.1
+      }
+    },
+    {
+      "status": "ok",
+      "message": "integrated battery tray floor is 10 mm thick",
+      "details": {
+        "floor_thickness_mm": 10.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "integrated battery lanes clear the measured pack width",
+      "details": {
+        "lane_width_mm": 51.0,
+        "battery_width_mm": 50.0,
+        "clearance_mm": 1.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "integrated battery layout fits the measured 144 mm inside bottleneck",
+      "details": {
+        "used_inside_width_mm": 144.0,
+        "measured_inside_width_mm": 144.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "center electronics spine has ESP32 width clearance",
+      "details": {
+        "usable_spine_width_mm": 28.0,
+        "esp32_width_mm": 26.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "side screw-hole pillars stay outside the battery lane width",
+      "details": {
+        "battery_lane_outer_edge_x_mm": 67.0,
+        "side_pillar_inner_edge_x_mm": 72.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "bridge span is the full bottom tray width",
+      "details": {
+        "bridge_span_width_mm": 180.0,
+        "bottom_tray_width_mm": 180.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "outer battery retaining ribs are shortened clear of bottom tray screw holes",
+      "details": {
+        "rib_length_mm": 148.0,
+        "rib_to_screw_edge_clearance_mm": 4.95
+      }
+    },
+    {
+      "status": "ok",
+      "message": "bridge depth matches the full side tower pad depth",
+      "details": {
+        "bridge_depth_mm": 37.0,
+        "side_tower_depth_mm": 37.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "electronics deck top is at the requested lowered height",
+      "details": {
+        "electronics_deck_width_mm": 30.0,
+        "electronics_deck_length_mm": 204.0,
+        "electronics_deck_top_z_mm": 50.0,
+        "pad_to_lower_shelf_clearance_mm": 24.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "center bridge supports extend from the lowered electronics deck to the bridge underside",
+      "details": {
+        "electronics_deck_top_z_mm": 50.0,
+        "bridge_underside_z_mm": 63.0,
+        "support_height_mm": 13.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "over-battery bridge underside clears pack height",
+      "details": {
+        "battery_height_clearance_mm": 3.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "over-battery bridge top clears lower equipment shelf",
+      "details": {
+        "bridge_to_shelf_clearance_mm": 3.0
+      }
+    },
+    {
+      "status": "ok",
+      "message": "axle tab-washer relief is lateral to the axle profile with tab clearance",
+      "details": {
+        "relief_width_y_mm": 12.0,
+        "relief_height_z_mm": 12.0,
+        "relief_depth_x_mm": 3.2,
+        "relief_face_x_mm": 30.0,
+        "side_clearance_by_variant_mm": {
+          "tight": 1.5,
+          "medium": 1.5,
+          "loose": 1.5
+        }
+      }
+    }
+  ],
+  "failed": []
+}

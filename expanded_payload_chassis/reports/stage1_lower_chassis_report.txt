@@ -1,0 +1,56 @@
+Erb Stage 1 lower chassis CAD report
+======================================
+
+Final outer dimensions:
+- Center structural box: 240.0 W x 240.0 D x 240.0 H mm
+- Assembly bounding box with flush medium inserts: 240.0 W x 240.0 D x 246.0 H mm
+
+Axle center height from bottom: 50.0 mm
+Side plate base thickness: 12.0 mm
+Reinforced axle boss total thickness: 30.0 mm
+Replaceable axle insert thickness: 12.0 mm
+Fit-safe cross-part envelope: 180.0 W x 200.0 D mm
+Top lid footprint: 240.0 W x 240.0 D mm
+Flat equipment shelf footprint: 180.0 W x 200.0 D x 6.0 H mm
+Flat equipment shelf assembly levels: Z=92.0 mm, Z=146.0 mm
+Equipment shelf support brackets: 8 front/rear M4 pads at Y +/-92 mm
+
+Axle insert clearances:
+- tight: 16.3 mm diameter, 12.3 mm flat-to-flat double-D profile
+- medium: 16.6 mm diameter, 12.5 mm flat-to-flat double-D profile
+- loose: 16.9 mm diameter, 12.8 mm flat-to-flat double-D profile
+
+Screw sizes assumed:
+- M5 structural screws: 5.5 mm clearance, 6.1 mm heat-set pilot pockets, 11.0 mm washer/counterbore relief
+- M4 service/electronics screws: 4.5 mm clearance
+- M3 electronics/IMU screws: 3.4 mm clearance
+
+Exported STEP files:
+- exports/step/erb_axle_insert_loose.step
+- exports/step/erb_axle_insert_medium.step
+- exports/step/erb_axle_insert_tight.step
+- exports/step/erb_equipment_shelf.step
+- exports/step/erb_lower_chassis_assembly.step
+- exports/step/erb_lower_chassis_bottom_tray.step
+- exports/step/erb_lower_chassis_front_panel.step
+- exports/step/erb_lower_chassis_left_side_plate.step
+- exports/step/erb_lower_chassis_rear_panel.step
+- exports/step/erb_lower_chassis_right_side_plate.step
+- exports/step/erb_lower_chassis_top_lid.step
+
+Assumptions made:
+- Coordinate convention: X is robot width, Y is front/rear depth, Z is vertical.
+- The 240 mm center_box_outer_width is the structural side-plate outside-to-outside width; axle inserts are recessed flush into the side plates.
+- Cross panels and trays use a 180 x 200 mm fit-safe envelope to clear side-plate rails and axle bosses.
+- The top lid is now a top cap spanning 240 x 240 mm; its underside locating lip stays inside the fit-safe envelope.
+- Top lid screw holes align over side-wall top-rail M4 heat-set pilot pockets.
+- Replaceable axle inserts are 12 mm thick to match the side-plate wall thickness and sit flush in the side wall pocket.
+- Axle bosses, ribs, and side rails are capped at 30 mm total local side-plate thickness so the support stack is flush with the raised side-wall rails.
+- The generic flat equipment shelf is used twice in the assembly at Z 92 mm and Z 146 mm.
+- Front and rear panels include 8 total shelf bracket pads: 2 X positions x 2 shelf levels x 2 panels.
+- Shelf support holes use M4 clearance at X +/-58 mm and Y +/-92 mm.
+- The bottom tray raised side rails are split into front/rear segments to avoid the central axle boss zone.
+- The actual motor shaft is modeled as a double-D axle profile using diameter plus flat-to-flat dimensions.
+- The full assembly STEP uses the medium axle insert variant by default.
+- Battery retention and controller/PC mounts are intentionally not modeled on the flat shelves yet.
+- STEP files are CAD prototypes for fit and print planning; threaded metal hardware, heat-set insert part numbers, and wheel-side spacers still need final mechanical selection.
