@@ -274,6 +274,63 @@ def check_front_rear_panel_mounts() -> list[dict]:
     return checks
 
 
+def check_stopped_panel_dovetails() -> list[dict]:
+    checks: list[dict] = []
+    slot_neck = P.panel_dovetail_neck_width + 2.0 * P.panel_dovetail_clearance
+    slot_head = P.panel_dovetail_head_width + 2.0 * P.panel_dovetail_clearance
+    slot_depth = P.panel_dovetail_depth + 2.0 * P.panel_dovetail_clearance
+
+    if P.panel_dovetail_stop_height < 5.0:
+        checks.append(
+            fail(
+                "stopped panel dovetail bottom stop is too short",
+                {
+                    "stop_height_mm": P.panel_dovetail_stop_height,
+                    "minimum_stop_height_mm": 5.0,
+                },
+            )
+        )
+    if P.panel_dovetail_clearance < 0.2:
+        checks.append(
+            fail(
+                "stopped panel dovetail clearance is too tight for printed sliding assembly",
+                {
+                    "clearance_per_side_mm": P.panel_dovetail_clearance,
+                    "minimum_clearance_per_side_mm": 0.2,
+                },
+            )
+        )
+    if P.panel_dovetail_head_width <= P.panel_dovetail_neck_width:
+        checks.append(
+            fail(
+                "panel dovetail head is not wider than the neck",
+                {
+                    "neck_width_mm": P.panel_dovetail_neck_width,
+                    "head_width_mm": P.panel_dovetail_head_width,
+                },
+            )
+        )
+
+    if not any(check["status"] == "fail" for check in checks):
+        checks.append(
+            ok(
+                "front/rear panels use matching stopped dovetails into the side chassis",
+                {
+                    "male_depth_mm": P.panel_dovetail_depth,
+                    "male_neck_width_mm": P.panel_dovetail_neck_width,
+                    "male_head_width_mm": P.panel_dovetail_head_width,
+                    "slot_depth_mm": slot_depth,
+                    "slot_neck_width_mm": slot_neck,
+                    "slot_head_width_mm": slot_head,
+                    "clearance_per_side_mm": P.panel_dovetail_clearance,
+                    "bottom_stop_height_mm": P.panel_dovetail_stop_height,
+                    "dovetail_z_range_mm": [P.panel_dovetail_stop_height, P.front_rear_panel_height],
+                },
+            )
+        )
+    return checks
+
+
 def check_integrated_battery_tray() -> list[dict]:
     checks: list[dict] = []
     inner_spine_width = P.integrated_center_spine_outer_width - 2.0 * P.integrated_center_spine_wall_thickness
@@ -630,6 +687,7 @@ def main() -> int:
     report = {
         "checks": check_bottom_tray_floor_coverage()
         + check_front_rear_panel_mounts()
+        + check_stopped_panel_dovetails()
         + check_bottom_tray_mounts()
         + check_bottom_tray_side_plate_alignment()
         + check_integrated_battery_tray()

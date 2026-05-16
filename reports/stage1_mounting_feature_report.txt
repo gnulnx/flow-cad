@@ -13,6 +13,16 @@ OK: front/rear panel M5 heat-set pilots open through side rails and align to sid
   - hole_x_centers_mm: [-81.0, 81.0]
   - global_y_centers_mm: [-111.0, 111.0]
   - z_levels_mm: [35.0, 105.0, 175.0, 220.0]
+OK: front/rear panels use matching stopped dovetails into the side chassis
+  - male_depth_mm: 10.0
+  - male_neck_width_mm: 9.0
+  - male_head_width_mm: 15.0
+  - slot_depth_mm: 10.5
+  - slot_neck_width_mm: 9.5
+  - slot_head_width_mm: 15.5
+  - clearance_per_side_mm: 0.25
+  - bottom_stop_height_mm: 8.0
+  - dovetail_z_range_mm: [8.0, 240.0]
 OK: bottom tray M5 mounting holes are through-cut and have edge margin
   - rail_width_mm: 18.0
   - hole_cut_length_mm: 28.0

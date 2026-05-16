@@ -19,6 +19,7 @@ Axle cartridge retention flange: 140.0 W x 116.0 H x 6.0 mm thick
 Axle tab-washer relief pocket: 12.0 mm lateral x 12.0 mm vertical x 3.2 mm deep, off one left/right side of the axle profile on the washer/nut-side cartridge face
 Fit-safe cross-part envelope: 180.0 W x 200.0 D mm
 Front/rear side-rail M5 heat-set pilots: 6.1 mm diameter x 24.0 mm through-cut at Z 35, 105, 175, 220
+Stopped front/rear panel dovetails: male rails 10.0 mm deep, 9.0/15.0 mm neck/head, side-plate slots carry 0.25 mm clearance per side and stop 8.0 mm above the bottom
 Bottom tray panel-to-panel span: 180.0 W x 204.0 D mm
 Top lid footprint: 240.0 W x 240.0 D mm
 Rear panel: no vents, tapered hollow cable pocket from 132.0 W x 192.0 H at the panel to 104.0 W x 164.0 H at the blank outer face, 22.0 mm deep
@@ -116,6 +117,7 @@ Assumptions made:
 - The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.
 - Equipment shelves are supported by side-plate ledges at X +/-80 mm with M4 shelf holes at Y +/-75 mm.
 - Side-plate shelf ledge pads overlap 6 mm into the side wall, leave the center axle/wheel gap open, and use triangular gussets to keep shelf loads out of the future service doors.
+- Front/rear panels now slide down from the top on stopped dovetail rails into matching side-chassis slots. The stops are 8 mm above the bottom; existing screw paths remain cut through the panel-side rail/tail zone for retention experiments.
 - The old removable battery cassette is replaced in the active assembly by the integrated bottom tray/cage. The separate cassette generator is kept only as legacy code and is not exported or placed.
 - The integrated tray uses a 10 mm full floor, 2 mm outer ribs set 3 mm in from the 144 mm inside bottleneck, and a full-length 32 mm center electronics spine with a 30 mm wide top deck at Z=50 mm.
 - The front/rear battery cage bridges have 3 mm battery height clearance and 3 mm clearance below the lower equipment shelf.

@@ -123,6 +123,11 @@ class ChassisParams:
     front_rear_panel_side_rail_width: float = 18.0
     front_rear_panel_side_rail_depth: float = 18.0
     front_rear_panel_m5_pilot_cut_length: float = 24.0
+    panel_dovetail_depth: float = 10.0
+    panel_dovetail_neck_width: float = 9.0
+    panel_dovetail_head_width: float = 15.0
+    panel_dovetail_clearance: float = 0.25
+    panel_dovetail_stop_height: float = 8.0
     vent_slot_centers_x: tuple[float, ...] = (-38.0, -19.0, 0.0, 19.0, 38.0)
     vent_slot_width: float = 8.0
     vent_slot_height: float = 116.0
@@ -357,6 +362,18 @@ def cyl_z(radius: float, length: float, center: tuple[float, float, float]):
     return Cylinder(radius, length).moved(Location(center))
 
 
+def xy_polygon_prism(
+    points: tuple[tuple[float, float], ...],
+    height: float,
+    center_z: float,
+):
+    with BuildPart() as prism:
+        with BuildSketch(Plane.XY):
+            Polygon(*points, align=None)
+        extrude(amount=height / 2.0, both=True)
+    return prism.part.moved(Location((0.0, 0.0, center_z)))
+
+
 def safe_chamfer(shape, amount: float):
     fallback = shape if hasattr(shape, "bounding_box") else Compound(children=list(shape))
     try:
@@ -543,6 +560,49 @@ def xz_rects_overlap_with_clearance(a, b, clearance: float) -> bool:
     )
 
 
+def panel_dovetail_points(
+    side: int,
+    base_x: float,
+    center_y: float,
+    depth: float,
+    neck_width: float,
+    head_width: float,
+) -> tuple[tuple[float, float], ...]:
+    if side not in (-1, 1):
+        raise ValueError("side must be -1 or 1")
+    tip_x = base_x + side * depth
+    if side > 0:
+        return (
+            (base_x, center_y - neck_width / 2.0),
+            (tip_x, center_y - head_width / 2.0),
+            (tip_x, center_y + head_width / 2.0),
+            (base_x, center_y + neck_width / 2.0),
+        )
+    return (
+        (base_x, center_y - neck_width / 2.0),
+        (base_x, center_y + neck_width / 2.0),
+        (tip_x, center_y + head_width / 2.0),
+        (tip_x, center_y - head_width / 2.0),
+    )
+
+
+def panel_dovetail_prism(
+    side: int,
+    base_x: float,
+    center_y: float,
+    depth: float,
+    neck_width: float,
+    head_width: float,
+    z_min: float,
+    z_max: float,
+):
+    return xy_polygon_prism(
+        panel_dovetail_points(side, base_x, center_y, depth, neck_width, head_width),
+        z_max - z_min,
+        (z_min + z_max) / 2.0,
+    )
+
+
 def validate_end_panel_feature_layout() -> None:
     # Shelf supports now live on the side plates, leaving the front/rear
     # panels available for removable or hinged service-door experiments.
@@ -609,6 +669,26 @@ def make_side_plate(inward: int):
                 (ledge_wall_x, gusset_bottom_z),
             )
             shape += triangular_xz_prism(gusset_points, P.shelf_side_gusset_thickness, y)
+
+    # Stopped female dovetail slots for front/rear panels. Cut these after
+    # side ribs and ledges are added so braces cannot intrude into the grooves.
+    slot_z_min = P.panel_dovetail_stop_height
+    slot_z_max = h + 2.0
+    slot_base_x = inward * (P.side_plate_thickness + P.side_rail_projection)
+    slot_depth = -inward * (P.panel_dovetail_depth + 2.0 * P.panel_dovetail_clearance)
+    slot_neck = P.panel_dovetail_neck_width + 2.0 * P.panel_dovetail_clearance
+    slot_head = P.panel_dovetail_head_width + 2.0 * P.panel_dovetail_clearance
+    for y in (-d / 2.0 + 9.0, d / 2.0 - 9.0):
+        shape -= panel_dovetail_prism(
+            side=-inward,
+            base_x=slot_base_x,
+            center_y=y,
+            depth=abs(slot_depth),
+            neck_width=slot_neck,
+            head_width=slot_head,
+            z_min=slot_z_min,
+            z_max=slot_z_max,
+        )
 
     through_center_x = inward * boss_t / 2.0
     through_len = boss_t + 14.0
@@ -706,12 +786,32 @@ def make_end_panel(inward_y: int, cable_panel: bool):
             rail -= cyl_x(P.m5_heatset_pilot_diameter / 2.0, P.front_rear_panel_m5_pilot_cut_length, (x, rail_y, z))
         components.append(rail)
 
+    for side in (-1, 1):
+        components.append(
+            panel_dovetail_prism(
+                side=side,
+                base_x=side * w / 2.0,
+                center_y=rail_y,
+                depth=P.panel_dovetail_depth,
+                neck_width=P.panel_dovetail_neck_width,
+                head_width=P.panel_dovetail_head_width,
+                z_min=P.panel_dovetail_stop_height,
+                z_max=h,
+            )
+        )
+
     components.append(box_at((w, 14.0, 18.0), (0.0, rail_y, 9.0)))
     components.append(box_at((w, 14.0, 18.0), (0.0, rail_y, h - 9.0)))
 
     panel = components[0]
     for component in components[1:]:
         panel += component
+
+    extended_pilot_len = P.front_rear_panel_m5_pilot_cut_length + P.panel_dovetail_depth + 4.0
+    for side in (-1, 1):
+        x = side * (w / 2.0 - rail_w / 2.0 + P.panel_dovetail_depth / 2.0)
+        for z in SIDE_SCREW_Z_LEVELS:
+            panel -= cyl_x(P.m5_heatset_pilot_diameter / 2.0, extended_pilot_len, (x, rail_y, z))
 
     return safe_chamfer(panel, 0.7)
 
@@ -734,8 +834,26 @@ def make_rear_panel_bumpout():
             rail -= cyl_x(P.m5_heatset_pilot_diameter / 2.0, P.front_rear_panel_m5_pilot_cut_length, (x, rail_y, z))
         panel += rail
 
+    for side in (-1, 1):
+        panel += panel_dovetail_prism(
+            side=side,
+            base_x=side * w / 2.0,
+            center_y=rail_y,
+            depth=P.panel_dovetail_depth,
+            neck_width=P.panel_dovetail_neck_width,
+            head_width=P.panel_dovetail_head_width,
+            z_min=P.panel_dovetail_stop_height,
+            z_max=h,
+        )
+
     panel += box_at((w, 14.0, 18.0), (0.0, rail_y, 9.0))
     panel += box_at((w, 14.0, 18.0), (0.0, rail_y, h - 9.0))
+
+    extended_pilot_len = P.front_rear_panel_m5_pilot_cut_length + P.panel_dovetail_depth + 4.0
+    for side in (-1, 1):
+        x = side * (w / 2.0 - rail_w / 2.0 + P.panel_dovetail_depth / 2.0)
+        for z in SIDE_SCREW_Z_LEVELS:
+            panel -= cyl_x(P.m5_heatset_pilot_diameter / 2.0, extended_pilot_len, (x, rail_y, z))
 
     # The bump-out protrudes outside the rear face and is hollow/open on the
     # chassis interior side, creating a local cable pocket without through vents.
@@ -1375,6 +1493,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         f"Fit-safe cross-part envelope: {P.internal_width:.1f} W x {P.internal_depth:.1f} D mm",
         f"Front/rear side-rail M5 heat-set pilots: {P.m5_heatset_pilot_diameter:.1f} mm diameter x {P.front_rear_panel_m5_pilot_cut_length:.1f} mm through-cut at Z "
         + ", ".join(f"{z:.0f}" for z in SIDE_SCREW_Z_LEVELS),
+        f"Stopped front/rear panel dovetails: male rails {P.panel_dovetail_depth:.1f} mm deep, {P.panel_dovetail_neck_width:.1f}/{P.panel_dovetail_head_width:.1f} mm neck/head, side-plate slots carry {P.panel_dovetail_clearance:.2f} mm clearance per side and stop {P.panel_dovetail_stop_height:.1f} mm above the bottom",
         f"Bottom tray panel-to-panel span: {P.internal_width:.1f} W x {P.bottom_tray_depth:.1f} D mm",
         f"Top lid footprint: {P.top_lid_width:.1f} W x {P.top_lid_depth:.1f} D mm",
         f"Rear panel: no vents, tapered hollow cable pocket from {P.rear_bumpout_width:.1f} W x {P.rear_bumpout_height:.1f} H at the panel to {P.rear_bumpout_face_width:.1f} W x {P.rear_bumpout_face_height:.1f} H at the blank outer face, {P.rear_bumpout_depth:.1f} mm deep",
@@ -1460,6 +1579,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             "- The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.",
             f"- Equipment shelves are supported by side-plate ledges at X +/-{P.shelf_side_hole_x:.0f} mm with M4 shelf holes at Y +/-{P.shelf_side_hole_y:.0f} mm.",
             f"- Side-plate shelf ledge pads overlap {P.shelf_side_ledge_wall_overlap:.0f} mm into the side wall, leave the center axle/wheel gap open, and use triangular gussets to keep shelf loads out of the future service doors.",
+            f"- Front/rear panels now slide down from the top on stopped dovetail rails into matching side-chassis slots. The stops are {P.panel_dovetail_stop_height:.0f} mm above the bottom; existing screw paths remain cut through the panel-side rail/tail zone for retention experiments.",
             f"- The old removable battery cassette is replaced in the active assembly by the integrated bottom tray/cage. The separate cassette generator is kept only as legacy code and is not exported or placed.",
             f"- The integrated tray uses a {P.battery_tray_recess_floor_thickness:.0f} mm full floor, {P.integrated_battery_outer_rib_width:.0f} mm outer ribs set {P.integrated_battery_outer_offset:.0f} mm in from the 144 mm inside bottleneck, and a full-length {P.integrated_center_spine_outer_width:.0f} mm center electronics spine with a {P.integrated_imu_pad_size:.0f} mm wide top deck at Z={P.integrated_center_spine_height:.0f} mm.",
             f"- The front/rear battery cage bridges have {P.integrated_bridge_underside_z - P.battery_tray_recess_floor_thickness - P.battery_measured_height:.0f} mm battery height clearance and {P.shelf_z_levels[0] - (P.integrated_bridge_underside_z + P.integrated_bridge_thickness):.0f} mm clearance below the lower equipment shelf.",

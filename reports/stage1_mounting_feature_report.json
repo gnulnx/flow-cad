@@ -35,6 +35,24 @@
     },
     {
       "status": "ok",
+      "message": "front/rear panels use matching stopped dovetails into the side chassis",
+      "details": {
+        "male_depth_mm": 10.0,
+        "male_neck_width_mm": 9.0,
+        "male_head_width_mm": 15.0,
+        "slot_depth_mm": 10.5,
+        "slot_neck_width_mm": 9.5,
+        "slot_head_width_mm": 15.5,
+        "clearance_per_side_mm": 0.25,
+        "bottom_stop_height_mm": 8.0,
+        "dovetail_z_range_mm": [
+          8.0,
+          240.0
+        ]
+      }
+    },
+    {
+      "status": "ok",
       "message": "bottom tray M5 mounting holes are through-cut and have edge margin",
       "details": {
         "rail_width_mm": 18.0,
