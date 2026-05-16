@@ -1,8 +1,8 @@
 Erb Stage 1 assembly interference report
 ========================================
 
-Pair count checked: 171
-Bounding-box candidate pairs: 18
+Pair count checked: 105
+Bounding-box candidate pairs: 14
 Solid intersections above threshold: 0
 Minimum reported volume: 0.050000 mm^3
 Bounding box tolerance: 0.001000 mm

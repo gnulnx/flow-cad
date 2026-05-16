@@ -53,6 +53,24 @@
     },
     {
       "status": "ok",
+      "message": "side shelf ledges skip the lower tray-conflict level and support the second/third shelves",
+      "details": {
+        "shelf_levels_mm": [
+          74.0,
+          122.0,
+          183.0
+        ],
+        "side_ledge_levels_mm": [
+          122.0,
+          183.0
+        ],
+        "shelf_width_mm": 180.0,
+        "hole_edge_to_shelf_edge_margin_mm": 12.75,
+        "clear_gap_around_bolt_centerline_mm": 31.0
+      }
+    },
+    {
+      "status": "ok",
       "message": "bottom tray M5 mounting holes are through-cut and have edge margin",
       "details": {
         "rail_width_mm": 18.0,

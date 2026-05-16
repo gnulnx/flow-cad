@@ -38,15 +38,16 @@ Deep side-cable shelf variant: two side-edge notches, 46.0 mm deep x 84.0 mm lon
 Shallow side-cable shelf variant: two side-edge notches, 23.0 mm deep x 84.0 mm long
 Default four-way shallow cable shelf variant: four centered edge notches, 23.0 mm deep x 84.0 mm long
 Default four-way shallow equipment shelf assembly levels: Z=74.0 mm, Z=122.0 mm, Z=183.0 mm
-Third-shelf spacer block: 20.0 W x 50.0 D x 55.0 H mm with 4.5 mm through-clearance
+Side-plate shelf ledge levels: Z=122.0 mm, Z=183.0 mm
+Third-shelf spacer block: 20.0 W x 50.0 D x 55.0 H mm with 4.5 mm through-clearance, exported as an optional legacy support but not placed in the active assembly
 Clear height from battery floor top to lower shelf underside: 64.0 mm
 Battery-to-bridge underside clearance: 3.0 mm
 Bridge top to lower shelf underside clearance: 3.0 mm
 Clear height between lower and upper shelves: 42.0 mm
 Clear height from upper shelf top to third shelf underside: 55.0 mm
 Clear height from third shelf top to side-plate top plane: 51.0 mm
-Equipment shelf side ledges: two 54.0 mm long x 38.0 mm deep x 8.0 mm high pads per shelf level on each side plate
-Equipment shelf side-ledge gussets: 22.0 mm tall triangular webs at Y -75, 75
+Equipment shelf side ledges: two 54.0 mm long x 46.0 mm deep x 8.0 mm high pads per shelf level on each side plate
+Equipment shelf side-ledge gussets: 22.0 mm tall triangular webs split +/-18.0 mm around each shelf bolt centerline
 Panel ventilation: 5 vertical slots centered in the front/rear panel field; front/rear panels carry no shelf supports
 
 Axle insert clearances:
@@ -112,16 +113,16 @@ Assumptions made:
 - `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text.
 - `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.
 - `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.
-- `erb_shelf_spacer_block_55mm.step` is a single printable spacer block. Print four copies for the third-shelf stack; it matches the existing shelf-hole centers at X +/-80 mm and Y +/-75 mm.
-- The lower shelf has been lowered to keep the center of mass down while preserving battery clearance; the upper shelf leaves the largest bay for a mini PC on rubber isolation mounts.
+- `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z 183 mm instead of spacer blocks.
+- The lower shelf remains shown at Z 74 mm for packaging context, but its colliding side-plate ledges have been removed; future bottom-tray spacer posts should carry that shelf.
 - The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.
-- Equipment shelves are supported by side-plate ledges at X +/-80 mm with M4 shelf holes at Y +/-75 mm.
-- Side-plate shelf ledge pads overlap 6 mm into the side wall, leave the center axle/wheel gap open, and use triangular gussets to keep shelf loads out of the future service doors.
+- Side-plate shelf ledges now exist only at Z 122 mm and Z 183 mm, with M4 shelf holes at X +/-75 mm and Y +/-75 mm.
+- Side-plate shelf ledge pads overlap 6 mm into the side wall, leave the center axle/wheel gap open, and use split triangular gussets offset +/-18 mm from each mounting hole so the bolt path remains accessible; the former first-level ledges were removed to clear the integrated bottom tray.
 - Front/rear panels now slide down from the top on stopped dovetail rails into matching side-chassis slots. The stops are 8 mm above the bottom; existing screw paths remain cut through the panel-side rail/tail zone for retention experiments.
 - The old removable battery cassette is replaced in the active assembly by the integrated bottom tray/cage. The separate cassette generator is kept only as legacy code and is not exported or placed.
 - The integrated tray uses a 10 mm full floor, 2 mm outer ribs set 3 mm in from the 144 mm inside bottleneck, and a full-length 32 mm center electronics spine with a 30 mm wide top deck at Z=50 mm.
 - The front/rear battery cage bridges have 3 mm battery height clearance and 3 mm clearance below the lower equipment shelf.
-- The bottom tray raised side rails are split into front/rear towers to avoid the central axle boss zone; the over-battery bridges use separate inner posts so they do not collide with the side plates.
+- The bottom tray raised side rails are split into front/rear towers to avoid the central axle boss zone; the over-battery bridges are carried by the original screw-hole pillars plus local center-riser supports under the bridge spans.
 - The actual motor shaft is modeled as a double-D axle profile using diameter plus flat-to-flat dimensions.
 - The full assembly STEP uses the medium axle insert variant by default.
 - The full assembly STEP includes non-print reference wheel and shaft geometry: 260 mm diameter x 100 mm wide tires at X +/-190 mm, plus 16 mm x 12 mm double-D shaft references.

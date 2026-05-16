@@ -104,14 +104,16 @@ class ChassisParams:
     shelf_depth: float = 200.0
     shelf_thickness: float = 6.0
     shelf_z_levels: tuple[float, float] = (74.0, 122.0)
+    shelf_side_ledge_z_levels: tuple[float, float] = (122.0, 183.0)
     shelf_side_ledge_height: float = 8.0
-    shelf_side_ledge_depth: float = 38.0
+    shelf_side_ledge_depth: float = 46.0
     shelf_side_ledge_segment_length: float = 54.0
     shelf_side_ledge_wall_overlap: float = 6.0
     shelf_side_gusset_height: float = 22.0
     shelf_side_gusset_thickness: float = 5.0
+    shelf_side_gusset_bolt_clearance_offset: float = 18.0
     shelf_side_segment_centers_y: tuple[float, ...] = (-75.0, 75.0)
-    shelf_side_hole_x: float = 80.0
+    shelf_side_hole_x: float = 75.0
     shelf_side_hole_y: float = 75.0
     shelf_side_cable_notch_depth: float = 46.0
     shelf_side_cable_notch_shallow_depth: float = 23.0
@@ -274,26 +276,6 @@ ASSEMBLY_PLACEMENTS = [
     ("lower_equipment_shelf", "equipment_shelf_four_way_cable_shallow", (0.0, 0.0, P.shelf_z_levels[0])),
     ("upper_equipment_shelf", "equipment_shelf_four_way_cable_shallow", (0.0, 0.0, P.shelf_z_levels[1])),
     ("third_equipment_shelf", "equipment_shelf_four_way_cable_shallow", (0.0, 0.0, THIRD_SHELF_Z)),
-    (
-        "shelf_spacer_block_left_front",
-        "shelf_spacer_block_55mm",
-        (-P.shelf_side_hole_x, P.shelf_side_hole_y, UPPER_SHELF_TOP_Z),
-    ),
-    (
-        "shelf_spacer_block_right_front",
-        "shelf_spacer_block_55mm",
-        (P.shelf_side_hole_x, P.shelf_side_hole_y, UPPER_SHELF_TOP_Z),
-    ),
-    (
-        "shelf_spacer_block_left_rear",
-        "shelf_spacer_block_55mm",
-        (-P.shelf_side_hole_x, -P.shelf_side_hole_y, UPPER_SHELF_TOP_Z),
-    ),
-    (
-        "shelf_spacer_block_right_rear",
-        "shelf_spacer_block_55mm",
-        (P.shelf_side_hole_x, -P.shelf_side_hole_y, UPPER_SHELF_TOP_Z),
-    ),
     (
         "left_axle_insert_medium",
         "axle_insert_medium",
@@ -649,7 +631,7 @@ def make_side_plate(inward: int):
     ledge_wall_x = inward * (P.side_plate_thickness - P.shelf_side_ledge_wall_overlap)
     ledge_tip_x = inward * (P.side_plate_thickness - P.shelf_side_ledge_wall_overlap + ledge_depth)
     shelf_screw_x = inward * (P.center_box_outer_width / 2.0 - P.shelf_side_hole_x)
-    for shelf_z in P.shelf_z_levels:
+    for shelf_z in P.shelf_side_ledge_z_levels:
         ledge_z = shelf_z - ledge_h / 2.0
         for y in P.shelf_side_segment_centers_y:
             shape += box_at(
@@ -668,7 +650,11 @@ def make_side_plate(inward: int):
                 (ledge_tip_x, gusset_top_z),
                 (ledge_wall_x, gusset_bottom_z),
             )
-            shape += triangular_xz_prism(gusset_points, P.shelf_side_gusset_thickness, y)
+            for gusset_y in (
+                y - P.shelf_side_gusset_bolt_clearance_offset,
+                y + P.shelf_side_gusset_bolt_clearance_offset,
+            ):
+                shape += triangular_xz_prism(gusset_points, P.shelf_side_gusset_thickness, gusset_y)
 
     # Stopped female dovetail slots for front/rear panels. Cut these after
     # side ribs and ledges are added so braces cannot intrude into the grooves.
@@ -1513,7 +1499,9 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         f"Default four-way shallow cable shelf variant: four centered edge notches, {P.shelf_side_cable_notch_shallow_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
         "Default four-way shallow equipment shelf assembly levels: "
         + ", ".join(f"Z={level:.1f} mm" for level in (*P.shelf_z_levels, THIRD_SHELF_Z)),
-        f"Third-shelf spacer block: {P.shelf_spacer_block_width:.1f} W x {P.shelf_spacer_block_depth:.1f} D x {P.shelf_spacer_block_height:.1f} H mm with {P.shelf_spacer_block_clearance_diameter:.1f} mm through-clearance",
+        "Side-plate shelf ledge levels: "
+        + ", ".join(f"Z={level:.1f} mm" for level in P.shelf_side_ledge_z_levels),
+        f"Third-shelf spacer block: {P.shelf_spacer_block_width:.1f} W x {P.shelf_spacer_block_depth:.1f} D x {P.shelf_spacer_block_height:.1f} H mm with {P.shelf_spacer_block_clearance_diameter:.1f} mm through-clearance, exported as an optional legacy support but not placed in the active assembly",
         f"Clear height from battery floor top to lower shelf underside: {P.shelf_z_levels[0] - P.battery_tray_recess_floor_thickness:.1f} mm",
         f"Battery-to-bridge underside clearance: {P.integrated_bridge_underside_z - P.battery_tray_recess_floor_thickness - P.battery_measured_height:.1f} mm",
         f"Bridge top to lower shelf underside clearance: {P.shelf_z_levels[0] - (P.integrated_bridge_underside_z + P.integrated_bridge_thickness):.1f} mm",
@@ -1521,8 +1509,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         f"Clear height from upper shelf top to third shelf underside: {P.shelf_spacer_block_height:.1f} mm",
         f"Clear height from third shelf top to side-plate top plane: {P.box_height - THIRD_SHELF_Z - P.shelf_thickness:.1f} mm",
         f"Equipment shelf side ledges: two {P.shelf_side_ledge_segment_length:.1f} mm long x {P.shelf_side_ledge_depth:.1f} mm deep x {P.shelf_side_ledge_height:.1f} mm high pads per shelf level on each side plate",
-        f"Equipment shelf side-ledge gussets: {P.shelf_side_gusset_height:.1f} mm tall triangular webs at Y "
-        + ", ".join(f"{y:.0f}" for y in P.shelf_side_segment_centers_y),
+        f"Equipment shelf side-ledge gussets: {P.shelf_side_gusset_height:.1f} mm tall triangular webs split +/-{P.shelf_side_gusset_bolt_clearance_offset:.1f} mm around each shelf bolt centerline",
         "Panel ventilation: 5 vertical slots centered in the front/rear panel field; front/rear panels carry no shelf supports",
         "",
         "Axle insert clearances:",
@@ -1574,16 +1561,16 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             "- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text.",
             "- `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.",
             "- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.",
-            f"- `erb_shelf_spacer_block_55mm.step` is a single printable spacer block. Print four copies for the third-shelf stack; it matches the existing shelf-hole centers at X +/-{P.shelf_side_hole_x:.0f} mm and Y +/-{P.shelf_side_hole_y:.0f} mm.",
-            "- The lower shelf has been lowered to keep the center of mass down while preserving battery clearance; the upper shelf leaves the largest bay for a mini PC on rubber isolation mounts.",
+            f"- `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z {P.shelf_side_ledge_z_levels[1]:.0f} mm instead of spacer blocks.",
+            "- The lower shelf remains shown at Z 74 mm for packaging context, but its colliding side-plate ledges have been removed; future bottom-tray spacer posts should carry that shelf.",
             "- The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.",
-            f"- Equipment shelves are supported by side-plate ledges at X +/-{P.shelf_side_hole_x:.0f} mm with M4 shelf holes at Y +/-{P.shelf_side_hole_y:.0f} mm.",
-            f"- Side-plate shelf ledge pads overlap {P.shelf_side_ledge_wall_overlap:.0f} mm into the side wall, leave the center axle/wheel gap open, and use triangular gussets to keep shelf loads out of the future service doors.",
+            f"- Side-plate shelf ledges now exist only at Z {P.shelf_side_ledge_z_levels[0]:.0f} mm and Z {P.shelf_side_ledge_z_levels[1]:.0f} mm, with M4 shelf holes at X +/-{P.shelf_side_hole_x:.0f} mm and Y +/-{P.shelf_side_hole_y:.0f} mm.",
+            f"- Side-plate shelf ledge pads overlap {P.shelf_side_ledge_wall_overlap:.0f} mm into the side wall, leave the center axle/wheel gap open, and use split triangular gussets offset +/-{P.shelf_side_gusset_bolt_clearance_offset:.0f} mm from each mounting hole so the bolt path remains accessible; the former first-level ledges were removed to clear the integrated bottom tray.",
             f"- Front/rear panels now slide down from the top on stopped dovetail rails into matching side-chassis slots. The stops are {P.panel_dovetail_stop_height:.0f} mm above the bottom; existing screw paths remain cut through the panel-side rail/tail zone for retention experiments.",
             f"- The old removable battery cassette is replaced in the active assembly by the integrated bottom tray/cage. The separate cassette generator is kept only as legacy code and is not exported or placed.",
             f"- The integrated tray uses a {P.battery_tray_recess_floor_thickness:.0f} mm full floor, {P.integrated_battery_outer_rib_width:.0f} mm outer ribs set {P.integrated_battery_outer_offset:.0f} mm in from the 144 mm inside bottleneck, and a full-length {P.integrated_center_spine_outer_width:.0f} mm center electronics spine with a {P.integrated_imu_pad_size:.0f} mm wide top deck at Z={P.integrated_center_spine_height:.0f} mm.",
             f"- The front/rear battery cage bridges have {P.integrated_bridge_underside_z - P.battery_tray_recess_floor_thickness - P.battery_measured_height:.0f} mm battery height clearance and {P.shelf_z_levels[0] - (P.integrated_bridge_underside_z + P.integrated_bridge_thickness):.0f} mm clearance below the lower equipment shelf.",
-            "- The bottom tray raised side rails are split into front/rear towers to avoid the central axle boss zone; the over-battery bridges use separate inner posts so they do not collide with the side plates.",
+            "- The bottom tray raised side rails are split into front/rear towers to avoid the central axle boss zone; the over-battery bridges are carried by the original screw-hole pillars plus local center-riser supports under the bridge spans.",
             "- The actual motor shaft is modeled as a double-D axle profile using diameter plus flat-to-flat dimensions.",
             "- The full assembly STEP uses the medium axle insert variant by default.",
             f"- The full assembly STEP includes non-print reference wheel and shaft geometry: {P.wheel_diameter:.0f} mm diameter x {P.wheel_width:.0f} mm wide tires at X +/-{wheel_center_x:.0f} mm, plus {P.axle_nominal_diameter:.0f} mm x {P.axle_nominal_flat_to_flat:.0f} mm double-D shaft references.",

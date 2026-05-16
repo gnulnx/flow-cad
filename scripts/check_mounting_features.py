@@ -331,6 +331,79 @@ def check_stopped_panel_dovetails() -> list[dict]:
     return checks
 
 
+def check_shelf_ledge_levels() -> list[dict]:
+    checks: list[dict] = []
+    expected_levels = (P.shelf_z_levels[1], P.shelf_z_levels[1] + P.shelf_thickness + P.shelf_spacer_block_height)
+    lower_level = P.shelf_z_levels[0]
+
+    if any(abs(level - lower_level) < 1e-6 for level in P.shelf_side_ledge_z_levels):
+        checks.append(
+            fail(
+                "side-plate shelf ledges still include the lower level that collides with the bottom tray",
+                {
+                    "side_ledge_levels_mm": list(P.shelf_side_ledge_z_levels),
+                    "removed_lower_shelf_level_mm": lower_level,
+                },
+            )
+        )
+
+    if tuple(P.shelf_side_ledge_z_levels) != expected_levels:
+        checks.append(
+            fail(
+                "side-plate shelf ledge levels do not match the requested second and third shelf levels",
+                {
+                    "side_ledge_levels_mm": list(P.shelf_side_ledge_z_levels),
+                    "expected_levels_mm": list(expected_levels),
+                },
+            )
+        )
+
+    shelf_x_edge_margin = P.shelf_width / 2.0 - abs(P.shelf_side_hole_x) - P.m4_clearance_diameter / 2.0
+    bolt_centerline_gusset_gap = 2.0 * (
+        P.shelf_side_gusset_bolt_clearance_offset - P.shelf_side_gusset_thickness / 2.0
+    )
+    if shelf_x_edge_margin < 10.0:
+        checks.append(
+            fail(
+                "equipment shelf has too little side edge margin beyond the M4 mounting holes",
+                {
+                    "shelf_width_mm": P.shelf_width,
+                    "hole_x_mm": P.shelf_side_hole_x,
+                    "hole_edge_to_shelf_edge_margin_mm": shelf_x_edge_margin,
+                    "minimum_margin_mm": 10.0,
+                },
+            )
+        )
+
+    if bolt_centerline_gusset_gap < 20.0:
+        checks.append(
+            fail(
+                "split shelf ledge gussets leave too little clearance around the mounting bolt centerline",
+                {
+                    "gusset_offset_from_bolt_centerline_mm": P.shelf_side_gusset_bolt_clearance_offset,
+                    "gusset_thickness_mm": P.shelf_side_gusset_thickness,
+                    "clear_gap_around_bolt_centerline_mm": bolt_centerline_gusset_gap,
+                    "minimum_clear_gap_mm": 20.0,
+                },
+            )
+        )
+
+    if not any(check["status"] == "fail" for check in checks):
+        checks.append(
+            ok(
+                "side shelf ledges skip the lower tray-conflict level and support the second/third shelves",
+                {
+                    "shelf_levels_mm": list(P.shelf_z_levels) + [expected_levels[1]],
+                    "side_ledge_levels_mm": list(P.shelf_side_ledge_z_levels),
+                    "shelf_width_mm": P.shelf_width,
+                    "hole_edge_to_shelf_edge_margin_mm": shelf_x_edge_margin,
+                    "clear_gap_around_bolt_centerline_mm": bolt_centerline_gusset_gap,
+                },
+            )
+        )
+    return checks
+
+
 def check_integrated_battery_tray() -> list[dict]:
     checks: list[dict] = []
     inner_spine_width = P.integrated_center_spine_outer_width - 2.0 * P.integrated_center_spine_wall_thickness
@@ -688,6 +761,7 @@ def main() -> int:
         "checks": check_bottom_tray_floor_coverage()
         + check_front_rear_panel_mounts()
         + check_stopped_panel_dovetails()
+        + check_shelf_ledge_levels()
         + check_bottom_tray_mounts()
         + check_bottom_tray_side_plate_alignment()
         + check_integrated_battery_tray()
