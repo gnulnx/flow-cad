@@ -2,9 +2,9 @@ Erb Stage 1 lower chassis CAD report
 ======================================
 
 Final outer dimensions:
-- Center structural box: 240.0 W x 240.0 D x 240.0 H mm
-- Printable chassis assembly bounding box, excluding reference wheels/axles: 460.0 W x 262.0 D x 410.0 H mm
-- Viewer assembly bounding box, including reference wheels/axles: 480.0 W x 272.0 D x 482.0 H mm
+- Center structural box: 240.0 W x 256.0 D x 240.0 H mm
+- Printable chassis assembly bounding box, excluding reference wheels/axles: 460.0 W x 278.0 D x 410.0 H mm
+- Viewer assembly bounding box, including reference wheels/axles: 480.0 W x 280.0 D x 482.0 H mm
 - Reference wheel envelope: 480.0 mm overall width, 260.0 mm tire diameter, 100.0 mm tire width
 - Reference wheel centers: X +/-190.0 mm, tire inner faces at X +/-140.0 mm
 - Reference tire-to-side-plate clearance: 20.0 mm per side
@@ -18,10 +18,11 @@ Axle cartridge side-plate pocket: 79.0 mm chamfered square through-pocket
 Axle cartridge retention flange: 140.0 W x 116.0 H x 6.0 mm thick
 Axle tab-washer relief pocket: 12.0 mm lateral x 12.0 mm vertical x 3.2 mm deep, off one left/right side of the axle profile on the washer/nut-side cartridge face
 Fit-safe cross-part envelope: 180.0 W x 200.0 D mm
-Front/rear side-rail M5 heat-set pilots: 6.1 mm diameter x 24.0 mm through-cut at Z 35, 105, 175, 220
-Stopped front/rear panel dovetails: male rails 10.0 mm deep, 9.0/15.0 mm neck/head, side-plate slots carry 0.25 mm clearance per side and stop 8.0 mm above the bottom
+Front/rear top retention M5 heat-set pilots: 6.1 mm diameter x 24.0 mm through-cut at Z 220
+Stopped front/rear panel dovetails: male rails 10.0 mm deep, 9.0/15.0 mm neck/head, side-plate slots carry 0.25 mm clearance per side, 1.0 mm female root reliefs, and stop 8.0 mm above the bottom
 Bottom tray panel-to-panel span: 180.0 W x 204.0 D mm
-Top lid footprint: 240.0 W x 240.0 D mm
+Bottom tray M5 side mounts: 4 per side at Y -82/82 mm and Z 16/58 mm
+Top lid footprint: 240.0 W x 256.0 D mm
 Rear panel: no vents, tapered hollow cable pocket from 132.0 W x 192.0 H at the panel to 104.0 W x 164.0 H at the blank outer face, 22.0 mm deep
 Integrated battery tray floor: flush underside, 180.0 W x 204.0 D x 10.0 H mm
 Integrated battery lanes: two 164.0 L x 51.0 W mm lanes for two 155 x 50 x 50 mm packs
@@ -30,7 +31,7 @@ Center electronics spine: full 204.0 mm tray length, 32.0 mm outside width, 28.0
 ESP32/IMU electronics deck: 30.0 W x 204.0 L mm with top surface at Z=50.0 mm
 Front/rear over-battery bridges: 180.0 mm full tray-width span, 37.0 mm side-tower depth, underside Z=63.0 mm, thickness 8.0 mm, top Z=71.0 mm
 Upper wide module blockout: 460.0 W x 226.0 D x 96.0 H mm, split into a 240.0 mm center compute bay and two 110.0 mm over-wheel pods
-Upper adapter deck: 240.0 W x 240.0 D x 8.0 H mm at Z 240.0 mm
+Upper adapter deck: 240.0 W x 256.0 D x 8.0 H mm at Z 240.0 mm
 Upper module bottom/top Z: 256.0 / 352.0 mm
 Perception pod blockout: 172.0 W x 76.0 D x 42.0 H mm at Z 360.0 mm, plus 56.0 mm sensor boss
 Flat equipment shelf footprint: 180.0 W x 200.0 D x 6.0 H mm
@@ -57,7 +58,7 @@ Axle insert clearances:
 
 Screw sizes assumed:
 - M5 structural screws: 5.5 mm clearance, 6.1 mm heat-set pilot pockets, 11.0 mm washer/counterbore relief
-- Front/rear panels have M5 heat-set pilot holes in their side rails at X +/-81 mm and Z 35, 105, 175, 220; these line up with the side-panel clearance holes at Y +/-111 mm.
+- Front/rear panels have a single top M5 heat-set pilot hole in each inboard retention boss at X +/-81 mm and Z 220; these line up with the side-panel top retention clearance holes at Y -99/99 mm.
 - M4 service/electronics screws: 4.5 mm clearance
 - M3 electronics/IMU screws: 3.4 mm clearance
 
@@ -92,8 +93,8 @@ Exported STEP files:
 Assumptions made:
 - Coordinate convention: X is robot width, Y is front/rear depth, Z is vertical.
 - The 240 mm center_box_outer_width is the structural side-plate outside-to-outside width; axle cartridge inserts run through the full reinforced side-plate boss thickness.
-- Cross panels and trays use a 180 x 200 mm fit-safe envelope to clear side-plate rails and axle bosses.
-- The top lid is now a top cap spanning 240 x 240 mm; its underside locating lip stays inside the fit-safe envelope.
+- Cross panels and trays use a 180 x 200 mm fit-safe envelope to clear side-plate rails and axle bosses; the side chassis depth is now 256 mm to support the deeper stopped-dovetail rails.
+- The top lid is now a top cap spanning 240 x 256 mm; its underside locating lip stays inside the fit-safe envelope.
 - Front and rear panels extend to the 240 mm side-plate top plane so they meet the top cap without a visible top gap.
 - Top lid screw holes align over side-wall top-rail M4 heat-set pilot pockets.
 - Replaceable axle inserts use a 76 mm chamfered-square through-body in a 79.0 mm chamfered-square pocket. The square pocket carries wheel torque.
@@ -101,7 +102,7 @@ Assumptions made:
 - Axle inserts include a shallow tab-washer pocket on the washer/nut-side cartridge face: 12 mm lateral x 12 mm vertical x 3.2 mm deep, placed off one left/right side of the axle profile with 1.5 mm clearance.
 - Axle insert bodies are 30 mm thick to match the reinforced boss depth. The right-side insert is rotated in the assembly so the same printable STEP is used on both sides with the flange facing outward.
 - Axle bosses, ribs, and side rails are capped at 30 mm total local side-plate thickness so the support stack is flush with the raised side-wall rails.
-- The wide-over-wheel architecture is now shown as a Stage 2 blockout in the main assembly: a 460 mm wide upper module located above the 10 inch wheel tops, with all individual printable pieces kept under 250 mm in their largest dimension.
+- The wide-over-wheel architecture is now shown as a Stage 2 blockout in the main assembly: a 460 mm wide upper module located above the 10 inch wheel tops, with all individual printable pieces kept within the 256 mm P2S build volume.
 - The upper blockout uses a 240 mm center compute bay for BOSGAME/GPU packaging studies and two side pods over the wheels for power distribution, ESP32, fuses, buck converters, and wiring channels.
 - The active upper skeleton now uses a stacked adapter-deck architecture instead of J-hooks: center adapter deck -> over-wheel wing decks -> upper compute bay.
 - The center adapter deck sits directly on the lower 240 mm side-plate top plane at Z 240 mm. The two over-wheel wing decks sit one layer above it at Z 248 mm and overlap inward to the existing X +/-102 mm lower side-rail bolt line.
@@ -118,9 +119,10 @@ Assumptions made:
 - The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.
 - Side-plate shelf ledges now exist only at Z 122 mm and Z 183 mm, with M4 shelf holes at X +/-75 mm and Y +/-75 mm.
 - Side-plate shelf ledge pads overlap 6 mm into the side wall, leave the center axle/wheel gap open, and use split triangular gussets offset +/-18 mm from each mounting hole so the bolt path remains accessible; the former first-level ledges were removed to clear the integrated bottom tray.
-- Front/rear panels now slide down from the top on stopped dovetail rails into matching side-chassis slots. The stops are 8 mm above the bottom; existing screw paths remain cut through the panel-side rail/tail zone for retention experiments.
+- Front/rear panels now slide down from the top on stopped dovetail rails into matching side-chassis slots. The side chassis depth is 256 mm and the front/rear rail depth is 26 mm, leaving about 5.25 mm of plastic outside the slot head. Female slot roots have 1.0 mm relief radii. Only one top M5 retention screw per panel side remains at Z 220 mm, moved to an inboard top boss instead of cutting through the dovetail profile.
 - The old removable battery cassette is replaced in the active assembly by the integrated bottom tray/cage. The separate cassette generator is kept only as legacy code and is not exported or placed.
 - The integrated tray uses a 10 mm full floor, 2 mm outer ribs set 3 mm in from the 144 mm inside bottleneck, and a full-length 32 mm center electronics spine with a 30 mm wide top deck at Z=50 mm.
+- The integrated bottom tray is retained to each side chassis with four M5 screws: front/rear pairs at the lower floor level and upper battery-tray tower level.
 - The front/rear battery cage bridges have 3 mm battery height clearance and 3 mm clearance below the lower equipment shelf.
 - The bottom tray raised side rails are split into front/rear towers to avoid the central axle boss zone; the over-battery bridges are carried by the original screw-hole pillars plus local center-riser supports under the bridge spans.
 - The actual motor shaft is modeled as a double-D axle profile using diameter plus flat-to-flat dimensions.

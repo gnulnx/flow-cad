@@ -21,6 +21,8 @@ from erb_lower_chassis import (  # noqa: E402
     SIDE_SCREW_Z_LEVELS,
     axle_tab_washer_relief_center_x,
     axle_tab_washer_relief_center_y,
+    front_rear_panel_retention_y_positions,
+    front_rear_panel_slot_y_positions,
 )
 
 
@@ -73,24 +75,25 @@ def check_bottom_tray_mounts() -> list[dict]:
             rail_y_min = rail_y_center - side_rail_segment / 2.0
             rail_y_max = rail_y_center + side_rail_segment / 2.0
             y_margin = min(y_center - rail_y_min, rail_y_max - y_center) - hole_r
-            z_margin = min(
-                P.bottom_tray_mount_hole_z - rail_z_min,
-                rail_z_max - P.bottom_tray_mount_hole_z,
-            ) - hole_r
-            if y_margin < min_edge_margin or z_margin < min_edge_margin:
-                checks.append(
-                    fail(
-                        "bottom tray M5 pilot edge margin is too small",
-                        {
-                            "x_center": x_center,
-                            "y_center": y_center,
-                            "z_center": P.bottom_tray_mount_hole_z,
-                            "y_margin_mm": y_margin,
-                            "z_margin_mm": z_margin,
-                            "minimum_required_mm": min_edge_margin,
-                        },
+            for z_center in P.bottom_tray_mount_hole_z_levels:
+                z_margin = min(
+                    z_center - rail_z_min,
+                    rail_z_max - z_center,
+                ) - hole_r
+                if y_margin < min_edge_margin or z_margin < min_edge_margin:
+                    checks.append(
+                        fail(
+                            "bottom tray M5 pilot edge margin is too small",
+                            {
+                                "x_center": x_center,
+                                "y_center": y_center,
+                                "z_center": z_center,
+                                "y_margin_mm": y_margin,
+                                "z_margin_mm": z_margin,
+                                "minimum_required_mm": min_edge_margin,
+                            },
+                        )
                     )
-                )
 
     if not any(check["status"] == "fail" for check in checks):
         checks.append(
@@ -100,7 +103,9 @@ def check_bottom_tray_mounts() -> list[dict]:
                     "rail_width_mm": rail_w,
                     "hole_cut_length_mm": P.bottom_tray_mount_hole_length,
                     "hole_positions_y_mm": list(P.bottom_tray_mount_hole_y_positions),
-                    "hole_z_mm": P.bottom_tray_mount_hole_z,
+                    "hole_z_levels_mm": list(P.bottom_tray_mount_hole_z_levels),
+                    "holes_per_side": len(P.bottom_tray_mount_hole_y_positions)
+                    * len(P.bottom_tray_mount_hole_z_levels),
                 },
             )
         )
@@ -115,13 +120,13 @@ def check_bottom_tray_side_plate_alignment() -> list[dict]:
     )
     tray_y_centers = tuple(P.bottom_tray_mount_hole_y_positions)
     side_plate_y_centers = tuple(P.bottom_tray_mount_hole_y_positions)
-    tray_z_center = P.bottom_tray_mount_hole_z
-    side_plate_z_center = P.bottom_tray_mount_hole_z
+    tray_z_centers = tuple(P.bottom_tray_mount_hole_z_levels)
+    side_plate_z_centers = tuple(P.bottom_tray_mount_hole_z_levels)
 
     # The side-plate holes and tray pilots are both cylinders along X. Their
     # centers do not need the same X coordinate; their Y/Z axes must match.
     max_y_delta = max(abs(a - b) for a, b in zip(tray_y_centers, side_plate_y_centers))
-    max_z_delta = abs(tray_z_center - side_plate_z_center)
+    max_z_delta = max(abs(a - b) for a, b in zip(tray_z_centers, side_plate_z_centers))
     if max_y_delta > 1e-6 or max_z_delta > 1e-6:
         checks.append(
             fail(
@@ -131,8 +136,8 @@ def check_bottom_tray_side_plate_alignment() -> list[dict]:
                     "max_z_delta_mm": max_z_delta,
                     "tray_y_centers_mm": list(tray_y_centers),
                     "side_plate_y_centers_mm": list(side_plate_y_centers),
-                    "tray_z_center_mm": tray_z_center,
-                    "side_plate_z_center_mm": side_plate_z_center,
+                    "tray_z_centers_mm": list(tray_z_centers),
+                    "side_plate_z_centers_mm": list(side_plate_z_centers),
                 },
             )
         )
@@ -143,7 +148,7 @@ def check_bottom_tray_side_plate_alignment() -> list[dict]:
                 {
                     "tray_pilot_x_centers_mm": list(tray_x_centers),
                     "shared_y_centers_mm": list(tray_y_centers),
-                    "shared_z_center_mm": tray_z_center,
+                    "shared_z_centers_mm": list(tray_z_centers),
                     "max_y_delta_mm": max_y_delta,
                     "max_z_delta_mm": max_z_delta,
                     "side_plate_hole_diameter_mm": P.m5_clearance_diameter,
@@ -195,6 +200,18 @@ def check_front_rear_panel_mounts() -> list[dict]:
     min_through_margin = 1.5
     min_edge_margin = 4.0
     y_margin = rail_d / 2.0 - hole_r
+    expected_retention_levels = (220.0,)
+
+    if tuple(SIDE_SCREW_Z_LEVELS) != expected_retention_levels:
+        checks.append(
+            fail(
+                "front/rear panel retention holes should only exist at the top interface",
+                {
+                    "actual_z_levels_mm": list(SIDE_SCREW_Z_LEVELS),
+                    "expected_z_levels_mm": list(expected_retention_levels),
+                },
+            )
+        )
 
     if through_margin < min_through_margin:
         checks.append(
@@ -236,11 +253,8 @@ def check_front_rear_panel_mounts() -> list[dict]:
                 )
             )
 
-    side_panel_y_positions = (
-        -P.box_depth / 2.0 + rail_d / 2.0,
-        P.box_depth / 2.0 - rail_d / 2.0,
-    )
-    expected_y_positions = (-P.box_depth / 2.0 + 9.0, P.box_depth / 2.0 - 9.0)
+    side_panel_y_positions = front_rear_panel_retention_y_positions()
+    expected_y_positions = front_rear_panel_retention_y_positions()
     for actual, expected in zip(side_panel_y_positions, expected_y_positions):
         if abs(actual - expected) > 1e-6:
             checks.append(
@@ -256,7 +270,7 @@ def check_front_rear_panel_mounts() -> list[dict]:
     if not any(check["status"] == "fail" for check in checks):
         checks.append(
             ok(
-                "front/rear panel M5 heat-set pilots open through side rails and align to side panels",
+                "front/rear panels keep only the top M5 retention pilots and align to side panels",
                 {
                     "rail_width_mm": rail_w,
                     "rail_depth_mm": rail_d,
@@ -267,6 +281,7 @@ def check_front_rear_panel_mounts() -> list[dict]:
                         P.internal_width / 2.0 - rail_w / 2.0,
                     ],
                     "global_y_centers_mm": list(expected_y_positions),
+                    "dovetail_slot_y_centers_mm": list(front_rear_panel_slot_y_positions()),
                     "z_levels_mm": list(SIDE_SCREW_Z_LEVELS),
                 },
             )
@@ -279,6 +294,8 @@ def check_stopped_panel_dovetails() -> list[dict]:
     slot_neck = P.panel_dovetail_neck_width + 2.0 * P.panel_dovetail_clearance
     slot_head = P.panel_dovetail_head_width + 2.0 * P.panel_dovetail_clearance
     slot_depth = P.panel_dovetail_depth + 2.0 * P.panel_dovetail_clearance
+    slot_edge_margin = P.front_rear_panel_side_rail_depth / 2.0 - slot_head / 2.0
+    expected_box_depth = P.bottom_tray_depth + 2.0 * P.front_rear_panel_side_rail_depth
 
     if P.panel_dovetail_stop_height < 5.0:
         checks.append(
@@ -310,6 +327,40 @@ def check_stopped_panel_dovetails() -> list[dict]:
                 },
             )
         )
+    if slot_edge_margin < 5.0:
+        checks.append(
+            fail(
+                "stopped panel dovetail slot is too close to the side-chassis front/rear edge",
+                {
+                    "slot_head_width_mm": slot_head,
+                    "front_rear_rail_depth_mm": P.front_rear_panel_side_rail_depth,
+                    "slot_edge_margin_mm": slot_edge_margin,
+                    "minimum_margin_mm": 5.0,
+                },
+            )
+        )
+    if abs(P.box_depth - expected_box_depth) > 1e-6:
+        checks.append(
+            fail(
+                "side chassis depth should equal bottom-tray depth plus two front/rear rail depths",
+                {
+                    "box_depth_mm": P.box_depth,
+                    "bottom_tray_depth_mm": P.bottom_tray_depth,
+                    "front_rear_rail_depth_mm": P.front_rear_panel_side_rail_depth,
+                    "expected_box_depth_mm": expected_box_depth,
+                },
+            )
+        )
+    if P.panel_dovetail_root_relief_radius < 0.8:
+        checks.append(
+            fail(
+                "female dovetail root relief radius is too small for a printable stress-relieved slot",
+                {
+                    "root_relief_radius_mm": P.panel_dovetail_root_relief_radius,
+                    "minimum_radius_mm": 0.8,
+                },
+            )
+        )
 
     if not any(check["status"] == "fail" for check in checks):
         checks.append(
@@ -324,6 +375,8 @@ def check_stopped_panel_dovetails() -> list[dict]:
                     "slot_head_width_mm": slot_head,
                     "clearance_per_side_mm": P.panel_dovetail_clearance,
                     "bottom_stop_height_mm": P.panel_dovetail_stop_height,
+                    "root_relief_radius_mm": P.panel_dovetail_root_relief_radius,
+                    "slot_edge_margin_mm": slot_edge_margin,
                     "dovetail_z_range_mm": [P.panel_dovetail_stop_height, P.front_rear_panel_height],
                 },
             )
