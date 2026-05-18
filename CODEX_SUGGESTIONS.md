@@ -28,14 +28,12 @@ QWEN's document correctly identifies the main pain points: monolithic CAD source
   - `scripts/check_upper_hook_geometry.py`
   - `scripts/report_axle_insert_dimensions.py`
 - Existing reports show the current assembly has zero reported solid overlaps and multiple packaging checks pass.
-- `CODEX_CONTEXT.md` is valuable as design history and mechanical rationale.
 - STEP files stay in `exports/step/`, which is the correct handoff surface for Bambu Studio.
 
 ### What Is Costing Time and Codex Credits
 
 - The main generator is a 2,046-line monolith. Codex must repeatedly search inside one large file to answer narrow questions.
-- `CODEX_CONTEXT.md` is 30K+ words of running history. Useful, but too long to be the first thing every session consumes.
-- There is no `pyproject.toml`, no pytest config, and no `tests/` directory.
+- The initial `pyproject.toml` and pytest scaffold now exist; the next step is expanding coverage from path/tool discovery into CAD invariants.
 - Validation exists, but it is script-based rather than a single obvious command.
 - `scripts/sync_text_to_cad.py` and `scripts/sync_esp32_to_text_to_cad.py` duplicate workflow logic and hardcode STEP lists.
 - Generated artifacts, `.pyc` files, `.DS_Store`, FreeCAD backups, STEP sidecars, 3MFs, and source files are mixed together in the tracked tree.
@@ -59,7 +57,6 @@ Keep the current generator in place initially, but add this operating layer:
 ```text
 3DPrintBalanceBot/
 ├── AGENTS.md                    # Short Codex/Qwen operating instructions
-├── CODEX_CONTEXT.md             # Long design history, still retained
 ├── CODEX_SUGGESTIONS.md         # This proposal
 ├── PRINT_MANIFEST.md            # Current Bambu handoff list and notes
 ├── pyproject.toml               # pytest + tooling config
@@ -92,12 +89,11 @@ This is the highest leverage Codex-credit fix.
 It should be short, maybe 80-120 lines, and say:
 
 - The repo is authoritative; workstation is the normal heavy-generation machine, and laptop must remain a supported checkout.
-- Do not reread all of `CODEX_CONTEXT.md` unless the task needs design history.
 - For active geometry facts, inspect `cad/erb_lower_chassis.py` and current reports first.
 - Before any printable change, run the validation command.
 - Never edit generated STEP/3MF files by hand.
 - Keep Bambu handoff as exported artifacts and dated bundles, while still allowing laptop-side source iteration when dependencies are configured.
-- Prefer updating a concise changelog or manifest over appending large prose to `CODEX_CONTEXT.md`.
+- Prefer updating concise current docs or manifests over creating long historical narratives.
 
 This will reduce repeated agent rediscovery more than a `SKILL.md` alone. A Codex skill is useful later if the workflow becomes reusable across repos, but this repo first needs local operating instructions.
 
@@ -317,7 +313,7 @@ Recommended headings:
 - Print Handoff Rules
 - Validation Rules
 - Files Not To Edit Directly
-- When To Read `CODEX_CONTEXT.md`
+- How To Inspect Current State
 
 ### When a Codex Skill Makes Sense
 

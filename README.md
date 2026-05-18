@@ -4,6 +4,35 @@ This project contains the active wider/taller lower chassis for Erb, a two-wheel
 
 Current work is Stage 1 only: the lower structural chassis box around the wheels, axle mounts, and two generic flat equipment shelves.
 
+## Project Setup
+
+Use Python 3.11 or newer. A local virtual environment is recommended:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install pytest
+```
+
+Install the CAD runtime used by the generator in that environment if it is not already available:
+
+```bash
+python -m pip install build123d
+```
+
+Optional machine-specific tool paths can be set in the environment or in a local `.env` copied from `.env.example`:
+
+- `TEXT_TO_CAD_ROOT`
+- `TEXT_TO_CAD_PYTHON`
+- `FREECAD_CMD`
+
+Run the unit tests after setup and after every code change:
+
+```bash
+python -m pytest
+```
+
 ## Generate STEP Files
 
 ```bash
@@ -69,8 +98,6 @@ The FreeCAD documents are written to:
 
 - `exports/freecad/erb_lower_chassis_assembly.FCStd`
 - `exports/freecad/erb_lower_chassis_print_layout.FCStd`
-
-The persistent project notes are in `CODEX_CONTEXT.md`.
 
 ## Local Tool Configuration
 

@@ -11,7 +11,6 @@ The repo is authoritative. The workstation is normally the heavy CAD generation 
 ## Source Of Truth
 
 - Primary active generator: `cad/erb_lower_chassis.py`
-- Active design history and mechanical rationale: `CODEX_CONTEXT.md`
 - Current improvement proposal: `CODEX_SUGGESTIONS.md`
 - Generated STEP outputs: `exports/step/`
 - Validation reports: `reports/`
@@ -73,6 +72,12 @@ Use `.env`, `TEXT_TO_CAD_ROOT`, `TEXT_TO_CAD_PYTHON`, or `FREECAD_CMD` when a ma
 
 ## Validation Rules
 
+For any code change, always run the unit test suite before reporting the work as complete:
+
+```bash
+python -m pytest
+```
+
 Before claiming a printable CAD change is ready, run the relevant checks:
 
 - Always run the generator for changes to `cad/erb_lower_chassis.py`.
@@ -107,14 +112,13 @@ Instead, edit the Python source or validation script that produces the artifact,
 
 ## Context Policy
 
-`CODEX_CONTEXT.md` is useful but long. Do not read it end-to-end by default.
+Do not rely on historical narrative docs as project state. Inspect current source, tests, generated reports, and manifests.
 
 For most tasks:
 
 1. Inspect current source and reports first.
-2. Search `CODEX_CONTEXT.md` only for the relevant part name, date, or design topic.
-3. Read `CODEX_SUGGESTIONS.md` when the task concerns workflow, project structure, tests, validation, or agent/tooling improvements.
-4. Preserve concise updates. Avoid appending long running narratives unless the user asks for a design-history update.
+2. Read `CODEX_SUGGESTIONS.md` when the task concerns workflow, project structure, tests, validation, or agent/tooling improvements.
+3. Preserve concise updates. Avoid creating long running narratives unless the user explicitly asks for one.
 
 ## Change Style
 
@@ -122,6 +126,7 @@ For most tasks:
 - Prefer improving the current workflow before large refactors.
 - Do not move the monolithic generator until tests and validation protect the current behavior.
 - Add tests/validators around existing behavior before extracting modules.
+- Run `python -m pytest` for every code change.
 - Preserve generated STEP handoff behavior unless the user asks to change it.
 
 ## Git Hygiene
