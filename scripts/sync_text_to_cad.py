@@ -41,6 +41,7 @@ STEP_FILENAMES = [
     "erb_equipment_shelf_side_cable_shallow.step",
     "erb_equipment_shelf_four_way_cable_shallow.step",
     "erb_equipment_shelf_service_fit.step",
+    "erb_equipment_shelf_service_fit_four_way.step",
     "erb_shelf_spacer_block_55mm.step",
     "erb_upper_wide_center_adapter_deck.step",
     "erb_upper_wide_center_compute_bay.step",

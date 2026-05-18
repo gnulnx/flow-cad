@@ -122,7 +122,7 @@ class ChassisParams:
     service_shelf_depth: float = 188.0
     service_shelf_mount_slot_length: float = 14.0
     service_shelf_side_relief_depth: float = 36.0
-    service_shelf_side_relief_length: float = 128.0
+    service_shelf_side_relief_length: float = 84.0  # Reduced from 128mm to avoid complete horizontal cut with center channels
     shelf_spacer_block_width: float = 20.0
     shelf_spacer_block_depth: float = 50.0
     shelf_spacer_block_height: float = 55.0
@@ -309,6 +309,7 @@ PART_FILENAMES = {
     "equipment_shelf_side_cable_shallow": "erb_equipment_shelf_side_cable_shallow.step",
     "equipment_shelf_four_way_cable_shallow": "erb_equipment_shelf_four_way_cable_shallow.step",
     "equipment_shelf_service_fit": "erb_equipment_shelf_service_fit.step",
+    "equipment_shelf_service_fit_four_way": "erb_equipment_shelf_service_fit_four_way.step",
     "shelf_spacer_block_55mm": "erb_shelf_spacer_block_55mm.step",
     "upper_wide_center_adapter_deck": "erb_upper_wide_center_adapter_deck.step",
     "upper_wide_center_compute_bay": "erb_upper_wide_center_compute_bay.step",
@@ -1418,6 +1419,7 @@ def make_equipment_shelf(
     side_cable_notch_depth: float | None = None,
     side_cable_notch_length: float | None = None,
     end_cable_notches: bool = False,
+    end_cable_notch_depth: float | None = None,  # Separate depth for end notches
     end_cable_notch_length: float | None = None,
     width: float | None = None,
     depth: float | None = None,
@@ -1466,8 +1468,8 @@ def make_equipment_shelf(
     if end_cable_notches:
         notch_depth = (
             P.shelf_side_cable_notch_depth
-            if side_cable_notch_depth is None
-            else side_cable_notch_depth
+            if end_cable_notch_depth is None
+            else end_cable_notch_depth
         )
         notch_length = (
             P.shelf_side_cable_notch_length
@@ -1815,16 +1817,29 @@ def build_parts():
             side_cable_notches=True,
             side_cable_notch_depth=P.shelf_side_cable_notch_shallow_depth,
             end_cable_notches=True,
+            end_cable_notch_depth=P.shelf_side_cable_notch_shallow_depth,  # Shallow on all four sides
         ),
         "equipment_shelf_service_fit": make_equipment_shelf(
             side_cable_notches=True,
             side_cable_notch_depth=P.service_shelf_side_relief_depth,
             side_cable_notch_length=P.service_shelf_side_relief_length,
+            # NO end notches - deep 36mm end cutouts would disconnect geometry
+            # Side reliefs alone provide needed wheel-side hardware clearance
+            width=P.service_shelf_width,
+            depth=P.service_shelf_depth,
+            # Fixed: removed absurd 14mm mount_slot_length - use simple M4 clearance holes
+        ),
+        "equipment_shelf_service_fit_four_way": make_equipment_shelf(
+            side_cable_notches=True,
+            side_cable_notch_depth=P.service_shelf_side_relief_depth,
+            side_cable_notch_length=P.service_shelf_side_relief_length,
+            # Shallow front/back end notches for cable access (like four_way_cable_shallow)
             end_cable_notches=True,
+            end_cable_notch_depth=P.shelf_side_cable_notch_shallow_depth,
             end_cable_notch_length=P.shelf_side_cable_notch_length,
             width=P.service_shelf_width,
             depth=P.service_shelf_depth,
-            mount_slot_length=P.service_shelf_mount_slot_length,
+            # Fixed: removed absurd 14mm mount_slot_length - use simple M4 clearance holes
         ),
         "shelf_spacer_block_55mm": make_shelf_spacer_block(),
         "upper_wide_center_adapter_deck": make_upper_wide_center_adapter_deck(),
@@ -1902,7 +1917,8 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         f"Deep side-cable shelf variant: two side-edge notches, {P.shelf_side_cable_notch_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
         f"Shallow side-cable shelf variant: two side-edge notches, {P.shelf_side_cable_notch_shallow_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
         f"Default four-way shallow cable shelf variant: four centered edge notches, {P.shelf_side_cable_notch_shallow_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
-        f"Service-fit shelf variant: {P.service_shelf_width:.1f} W x {P.service_shelf_depth:.1f} D x {P.shelf_thickness:.1f} H mm with the same X/Y +/-{P.shelf_side_hole_x:.0f}/{P.shelf_side_hole_y:.0f} mm mount centers, {P.service_shelf_mount_slot_length:.1f} mm rounded-square M4 adjustment slots, {P.service_shelf_side_relief_depth:.1f} mm deep x {P.service_shelf_side_relief_length:.1f} mm long side reliefs to clear wheel-side hardware, and the original shallow end notches",
+        f"Service-fit shelf variant: {P.service_shelf_width:.1f} W x {P.service_shelf_depth:.1f} D x {P.shelf_thickness:.1f} H mm with the same X/Y +/-{P.shelf_side_hole_x:.0f}/{P.shelf_side_hole_y:.0f} mm mount centers, simple M4 clearance holes (fixed: removed absurd 14mm slots), and deep side reliefs ({P.service_shelf_side_relief_depth:.1f}mm) for wheel-side hardware",
+        f"Service-fit four-way shelf variant: same {P.service_shelf_width:.1f} W x {P.service_shelf_depth:.1f} D size but with shallow front/back end notches ({P.shelf_side_cable_notch_shallow_depth:.1f}mm deep) for four-way cable access like the standard four_way variant",
         "Default four-way shallow equipment shelf assembly levels: "
         + ", ".join(f"Z={level:.1f} mm" for level in (*P.shelf_z_levels, THIRD_SHELF_Z)),
         "Side-plate shelf ledge levels: "
@@ -1970,7 +1986,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             "- `erb_lower_chassis_rear_panel_body.step` and `erb_lower_chassis_rear_panel_bumpout.step` are also exported separately for slicer workflows that prefer importing the two color bodies as individual files. The bump-out shell overlaps the rear body by 0.2 mm.",
             f"- `erb_lower_chassis_rear_panel_detachable.step` is an alternate assembled preview with loosened male side dovetails ({P.rear_detachable_panel_dovetail_depth:.2f} mm deep, {P.rear_detachable_panel_dovetail_neck_width:.1f}/{P.rear_detachable_panel_dovetail_head_width:.1f} mm neck/head) for the already-printed side-chassis female slots. It changes the bump-out into a separate top-down vertical slide-on cartridge. `erb_lower_chassis_rear_panel_detachable_body.step` contains the rear panel plus two straight receiver channels tied into the panel by molded-in bottom/top support webbing and bottom stops. `erb_lower_chassis_rear_panel_detachable_bumpout.step` contains the removable open-backed shell with matching hidden vertical tongues and one M4 retaining slot near the top. The removable shell keeps the same outer face depth as the default bump-out instead of adding another spacer layer behind it.",
             "- `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.",
-            f"- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges, and `erb_equipment_shelf_service_fit.step` is the looser {P.service_shelf_width:.0f} x {P.service_shelf_depth:.0f} mm test shelf with {P.service_shelf_mount_slot_length:.0f} mm rounded-square M4 adjustment slots and long side reliefs for wheel-side hardware.",
+            f"- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges; `erb_equipment_shelf_service_fit.step` is the looser {P.service_shelf_width:.0f} x {P.service_shelf_depth:.0f} mm test shelf with simple M4 clearance holes (fixed: removed absurd 14mm slots) and deep side reliefs for wheel-side hardware; `erb_equipment_shelf_service_fit_four_way.step` is the same service-fit size but with shallow front/back end notches ({P.shelf_side_cable_notch_shallow_depth:.0f}mm deep) for four-way cable access like the standard four_way variant.",
             f"- `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z {P.shelf_side_ledge_z_levels[1]:.0f} mm instead of spacer blocks.",
             "- The lower shelf remains shown at Z 74 mm for packaging context, but its colliding side-plate ledges have been removed; future bottom-tray spacer posts should carry that shelf.",
             "- The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.",
