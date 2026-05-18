@@ -24,6 +24,7 @@ Bottom tray panel-to-panel span: 180.0 W x 204.0 D mm
 Bottom tray M5 side mounts: 4 per side at Y -82/82 mm and Z 16/58 mm
 Top lid footprint: 240.0 W x 256.0 D mm
 Rear panel: no vents, two-solid colorable tapered hollow cable pocket from 132.0 W x 192.0 H at the panel to 104.0 W x 164.0 H at the blank outer face, 22.0 mm deep, 3.2 mm wall, 0.2 mm body overlap
+Alternate detachable rear panel: same side-panel dovetails and top M5 retention bosses, but the cable bump-out is a top-down vertical slide-on cartridge using two attached straight receiver channels at X +/-46.0 mm, PETG-friendly 0.45 mm side clearance and 0.40 mm front/back capture clearance, molded-in bottom/top support webbing, bottom stops at Z 40.0 mm, and one M4 retaining slot near the top to prevent upward motion
 Integrated battery tray floor: flush underside, 180.0 W x 204.0 D x 10.0 H mm
 Integrated battery lanes: two 164.0 L x 51.0 W mm lanes for two 155 x 50 x 50 mm packs
 Outer battery retaining ribs: 2.0 W x 148.0 L x 7.0 H mm, shortened clear of the bottom-tray screw holes
@@ -77,6 +78,9 @@ Exported STEP files:
 - exports/step/erb_lower_chassis_rear_panel.step
 - exports/step/erb_lower_chassis_rear_panel_body.step
 - exports/step/erb_lower_chassis_rear_panel_bumpout.step
+- exports/step/erb_lower_chassis_rear_panel_detachable.step
+- exports/step/erb_lower_chassis_rear_panel_detachable_body.step
+- exports/step/erb_lower_chassis_rear_panel_detachable_bumpout.step
 - exports/step/erb_lower_chassis_rear_panel_vented.step
 - exports/step/erb_lower_chassis_right_side_plate.step
 - exports/step/erb_lower_chassis_top_lid.step
@@ -115,6 +119,7 @@ Assumptions made:
 - The four-way shallow cable shelf is used three times in the assembly at Z 74 mm, Z 122 mm, and Z 183 mm.
 - `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text. It exports as a two-solid compound so Bambu Studio can assign the rear body and bump-out different filament colors while preserving the same positioned geometry.
 - `erb_lower_chassis_rear_panel_body.step` and `erb_lower_chassis_rear_panel_bumpout.step` are also exported separately for slicer workflows that prefer importing the two color bodies as individual files. The bump-out shell overlaps the rear body by 0.2 mm.
+- `erb_lower_chassis_rear_panel_detachable.step` is an alternate assembled preview that keeps the same outer side-panel dovetails and top M5 retention bosses as the default rear panel, but changes the bump-out into a separate top-down vertical slide-on cartridge. `erb_lower_chassis_rear_panel_detachable_body.step` contains the rear panel plus two straight receiver channels tied into the panel by molded-in bottom/top support webbing and bottom stops. `erb_lower_chassis_rear_panel_detachable_bumpout.step` contains the removable open-backed shell with matching hidden vertical tongues and one M4 retaining slot near the top. The removable shell keeps the same outer face depth as the default bump-out instead of adding another spacer layer behind it.
 - `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.
 - `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.
 - `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z 183 mm instead of spacer blocks.

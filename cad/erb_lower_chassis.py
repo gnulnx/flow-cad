@@ -151,6 +151,34 @@ class ChassisParams:
     rear_bumpout_depth: float = 22.0
     rear_bumpout_wall_thickness: float = 3.2
     rear_bumpout_body_overlap: float = 0.2
+    rear_bumpout_detachable_base_gap: float = 0.35
+    rear_slide_rail_x: float = 46.0
+    rear_slide_channel_z_min: float = 40.0
+    rear_slide_channel_z_max: float = 207.0
+    rear_slide_stop_height: float = 4.0
+    rear_slide_head_width: float = 10.0
+    rear_slide_head_depth: float = 2.3
+    rear_slide_neck_width: float = 5.0
+    rear_slide_side_clearance: float = 0.45
+    rear_slide_face_clearance: float = 0.40
+    rear_slide_channel_wall: float = 3.0
+    rear_slide_channel_depth: float = 5.6
+    rear_slide_lip_depth: float = 2.25
+    rear_slide_tongue_height: float = 160.0
+    rear_slide_retain_screw_z: float = 206.0
+    rear_slide_retain_slot_height: float = 8.0
+    rear_slide_retain_boss_depth: float = 12.0
+    rear_slide_retain_boss_width: float = 22.0
+    rear_slide_retain_boss_height: float = 20.0
+    rear_slide_lower_web_width: float = 144.0
+    rear_slide_upper_web_width: float = 128.0
+    rear_slide_web_depth: float = 10.0
+    rear_slide_lower_web_z_min: float = 18.0
+    rear_slide_lower_web_z_max: float = 30.0
+    rear_slide_upper_web_z_min: float = 30.0
+    rear_slide_upper_web_z_max: float = 40.0
+    rear_slide_top_web_z_min: float = 207.0
+    rear_slide_top_web_z_max: float = 216.0
     battery_measured_length: float = 155.0
     battery_measured_width: float = 50.0
     battery_measured_height: float = 50.0
@@ -262,6 +290,9 @@ PART_FILENAMES = {
     "rear_panel": "erb_lower_chassis_rear_panel.step",
     "rear_panel_body": "erb_lower_chassis_rear_panel_body.step",
     "rear_panel_bumpout": "erb_lower_chassis_rear_panel_bumpout.step",
+    "rear_panel_detachable": "erb_lower_chassis_rear_panel_detachable.step",
+    "rear_panel_detachable_body": "erb_lower_chassis_rear_panel_detachable_body.step",
+    "rear_panel_detachable_bumpout": "erb_lower_chassis_rear_panel_detachable_bumpout.step",
     "rear_panel_vented": "erb_lower_chassis_rear_panel_vented.step",
     "bottom_tray": "erb_lower_chassis_bottom_tray.step",
     "top_lid": "erb_lower_chassis_top_lid.step",
@@ -365,6 +396,17 @@ def cyl_z(radius: float, length: float, center: tuple[float, float, float]):
     return Cylinder(radius, length).moved(Location(center))
 
 
+def vertical_slot_y(radius: float, height_z: float, length_y: float, center: tuple[float, float, float]):
+    """Create a vertical obround slot cutting along Y."""
+    x, y, z = center
+    if height_z <= 2.0 * radius:
+        return cyl_y(radius, length_y, center)
+    slot = box_at((2.0 * radius, length_y, height_z - 2.0 * radius), center)
+    slot += cyl_y(radius, length_y, (x, y, z - height_z / 2.0 + radius))
+    slot += cyl_y(radius, length_y, (x, y, z + height_z / 2.0 - radius))
+    return slot
+
+
 def xy_polygon_prism(
     points: tuple[tuple[float, float], ...],
     height: float,
@@ -384,6 +426,20 @@ def safe_chamfer(shape, amount: float):
         return chamfered if hasattr(chamfered, "bounding_box") else fallback
     except Exception:
         return fallback
+
+
+def solid_shape(shape):
+    return shape if hasattr(shape, "bounding_box") else Compound(children=list(shape))
+
+
+def fused_shapes(*shapes):
+    result = solid_shape(shapes[0])
+    for shape in shapes[1:]:
+        result = solid_shape(result.fuse(solid_shape(shape)))
+    try:
+        return result.clean()
+    except Exception:
+        return result
 
 
 def double_d_points(diameter: float, flat_to_flat: float, segments: int = 24):
@@ -928,6 +984,195 @@ def make_rear_panel_bumpout():
     return Compound(
         children=[make_rear_panel_body_for_bumpout(), make_rear_panel_bumpout_shell()],
         label="erb_lower_chassis_rear_panel",
+    )
+
+
+def make_rear_slide_receiver(center_x: float):
+    """Straight vertical receiver channel attached to the rear plate frame."""
+    z_min = P.rear_slide_channel_z_min
+    z_max = P.rear_slide_channel_z_max
+    h = z_max - z_min
+    zc = (z_min + z_max) / 2.0
+    wall = P.rear_slide_channel_wall
+    depth = P.rear_slide_channel_depth
+    lip_depth = P.rear_slide_lip_depth
+    head_slot = P.rear_slide_head_width + 2.0 * P.rear_slide_side_clearance
+    neck_slot = P.rear_slide_neck_width + 2.0 * P.rear_slide_side_clearance
+    total_w = head_slot + 2.0 * wall
+    side_wall_y_min = -0.25
+    side_wall_y_depth = depth - side_wall_y_min
+
+    receiver = box_at((total_w + 2.0, 3.2, h + 16.0), (center_x, -1.45, zc))
+    receiver += box_at(
+        (wall, side_wall_y_depth, h),
+        (center_x - head_slot / 2.0 - wall / 2.0, (depth + side_wall_y_min) / 2.0, zc),
+    )
+    receiver += box_at(
+        (wall, side_wall_y_depth, h),
+        (center_x + head_slot / 2.0 + wall / 2.0, (depth + side_wall_y_min) / 2.0, zc),
+    )
+
+    lip_w = (head_slot - neck_slot) / 2.0
+    lip_y_min = depth - lip_depth
+    lip_center_y = (lip_y_min + depth) / 2.0
+    receiver += box_at(
+        (lip_w, lip_depth, h),
+        (center_x - neck_slot / 2.0 - lip_w / 2.0, lip_center_y, zc),
+    )
+    receiver += box_at(
+        (lip_w, lip_depth, h),
+        (center_x + neck_slot / 2.0 + lip_w / 2.0, lip_center_y, zc),
+    )
+    receiver += box_at(
+        (total_w + 2.0, depth - side_wall_y_min, P.rear_slide_stop_height),
+        (
+            center_x,
+            (depth + side_wall_y_min) / 2.0,
+            z_min - P.rear_slide_stop_height / 2.0,
+        ),
+    )
+    return safe_chamfer(receiver, 0.35)
+
+
+def make_rear_slide_support_webs():
+    """Molded-in backer webs that tie the slide receivers into the rear plate."""
+    lower_z_min = P.rear_slide_lower_web_z_min
+    lower_z_max = P.rear_slide_lower_web_z_max
+    upper_z_min = P.rear_slide_upper_web_z_min
+    upper_z_max = P.rear_slide_upper_web_z_max
+    top_z_min = P.rear_slide_top_web_z_min
+    top_z_max = P.rear_slide_top_web_z_max
+    lower = box_at(
+        (
+            P.rear_slide_lower_web_width,
+            P.rear_slide_web_depth,
+            lower_z_max - lower_z_min,
+        ),
+        (
+            0.0,
+            -P.wall_thickness - P.rear_slide_web_depth / 2.0 + 1.0,
+            (lower_z_min + lower_z_max) / 2.0,
+        ),
+    )
+    upper = box_at(
+        (
+            P.rear_slide_upper_web_width,
+            P.rear_slide_web_depth,
+            upper_z_max - upper_z_min,
+        ),
+        (
+            0.0,
+            -P.rear_slide_web_depth / 2.0,
+            (upper_z_min + upper_z_max) / 2.0,
+        ),
+    )
+    top = box_at(
+        (
+            P.rear_slide_upper_web_width,
+            P.rear_slide_web_depth,
+            top_z_max - top_z_min,
+        ),
+        (
+            0.0,
+            -P.rear_slide_web_depth / 2.0,
+            (top_z_min + top_z_max) / 2.0,
+        ),
+    )
+    return safe_chamfer(fused_shapes(lower, upper, top), 0.35)
+
+
+def make_rear_panel_detachable_body():
+    """Rear panel body with attached vertical slide receiver channels."""
+    panel = make_rear_panel_body_for_bumpout()
+    panel += make_rear_slide_support_webs()
+
+    for x in (-P.rear_slide_rail_x, P.rear_slide_rail_x):
+        panel += make_rear_slide_receiver(x)
+
+    boss = box_at(
+        (
+            P.rear_slide_retain_boss_width,
+            P.rear_slide_retain_boss_depth,
+            P.rear_slide_retain_boss_height,
+        ),
+        (
+            0.0,
+            -P.rear_slide_retain_boss_depth / 2.0,
+            P.rear_slide_retain_screw_z,
+        ),
+    )
+    boss -= cyl_y(
+        P.m4_heatset_pilot_diameter / 2.0,
+        P.rear_slide_retain_boss_depth + 2.0,
+        (0.0, -P.rear_slide_retain_boss_depth / 2.0, P.rear_slide_retain_screw_z),
+    )
+    panel += boss
+    return safe_chamfer(panel, 0.45)
+
+
+def make_rear_panel_detachable_bumpout_shell():
+    """Removable rear cable bump-out with straight vertical slide tongues."""
+    bw = P.rear_bumpout_width
+    bh = P.rear_bumpout_height
+    fw = P.rear_bumpout_face_width
+    fh = P.rear_bumpout_face_height
+    bd = P.rear_bumpout_depth
+    wall = P.rear_bumpout_wall_thickness
+    bz = P.rear_bumpout_center_z
+    base_y = P.rear_bumpout_detachable_base_gap
+
+    shell = tapered_xz_rect_loft(bw, bh, base_y, fw, fh, bd, bz)
+    shell -= tapered_xz_rect_loft(
+        bw - 2.0 * wall,
+        bh - 2.0 * wall,
+        base_y - 1.0,
+        fw - 2.0 * wall,
+        fh - 2.0 * wall,
+        bd - wall,
+        bz,
+    )
+    shell -= vertical_slot_y(
+        P.m4_clearance_diameter / 2.0,
+        P.rear_slide_retain_slot_height,
+        bd + 6.0,
+        (0.0, bd / 2.0, P.rear_slide_retain_screw_z),
+    )
+
+    tongue_z = P.rear_bumpout_center_z + P.rear_bumpout_detachable_base_gap
+    head_center_y = (
+        P.rear_slide_face_clearance + P.rear_slide_head_depth / 2.0
+    )
+    head_y_max = P.rear_slide_face_clearance + P.rear_slide_head_depth
+    connector_y_min = head_y_max - 0.2
+    connector_y_max = bd - 0.4
+    connector_depth = connector_y_max - connector_y_min
+    for x in (-P.rear_slide_rail_x, P.rear_slide_rail_x):
+        head = box_at(
+            (
+                P.rear_slide_head_width,
+                P.rear_slide_head_depth,
+                P.rear_slide_tongue_height,
+            ),
+            (x, head_center_y, tongue_z),
+        )
+        connector = box_at(
+            (
+                P.rear_slide_neck_width,
+                connector_depth,
+                P.rear_slide_tongue_height,
+            ),
+            (x, (connector_y_min + connector_y_max) / 2.0, tongue_z),
+        )
+        shell = fused_shapes(shell, head, connector)
+
+    return safe_chamfer(shell, 0.45)
+
+
+def make_rear_panel_detachable_bumpout():
+    """Assembled preview of the compatible rear panel plus slide-on bump-out."""
+    return Compound(
+        children=[make_rear_panel_detachable_body(), make_rear_panel_detachable_bumpout_shell()],
+        label="erb_lower_chassis_rear_panel_detachable",
     )
 
 
@@ -1480,6 +1725,9 @@ def build_parts():
         "rear_panel": make_rear_panel_bumpout(),
         "rear_panel_body": make_rear_panel_body_for_bumpout(),
         "rear_panel_bumpout": make_rear_panel_bumpout_shell(),
+        "rear_panel_detachable": make_rear_panel_detachable_bumpout(),
+        "rear_panel_detachable_body": make_rear_panel_detachable_body(),
+        "rear_panel_detachable_bumpout": make_rear_panel_detachable_bumpout_shell(),
         "rear_panel_vented": make_end_panel(inward_y=-1, cable_panel=True),
         "bottom_tray": make_bottom_tray(),
         "top_lid": make_top_lid(),
@@ -1556,6 +1804,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         + " mm",
         f"Top lid footprint: {P.top_lid_width:.1f} W x {P.top_lid_depth:.1f} D mm",
         f"Rear panel: no vents, two-solid colorable tapered hollow cable pocket from {P.rear_bumpout_width:.1f} W x {P.rear_bumpout_height:.1f} H at the panel to {P.rear_bumpout_face_width:.1f} W x {P.rear_bumpout_face_height:.1f} H at the blank outer face, {P.rear_bumpout_depth:.1f} mm deep, {P.rear_bumpout_wall_thickness:.1f} mm wall, {P.rear_bumpout_body_overlap:.1f} mm body overlap",
+        f"Alternate detachable rear panel: same side-panel dovetails and top M5 retention bosses, but the cable bump-out is a top-down vertical slide-on cartridge using two attached straight receiver channels at X +/-{P.rear_slide_rail_x:.1f} mm, PETG-friendly {P.rear_slide_side_clearance:.2f} mm side clearance and {P.rear_slide_face_clearance:.2f} mm front/back capture clearance, molded-in bottom/top support webbing, bottom stops at Z {P.rear_slide_channel_z_min:.1f} mm, and one M4 retaining slot near the top to prevent upward motion",
         f"Integrated battery tray floor: flush underside, {P.battery_tray_recess_width:.1f} W x {P.battery_tray_recess_length:.1f} D x {P.battery_tray_recess_floor_thickness:.1f} H mm",
         f"Integrated battery lanes: two {P.integrated_battery_lane_length:.1f} L x {P.integrated_battery_lane_width:.1f} W mm lanes for two {P.battery_measured_length:.0f} x {P.battery_measured_width:.0f} x {P.battery_measured_height:.0f} mm packs",
         f"Outer battery retaining ribs: {P.integrated_battery_outer_rib_width:.1f} W x {P.integrated_battery_outer_rib_length:.1f} L x {P.integrated_battery_outer_rib_height:.1f} H mm, shortened clear of the bottom-tray screw holes",
@@ -1635,6 +1884,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             f"- The four-way shallow cable shelf is used three times in the assembly at Z {P.shelf_z_levels[0]:.0f} mm, Z {P.shelf_z_levels[1]:.0f} mm, and Z {THIRD_SHELF_Z:.0f} mm.",
             "- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text. It exports as a two-solid compound so Bambu Studio can assign the rear body and bump-out different filament colors while preserving the same positioned geometry.",
             "- `erb_lower_chassis_rear_panel_body.step` and `erb_lower_chassis_rear_panel_bumpout.step` are also exported separately for slicer workflows that prefer importing the two color bodies as individual files. The bump-out shell overlaps the rear body by 0.2 mm.",
+            "- `erb_lower_chassis_rear_panel_detachable.step` is an alternate assembled preview that keeps the same outer side-panel dovetails and top M5 retention bosses as the default rear panel, but changes the bump-out into a separate top-down vertical slide-on cartridge. `erb_lower_chassis_rear_panel_detachable_body.step` contains the rear panel plus two straight receiver channels tied into the panel by molded-in bottom/top support webbing and bottom stops. `erb_lower_chassis_rear_panel_detachable_bumpout.step` contains the removable open-backed shell with matching hidden vertical tongues and one M4 retaining slot near the top. The removable shell keeps the same outer face depth as the default bump-out instead of adding another spacer layer behind it.",
             "- `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.",
             "- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.",
             f"- `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z {P.shelf_side_ledge_z_levels[1]:.0f} mm instead of spacer blocks.",
