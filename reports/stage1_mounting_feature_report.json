@@ -11,10 +11,10 @@
     },
     {
       "status": "ok",
-      "message": "front/rear panel M5 heat-set pilots open through side rails and align to side panels",
+      "message": "front/rear panels keep only the top M5 retention pilots and align to side panels",
       "details": {
         "rail_width_mm": 18.0,
-        "rail_depth_mm": 18.0,
+        "rail_depth_mm": 26.0,
         "pilot_diameter_mm": 6.1,
         "pilot_cut_length_mm": 24.0,
         "hole_x_centers_mm": [
@@ -22,13 +22,14 @@
           81.0
         ],
         "global_y_centers_mm": [
-          -111.0,
-          111.0
+          -99.0,
+          99.0
+        ],
+        "dovetail_slot_y_centers_mm": [
+          -115.0,
+          115.0
         ],
         "z_levels_mm": [
-          35.0,
-          105.0,
-          175.0,
           220.0
         ]
       }
@@ -45,6 +46,8 @@
         "slot_head_width_mm": 15.5,
         "clearance_per_side_mm": 0.25,
         "bottom_stop_height_mm": 8.0,
+        "root_relief_radius_mm": 1.0,
+        "slot_edge_margin_mm": 5.25,
         "dovetail_z_range_mm": [
           8.0,
           240.0
@@ -79,7 +82,11 @@
           -82.0,
           82.0
         ],
-        "hole_z_mm": 16.0
+        "hole_z_levels_mm": [
+          16.0,
+          58.0
+        ],
+        "holes_per_side": 4
       }
     },
     {
@@ -94,7 +101,10 @@
           -82.0,
           82.0
         ],
-        "shared_z_center_mm": 16.0,
+        "shared_z_centers_mm": [
+          16.0,
+          58.0
+        ],
         "max_y_delta_mm": 0.0,
         "max_z_delta_mm": 0.0,
         "side_plate_hole_diameter_mm": 5.5,

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import subprocess
 import sys
@@ -12,17 +11,27 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-TEXT_TO_CAD_ROOT = Path(os.environ.get("TEXT_TO_CAD_ROOT", "/Users/jfurr/text-to-cad")).expanduser()
-TEXT_TO_CAD_PYTHON = Path(
-    os.environ.get("TEXT_TO_CAD_PYTHON", str(TEXT_TO_CAD_ROOT / ".venv" / "bin" / "python"))
-).expanduser()
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from erb_cad.paths import require_existing, resolve_tool_config  # noqa: E402
+
+
+TOOL_CONFIG = resolve_tool_config(PROJECT_ROOT)
+TEXT_TO_CAD_ROOT = TOOL_CONFIG.text_to_cad_root
+TEXT_TO_CAD_PYTHON = TOOL_CONFIG.text_to_cad_python
 VIEWER_REL_DIR = Path("models/erb_balance_bot/stage1_lower_chassis")
+ASSEMBLY_VIEWER_REL_DIR = Path("models/erb_balance_bot")
 
 STEP_FILENAMES = [
     "erb_lower_chassis_left_side_plate.step",
     "erb_lower_chassis_right_side_plate.step",
     "erb_lower_chassis_front_panel.step",
     "erb_lower_chassis_rear_panel.step",
+    "erb_lower_chassis_rear_panel_body.step",
+    "erb_lower_chassis_rear_panel_bumpout.step",
+    "erb_lower_chassis_rear_panel_detachable.step",
+    "erb_lower_chassis_rear_panel_detachable_body.step",
+    "erb_lower_chassis_rear_panel_detachable_bumpout.step",
     "erb_lower_chassis_rear_panel_vented.step",
     "erb_lower_chassis_bottom_tray.step",
     "erb_lower_chassis_top_lid.step",
@@ -33,6 +42,8 @@ STEP_FILENAMES = [
     "erb_equipment_shelf_side_cable.step",
     "erb_equipment_shelf_side_cable_shallow.step",
     "erb_equipment_shelf_four_way_cable_shallow.step",
+    "erb_equipment_shelf_service_fit.step",
+    "erb_equipment_shelf_service_fit_four_way.step",
     "erb_shelf_spacer_block_55mm.step",
     "erb_upper_wide_center_adapter_deck.step",
     "erb_upper_wide_center_compute_bay.step",
@@ -60,12 +71,27 @@ def run(command: list[str | Path], cwd: Path) -> None:
 
 
 def require_path(path: Path, label: str) -> None:
-    if not path.exists():
-        raise FileNotFoundError(f"{label} not found: {path}")
+    require_existing(path, label)
+
+
+def remove_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def sidecar_source_name(path: Path) -> str | None:
+    if not path.name.startswith("."):
+        return None
+    name = path.name[1:]
+    if name.endswith(".glb"):
+        return name[:-4]
+    return name
 
 
 def generate_project_steps() -> None:
-    require_path(TEXT_TO_CAD_PYTHON, "text-to-cad Python")
+    require_existing(TEXT_TO_CAD_PYTHON, "text-to-cad Python", env_var="TEXT_TO_CAD_PYTHON")
     generators = [
         PROJECT_ROOT / "cad" / "erb_lower_chassis.py",
         PROJECT_ROOT / "cad" / "erb_top_dome.py",
@@ -75,43 +101,58 @@ def generate_project_steps() -> None:
         run([TEXT_TO_CAD_PYTHON, generator], cwd=PROJECT_ROOT)
 
 
-def copy_steps_to_viewer() -> Path:
+def remove_step_sidecars(directory: Path, filename: str) -> None:
+    for sidecar in (directory / f".{filename}", directory / f".{filename}.glb"):
+        if sidecar.exists():
+            remove_path(sidecar)
+
+
+def copy_steps_to_viewer() -> tuple[Path, Path]:
     source_dir = PROJECT_ROOT / "exports" / "step"
     dest_dir = TEXT_TO_CAD_ROOT / VIEWER_REL_DIR
+    assembly_dest_dir = TEXT_TO_CAD_ROOT / ASSEMBLY_VIEWER_REL_DIR
     require_path(source_dir, "Erb STEP source directory")
 
     dest_dir.mkdir(parents=True, exist_ok=True)
+    assembly_dest_dir.mkdir(parents=True, exist_ok=True)
     active_files = set(STEP_FILENAMES)
     for path in dest_dir.glob("erb_*.step"):
         if path.name not in active_files:
             path.unlink()
-    for sidecar in dest_dir.glob(".erb_*.step"):
-        if sidecar.name[1:] not in active_files and sidecar.is_dir():
-            shutil.rmtree(sidecar)
+    for sidecar in dest_dir.glob(".erb_*"):
+        if sidecar_source_name(sidecar) not in active_files:
+            remove_path(sidecar)
 
     for filename in STEP_FILENAMES:
         source = source_dir / filename
         require_path(source, f"STEP source {filename}")
-        sidecar = dest_dir / f".{filename}"
-        if sidecar.exists():
-            shutil.rmtree(sidecar)
+        remove_step_sidecars(dest_dir, filename)
         shutil.copy2(source, dest_dir / filename)
 
-    return dest_dir
+    assembly_source = source_dir / ASSEMBLY_FILENAME
+    remove_step_sidecars(assembly_dest_dir, ASSEMBLY_FILENAME)
+    shutil.copy2(assembly_source, assembly_dest_dir / ASSEMBLY_FILENAME)
+
+    return dest_dir, assembly_dest_dir
 
 
 def generate_viewer_assets(dest_dir: Path) -> None:
-    gen_part = TEXT_TO_CAD_ROOT / "skills" / "cad" / "scripts" / "gen_step_part"
-    gen_assembly = TEXT_TO_CAD_ROOT / "skills" / "cad" / "scripts" / "gen_step_assembly"
-    require_path(gen_part, "text-to-cad gen_step_part")
-    require_path(gen_assembly, "text-to-cad gen_step_assembly")
+    step_cli = TEXT_TO_CAD_ROOT / "skills" / "cad" / "scripts" / "step"
+    require_path(step_cli, "text-to-cad STEP generator")
 
     for filename in STEP_FILENAMES:
         target = dest_dir / filename
         if filename == ASSEMBLY_FILENAME:
-            run([TEXT_TO_CAD_PYTHON, gen_assembly, target, "--summary"], cwd=TEXT_TO_CAD_ROOT)
+            run([TEXT_TO_CAD_PYTHON, step_cli, "--kind", "assembly", target], cwd=TEXT_TO_CAD_ROOT)
         else:
-            run([TEXT_TO_CAD_PYTHON, gen_part, target, "--summary"], cwd=TEXT_TO_CAD_ROOT)
+            run([TEXT_TO_CAD_PYTHON, step_cli, "--kind", "part", target], cwd=TEXT_TO_CAD_ROOT)
+
+
+def generate_top_level_assembly_asset(assembly_dest_dir: Path) -> None:
+    step_cli = TEXT_TO_CAD_ROOT / "skills" / "cad" / "scripts" / "step"
+    require_path(step_cli, "text-to-cad STEP generator")
+    target = assembly_dest_dir / ASSEMBLY_FILENAME
+    run([TEXT_TO_CAD_PYTHON, step_cli, "--kind", "assembly", target], cwd=TEXT_TO_CAD_ROOT)
 
 
 def main() -> int:
@@ -123,21 +164,23 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    require_path(TEXT_TO_CAD_ROOT, "text-to-cad root")
-    require_path(TEXT_TO_CAD_PYTHON, "text-to-cad Python")
+    require_existing(TEXT_TO_CAD_ROOT, "text-to-cad root", env_var="TEXT_TO_CAD_ROOT")
+    require_existing(TEXT_TO_CAD_PYTHON, "text-to-cad Python", env_var="TEXT_TO_CAD_PYTHON")
 
     if not args.skip_cad_generate:
         generate_project_steps()
-    dest_dir = copy_steps_to_viewer()
+    dest_dir, assembly_dest_dir = copy_steps_to_viewer()
     generate_viewer_assets(dest_dir)
+    generate_top_level_assembly_asset(assembly_dest_dir)
 
     viewer_url = (
         "http://127.0.0.1:4178/"
-        "?dir=models/erb_balance_bot/stage1_lower_chassis"
+        "?dir=models/erb_balance_bot"
         "&file=erb_lower_chassis_assembly.step"
     )
     print()
     print(f"Mirrored STEP files to: {dest_dir}")
+    print(f"Mirrored top-level assembly to: {assembly_dest_dir / ASSEMBLY_FILENAME}")
     print(f"CAD Explorer URL: {viewer_url}")
     return 0
 

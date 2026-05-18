@@ -44,7 +44,7 @@ from erb_top_dome import make_sensor_mockup_dome  # noqa: E402
 @dataclass(frozen=True)
 class ChassisParams:
     center_box_outer_width: float = 240.0
-    box_depth: float = 240.0
+    box_depth: float = 256.0
     box_height: float = 240.0
     side_plate_thickness: float = 12.0
     wall_thickness: float = 6.0
@@ -99,7 +99,7 @@ class ChassisParams:
     bottom_tray_depth: float = 204.0
     front_rear_panel_height: float = 240.0
     top_lid_width: float = 240.0
-    top_lid_depth: float = 240.0
+    top_lid_depth: float = 256.0
     shelf_width: float = 180.0
     shelf_depth: float = 200.0
     shelf_thickness: float = 6.0
@@ -118,18 +118,30 @@ class ChassisParams:
     shelf_side_cable_notch_depth: float = 46.0
     shelf_side_cable_notch_shallow_depth: float = 23.0
     shelf_side_cable_notch_length: float = 84.0
+    service_shelf_width: float = 170.0
+    service_shelf_depth: float = 188.0
+    service_shelf_mount_slot_length: float = 14.0
+    service_shelf_side_relief_depth: float = 36.0
+    service_shelf_side_relief_length: float = 84.0  # Reduced from 128mm to avoid complete horizontal cut with center channels
     shelf_spacer_block_width: float = 20.0
     shelf_spacer_block_depth: float = 50.0
     shelf_spacer_block_height: float = 55.0
     shelf_spacer_block_clearance_diameter: float = 4.5
     front_rear_panel_side_rail_width: float = 18.0
-    front_rear_panel_side_rail_depth: float = 18.0
+    front_rear_panel_side_rail_depth: float = 26.0
+    front_rear_panel_retention_boss_depth: float = 14.0
+    front_rear_panel_retention_boss_height: float = 22.0
+    front_rear_panel_retention_boss_rail_overlap: float = 4.0
     front_rear_panel_m5_pilot_cut_length: float = 24.0
     panel_dovetail_depth: float = 10.0
     panel_dovetail_neck_width: float = 9.0
     panel_dovetail_head_width: float = 15.0
     panel_dovetail_clearance: float = 0.25
+    rear_detachable_panel_dovetail_depth: float = 9.25
+    rear_detachable_panel_dovetail_neck_width: float = 8.0
+    rear_detachable_panel_dovetail_head_width: float = 14.0
     panel_dovetail_stop_height: float = 8.0
+    panel_dovetail_root_relief_radius: float = 1.0
     vent_slot_centers_x: tuple[float, ...] = (-38.0, -19.0, 0.0, 19.0, 38.0)
     vent_slot_width: float = 8.0
     vent_slot_height: float = 116.0
@@ -146,6 +158,35 @@ class ChassisParams:
     rear_bumpout_center_z: float = 120.0
     rear_bumpout_depth: float = 22.0
     rear_bumpout_wall_thickness: float = 3.2
+    rear_bumpout_body_overlap: float = 0.2
+    rear_bumpout_detachable_base_gap: float = 0.35
+    rear_slide_rail_x: float = 46.0
+    rear_slide_channel_z_min: float = 40.0
+    rear_slide_channel_z_max: float = 207.0
+    rear_slide_stop_height: float = 4.0
+    rear_slide_head_width: float = 10.0
+    rear_slide_head_depth: float = 2.3
+    rear_slide_neck_width: float = 5.0
+    rear_slide_side_clearance: float = 0.45
+    rear_slide_face_clearance: float = 0.40
+    rear_slide_channel_wall: float = 3.0
+    rear_slide_channel_depth: float = 5.6
+    rear_slide_lip_depth: float = 2.25
+    rear_slide_tongue_height: float = 160.0
+    rear_slide_retain_screw_z: float = 206.0
+    rear_slide_retain_slot_height: float = 8.0
+    rear_slide_retain_boss_depth: float = 12.0
+    rear_slide_retain_boss_width: float = 22.0
+    rear_slide_retain_boss_height: float = 20.0
+    rear_slide_lower_web_width: float = 144.0
+    rear_slide_upper_web_width: float = 128.0
+    rear_slide_web_depth: float = 10.0
+    rear_slide_lower_web_z_min: float = 18.0
+    rear_slide_lower_web_z_max: float = 30.0
+    rear_slide_upper_web_z_min: float = 30.0
+    rear_slide_upper_web_z_max: float = 40.0
+    rear_slide_top_web_z_min: float = 207.0
+    rear_slide_top_web_z_max: float = 216.0
     battery_measured_length: float = 155.0
     battery_measured_width: float = 50.0
     battery_measured_height: float = 50.0
@@ -176,7 +217,7 @@ class ChassisParams:
     bottom_tray_side_rail_height: float = 71.0
     bottom_tray_mount_hole_length: float = 28.0
     bottom_tray_mount_hole_y_positions: tuple[float, ...] = (-82.0, 82.0)
-    bottom_tray_mount_hole_z: float = 16.0
+    bottom_tray_mount_hole_z_levels: tuple[float, ...] = (16.0, 58.0)
     battery_cassette_assembly_z: float = 4.2
     integrated_battery_lane_width: float = 51.0
     integrated_battery_lane_length: float = 164.0
@@ -234,13 +275,32 @@ INSERT_VARIANTS = {
     "loose": (16.9, 12.8),
 }
 
-SIDE_SCREW_Z_LEVELS = (35.0, 105.0, 175.0, 220.0)
+SIDE_SCREW_Z_LEVELS = (220.0,)
+
+
+def front_rear_panel_slot_y_positions() -> tuple[float, float]:
+    rail_center_offset = P.front_rear_panel_side_rail_depth / 2.0
+    return (-P.box_depth / 2.0 + rail_center_offset, P.box_depth / 2.0 - rail_center_offset)
+
+
+def front_rear_panel_retention_y_positions() -> tuple[float, float]:
+    boss_center_offset = (
+        P.front_rear_panel_side_rail_depth
+        + P.front_rear_panel_retention_boss_depth / 2.0
+        - P.front_rear_panel_retention_boss_rail_overlap
+    )
+    return (-P.box_depth / 2.0 + boss_center_offset, P.box_depth / 2.0 - boss_center_offset)
 
 PART_FILENAMES = {
     "left_side_plate": "erb_lower_chassis_left_side_plate.step",
     "right_side_plate": "erb_lower_chassis_right_side_plate.step",
     "front_panel": "erb_lower_chassis_front_panel.step",
     "rear_panel": "erb_lower_chassis_rear_panel.step",
+    "rear_panel_body": "erb_lower_chassis_rear_panel_body.step",
+    "rear_panel_bumpout": "erb_lower_chassis_rear_panel_bumpout.step",
+    "rear_panel_detachable": "erb_lower_chassis_rear_panel_detachable.step",
+    "rear_panel_detachable_body": "erb_lower_chassis_rear_panel_detachable_body.step",
+    "rear_panel_detachable_bumpout": "erb_lower_chassis_rear_panel_detachable_bumpout.step",
     "rear_panel_vented": "erb_lower_chassis_rear_panel_vented.step",
     "bottom_tray": "erb_lower_chassis_bottom_tray.step",
     "top_lid": "erb_lower_chassis_top_lid.step",
@@ -248,6 +308,8 @@ PART_FILENAMES = {
     "equipment_shelf_side_cable": "erb_equipment_shelf_side_cable.step",
     "equipment_shelf_side_cable_shallow": "erb_equipment_shelf_side_cable_shallow.step",
     "equipment_shelf_four_way_cable_shallow": "erb_equipment_shelf_four_way_cable_shallow.step",
+    "equipment_shelf_service_fit": "erb_equipment_shelf_service_fit.step",
+    "equipment_shelf_service_fit_four_way": "erb_equipment_shelf_service_fit_four_way.step",
     "shelf_spacer_block_55mm": "erb_shelf_spacer_block_55mm.step",
     "upper_wide_center_adapter_deck": "erb_upper_wide_center_adapter_deck.step",
     "upper_wide_center_compute_bay": "erb_upper_wide_center_compute_bay.step",
@@ -273,9 +335,9 @@ ASSEMBLY_PLACEMENTS = [
     ("front_panel", "front_panel", (0.0, -P.box_depth / 2.0, 0.0)),
     ("rear_panel", "rear_panel", (0.0, P.box_depth / 2.0, 0.0)),
     ("bottom_tray", "bottom_tray", (0.0, 0.0, 0.0)),
-    ("lower_equipment_shelf", "equipment_shelf_four_way_cable_shallow", (0.0, 0.0, P.shelf_z_levels[0])),
-    ("upper_equipment_shelf", "equipment_shelf_four_way_cable_shallow", (0.0, 0.0, P.shelf_z_levels[1])),
-    ("third_equipment_shelf", "equipment_shelf_four_way_cable_shallow", (0.0, 0.0, THIRD_SHELF_Z)),
+    ("lower_equipment_shelf", "equipment_shelf_service_fit", (0.0, 0.0, P.shelf_z_levels[0])),
+    ("upper_equipment_shelf", "equipment_shelf_service_fit", (0.0, 0.0, P.shelf_z_levels[1])),
+    ("third_equipment_shelf", "equipment_shelf_service_fit", (0.0, 0.0, THIRD_SHELF_Z)),
     (
         "left_axle_insert_medium",
         "axle_insert_medium",
@@ -344,6 +406,44 @@ def cyl_z(radius: float, length: float, center: tuple[float, float, float]):
     return Cylinder(radius, length).moved(Location(center))
 
 
+def vertical_slot_y(radius: float, height_z: float, length_y: float, center: tuple[float, float, float]):
+    """Create a vertical obround slot cutting along Y."""
+    x, y, z = center
+    if height_z <= 2.0 * radius:
+        return cyl_y(radius, length_y, center)
+    slot = box_at((2.0 * radius, length_y, height_z - 2.0 * radius), center)
+    slot += cyl_y(radius, length_y, (x, y, z - height_z / 2.0 + radius))
+    slot += cyl_y(radius, length_y, (x, y, z + height_z / 2.0 - radius))
+    return slot
+
+
+def horizontal_slot_z(
+    radius: float,
+    length_x: float,
+    length_y: float,
+    cut_height: float,
+    center: tuple[float, float, float],
+):
+    """Create a rounded rectangular through-slot cutting along Z."""
+    x, y, z = center
+    length_x = max(length_x, 2.0 * radius)
+    length_y = max(length_y, 2.0 * radius)
+    slot = box_at((length_x, length_y - 2.0 * radius, cut_height), center)
+    slot += box_at((length_x - 2.0 * radius, length_y, cut_height), center)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            slot += cyl_z(
+                radius,
+                cut_height,
+                (
+                    x + sx * (length_x / 2.0 - radius),
+                    y + sy * (length_y / 2.0 - radius),
+                    z,
+                ),
+            )
+    return slot
+
+
 def xy_polygon_prism(
     points: tuple[tuple[float, float], ...],
     height: float,
@@ -363,6 +463,20 @@ def safe_chamfer(shape, amount: float):
         return chamfered if hasattr(chamfered, "bounding_box") else fallback
     except Exception:
         return fallback
+
+
+def solid_shape(shape):
+    return shape if hasattr(shape, "bounding_box") else Compound(children=list(shape))
+
+
+def fused_shapes(*shapes):
+    result = solid_shape(shapes[0])
+    for shape in shapes[1:]:
+        result = solid_shape(result.fuse(solid_shape(shape)))
+    try:
+        return result.clean()
+    except Exception:
+        return result
 
 
 def double_d_points(diameter: float, flat_to_flat: float, segments: int = 24):
@@ -661,10 +775,13 @@ def make_side_plate(inward: int):
     slot_z_min = P.panel_dovetail_stop_height
     slot_z_max = h + 2.0
     slot_base_x = inward * (P.side_plate_thickness + P.side_rail_projection)
-    slot_depth = -inward * (P.panel_dovetail_depth + 2.0 * P.panel_dovetail_clearance)
+    slot_depth_abs = P.panel_dovetail_depth + 2.0 * P.panel_dovetail_clearance
+    slot_depth = -inward * slot_depth_abs
     slot_neck = P.panel_dovetail_neck_width + 2.0 * P.panel_dovetail_clearance
     slot_head = P.panel_dovetail_head_width + 2.0 * P.panel_dovetail_clearance
-    for y in (-d / 2.0 + 9.0, d / 2.0 - 9.0):
+    slot_tip_x = slot_base_x - inward * slot_depth_abs
+    slot_center_z = (slot_z_min + slot_z_max) / 2.0
+    for y in front_rear_panel_slot_y_positions():
         shape -= panel_dovetail_prism(
             side=-inward,
             base_x=slot_base_x,
@@ -675,6 +792,12 @@ def make_side_plate(inward: int):
             z_min=slot_z_min,
             z_max=slot_z_max,
         )
+        for corner_y in (y - slot_head / 2.0, y + slot_head / 2.0):
+            shape -= cyl_z(
+                P.panel_dovetail_root_relief_radius,
+                slot_z_max - slot_z_min + 0.4,
+                (slot_tip_x, corner_y, slot_center_z),
+            )
 
     through_center_x = inward * boss_t / 2.0
     through_len = boss_t + 14.0
@@ -703,9 +826,9 @@ def make_side_plate(inward: int):
                 (inward * 1.7, y, z),
             )
 
-    # M5 side attachment holes for front, rear, and bottom structure.
+    # M5 side attachment holes for front/rear panel top keepers and bottom structure.
     side_screw_z = SIDE_SCREW_Z_LEVELS
-    for y in (-d / 2.0 + 9.0, d / 2.0 - 9.0):
+    for y in front_rear_panel_retention_y_positions():
         for z in side_screw_z:
             shape -= cyl_x(P.m5_clearance_diameter / 2.0, through_len, (through_center_x, y, z))
             shape -= cyl_x(
@@ -715,13 +838,13 @@ def make_side_plate(inward: int):
             )
 
     for y in P.bottom_tray_mount_hole_y_positions:
-        z = P.bottom_tray_mount_hole_z
-        shape -= cyl_x(P.m5_clearance_diameter / 2.0, through_len, (through_center_x, y, z))
-        shape -= cyl_x(
-            P.m5_washer_counterbore_diameter / 2.0,
-            3.2,
-            (inward * 1.6, y, z),
-        )
+        for z in P.bottom_tray_mount_hole_z_levels:
+            shape -= cyl_x(P.m5_clearance_diameter / 2.0, through_len, (through_center_x, y, z))
+            shape -= cyl_x(
+                P.m5_washer_counterbore_diameter / 2.0,
+                3.2,
+                (inward * 1.6, y, z),
+            )
 
     # Top lid heat-set insert pilot pockets in the side-wall top rail.
     for y in (-102.0, 102.0):
@@ -766,11 +889,19 @@ def make_end_panel(inward_y: int, cable_panel: bool):
     # to the final panel body.
     rail_w = P.front_rear_panel_side_rail_width
     rail_d = P.front_rear_panel_side_rail_depth
+    boss_d = P.front_rear_panel_retention_boss_depth
+    boss_h = P.front_rear_panel_retention_boss_height
+    boss_y = inward_y * (rail_d + boss_d / 2.0 - P.front_rear_panel_retention_boss_rail_overlap)
     for x in (-w / 2.0 + rail_w / 2.0, w / 2.0 - rail_w / 2.0):
         rail = box_at((rail_w, rail_d, h), (x, rail_y, h / 2.0))
-        for z in SIDE_SCREW_Z_LEVELS:
-            rail -= cyl_x(P.m5_heatset_pilot_diameter / 2.0, P.front_rear_panel_m5_pilot_cut_length, (x, rail_y, z))
         components.append(rail)
+        boss = box_at((rail_w, boss_d, boss_h), (x, boss_y, SIDE_SCREW_Z_LEVELS[0]))
+        boss -= cyl_x(
+            P.m5_heatset_pilot_diameter / 2.0,
+            P.front_rear_panel_m5_pilot_cut_length,
+            (x, boss_y, SIDE_SCREW_Z_LEVELS[0]),
+        )
+        components.append(boss)
 
     for side in (-1, 1):
         components.append(
@@ -793,41 +924,54 @@ def make_end_panel(inward_y: int, cable_panel: bool):
     for component in components[1:]:
         panel += component
 
-    extended_pilot_len = P.front_rear_panel_m5_pilot_cut_length + P.panel_dovetail_depth + 4.0
-    for side in (-1, 1):
-        x = side * (w / 2.0 - rail_w / 2.0 + P.panel_dovetail_depth / 2.0)
-        for z in SIDE_SCREW_Z_LEVELS:
-            panel -= cyl_x(P.m5_heatset_pilot_diameter / 2.0, extended_pilot_len, (x, rail_y, z))
-
     return safe_chamfer(panel, 0.7)
 
 
-def make_rear_panel_bumpout():
-    """Rear service panel variant with no vents and a hollow cable bump-out."""
+def make_rear_panel_body_for_bumpout(
+    dovetail_depth: float | None = None,
+    dovetail_neck_width: float | None = None,
+    dovetail_head_width: float | None = None,
+):
+    """Rear service panel body with the bump-out pocket opening cut through it."""
     w = P.internal_width
     h = P.front_rear_panel_height
     t = P.wall_thickness
     inward_y = -1
+    dovetail_depth = P.panel_dovetail_depth if dovetail_depth is None else dovetail_depth
+    dovetail_neck_width = (
+        P.panel_dovetail_neck_width if dovetail_neck_width is None else dovetail_neck_width
+    )
+    dovetail_head_width = (
+        P.panel_dovetail_head_width if dovetail_head_width is None else dovetail_head_width
+    )
 
     panel = box_at((w, t, h), (0.0, inward_y * t / 2.0, h / 2.0))
     rail_y = inward_y * (P.front_rear_panel_side_rail_depth / 2.0)
 
     rail_w = P.front_rear_panel_side_rail_width
     rail_d = P.front_rear_panel_side_rail_depth
+    boss_d = P.front_rear_panel_retention_boss_depth
+    boss_h = P.front_rear_panel_retention_boss_height
+    boss_y = inward_y * (rail_d + boss_d / 2.0 - P.front_rear_panel_retention_boss_rail_overlap)
     for x in (-w / 2.0 + rail_w / 2.0, w / 2.0 - rail_w / 2.0):
         rail = box_at((rail_w, rail_d, h), (x, rail_y, h / 2.0))
-        for z in SIDE_SCREW_Z_LEVELS:
-            rail -= cyl_x(P.m5_heatset_pilot_diameter / 2.0, P.front_rear_panel_m5_pilot_cut_length, (x, rail_y, z))
         panel += rail
+        boss = box_at((rail_w, boss_d, boss_h), (x, boss_y, SIDE_SCREW_Z_LEVELS[0]))
+        boss -= cyl_x(
+            P.m5_heatset_pilot_diameter / 2.0,
+            P.front_rear_panel_m5_pilot_cut_length,
+            (x, boss_y, SIDE_SCREW_Z_LEVELS[0]),
+        )
+        panel += boss
 
     for side in (-1, 1):
         panel += panel_dovetail_prism(
             side=side,
             base_x=side * w / 2.0,
             center_y=rail_y,
-            depth=P.panel_dovetail_depth,
-            neck_width=P.panel_dovetail_neck_width,
-            head_width=P.panel_dovetail_head_width,
+            depth=dovetail_depth,
+            neck_width=dovetail_neck_width,
+            head_width=dovetail_head_width,
             z_min=P.panel_dovetail_stop_height,
             z_max=h,
         )
@@ -835,15 +979,6 @@ def make_rear_panel_bumpout():
     panel += box_at((w, 14.0, 18.0), (0.0, rail_y, 9.0))
     panel += box_at((w, 14.0, 18.0), (0.0, rail_y, h - 9.0))
 
-    extended_pilot_len = P.front_rear_panel_m5_pilot_cut_length + P.panel_dovetail_depth + 4.0
-    for side in (-1, 1):
-        x = side * (w / 2.0 - rail_w / 2.0 + P.panel_dovetail_depth / 2.0)
-        for z in SIDE_SCREW_Z_LEVELS:
-            panel -= cyl_x(P.m5_heatset_pilot_diameter / 2.0, extended_pilot_len, (x, rail_y, z))
-
-    # The bump-out protrudes outside the rear face and is hollow/open on the
-    # chassis interior side, creating a local cable pocket without through vents.
-    # It tapers to a smaller blank outer face so Bambu Studio can add logo text.
     bw = P.rear_bumpout_width
     bh = P.rear_bumpout_height
     fw = P.rear_bumpout_face_width
@@ -851,7 +986,6 @@ def make_rear_panel_bumpout():
     bd = P.rear_bumpout_depth
     wall = P.rear_bumpout_wall_thickness
     bz = P.rear_bumpout_center_z
-    panel += tapered_xz_rect_loft(bw, bh, 0.0, fw, fh, bd, bz)
     cavity_min_y = -t - 1.0
     cavity_max_y = bd - wall
     panel -= tapered_xz_rect_loft(
@@ -865,6 +999,233 @@ def make_rear_panel_bumpout():
     )
 
     return safe_chamfer(panel, 0.7)
+
+
+def make_rear_panel_bumpout_shell():
+    """Separate rear bump-out shell for two-color slicer assignment."""
+    bw = P.rear_bumpout_width
+    bh = P.rear_bumpout_height
+    fw = P.rear_bumpout_face_width
+    fh = P.rear_bumpout_face_height
+    bd = P.rear_bumpout_depth
+    wall = P.rear_bumpout_wall_thickness
+    bz = P.rear_bumpout_center_z
+    overlap = P.rear_bumpout_body_overlap
+
+    # The shell overlaps 0.2 mm into the rear panel so Bambu Studio can keep
+    # this as a separate colorable part while the print still fuses cleanly.
+    shell = tapered_xz_rect_loft(bw, bh, -overlap, fw, fh, bd, bz)
+    shell -= tapered_xz_rect_loft(
+        bw - 2.0 * wall,
+        bh - 2.0 * wall,
+        -P.wall_thickness - 1.0,
+        fw - 2.0 * wall,
+        fh - 2.0 * wall,
+        bd - wall,
+        bz,
+    )
+    return safe_chamfer(shell, 0.7)
+
+
+def make_rear_panel_bumpout():
+    """Two-solid rear panel: body plus separate hollow cable bump-out."""
+    return Compound(
+        children=[make_rear_panel_body_for_bumpout(), make_rear_panel_bumpout_shell()],
+        label="erb_lower_chassis_rear_panel",
+    )
+
+
+def make_rear_slide_receiver(center_x: float):
+    """Straight vertical receiver channel attached to the rear plate frame."""
+    z_min = P.rear_slide_channel_z_min
+    z_max = P.rear_slide_channel_z_max
+    h = z_max - z_min
+    zc = (z_min + z_max) / 2.0
+    wall = P.rear_slide_channel_wall
+    depth = P.rear_slide_channel_depth
+    lip_depth = P.rear_slide_lip_depth
+    head_slot = P.rear_slide_head_width + 2.0 * P.rear_slide_side_clearance
+    neck_slot = P.rear_slide_neck_width + 2.0 * P.rear_slide_side_clearance
+    total_w = head_slot + 2.0 * wall
+    side_wall_y_min = -0.25
+    side_wall_y_depth = depth - side_wall_y_min
+
+    receiver = box_at((total_w + 2.0, 3.2, h + 16.0), (center_x, -1.45, zc))
+    receiver += box_at(
+        (wall, side_wall_y_depth, h),
+        (center_x - head_slot / 2.0 - wall / 2.0, (depth + side_wall_y_min) / 2.0, zc),
+    )
+    receiver += box_at(
+        (wall, side_wall_y_depth, h),
+        (center_x + head_slot / 2.0 + wall / 2.0, (depth + side_wall_y_min) / 2.0, zc),
+    )
+
+    lip_w = (head_slot - neck_slot) / 2.0
+    lip_y_min = depth - lip_depth
+    lip_center_y = (lip_y_min + depth) / 2.0
+    receiver += box_at(
+        (lip_w, lip_depth, h),
+        (center_x - neck_slot / 2.0 - lip_w / 2.0, lip_center_y, zc),
+    )
+    receiver += box_at(
+        (lip_w, lip_depth, h),
+        (center_x + neck_slot / 2.0 + lip_w / 2.0, lip_center_y, zc),
+    )
+    receiver += box_at(
+        (total_w + 2.0, depth - side_wall_y_min, P.rear_slide_stop_height),
+        (
+            center_x,
+            (depth + side_wall_y_min) / 2.0,
+            z_min - P.rear_slide_stop_height / 2.0,
+        ),
+    )
+    return safe_chamfer(receiver, 0.15)
+
+
+def make_rear_slide_support_webs():
+    """Molded-in backer webs that tie the slide receivers into the rear plate."""
+    lower_z_min = P.rear_slide_lower_web_z_min
+    lower_z_max = P.rear_slide_lower_web_z_max
+    upper_z_min = P.rear_slide_upper_web_z_min
+    upper_z_max = P.rear_slide_upper_web_z_max
+    top_z_min = P.rear_slide_top_web_z_min
+    top_z_max = P.rear_slide_top_web_z_max
+    lower = box_at(
+        (
+            P.rear_slide_lower_web_width,
+            P.rear_slide_web_depth,
+            lower_z_max - lower_z_min,
+        ),
+        (
+            0.0,
+            -P.wall_thickness - P.rear_slide_web_depth / 2.0 + 1.0,
+            (lower_z_min + lower_z_max) / 2.0,
+        ),
+    )
+    upper = box_at(
+        (
+            P.rear_slide_upper_web_width,
+            P.rear_slide_web_depth,
+            upper_z_max - upper_z_min,
+        ),
+        (
+            0.0,
+            -P.rear_slide_web_depth / 2.0,
+            (upper_z_min + upper_z_max) / 2.0,
+        ),
+    )
+    top = box_at(
+        (
+            P.rear_slide_upper_web_width,
+            P.rear_slide_web_depth,
+            top_z_max - top_z_min,
+        ),
+        (
+            0.0,
+            -P.rear_slide_web_depth / 2.0,
+            (top_z_min + top_z_max) / 2.0,
+        ),
+    )
+    return safe_chamfer(fused_shapes(lower, upper, top), 0.35)
+
+
+def make_rear_panel_detachable_body():
+    """Rear panel body with attached vertical slide receiver channels."""
+    panel = make_rear_panel_body_for_bumpout(
+        dovetail_depth=P.rear_detachable_panel_dovetail_depth,
+        dovetail_neck_width=P.rear_detachable_panel_dovetail_neck_width,
+        dovetail_head_width=P.rear_detachable_panel_dovetail_head_width,
+    )
+    panel += make_rear_slide_support_webs()
+
+    for x in (-P.rear_slide_rail_x, P.rear_slide_rail_x):
+        panel += make_rear_slide_receiver(x)
+
+    boss = box_at(
+        (
+            P.rear_slide_retain_boss_width,
+            P.rear_slide_retain_boss_depth,
+            P.rear_slide_retain_boss_height,
+        ),
+        (
+            0.0,
+            -P.rear_slide_retain_boss_depth / 2.0,
+            P.rear_slide_retain_screw_z,
+        ),
+    )
+    boss -= cyl_y(
+        P.m4_heatset_pilot_diameter / 2.0,
+        P.rear_slide_retain_boss_depth + 2.0,
+        (0.0, -P.rear_slide_retain_boss_depth / 2.0, P.rear_slide_retain_screw_z),
+    )
+    panel += boss
+    return safe_chamfer(panel, 0.45)
+
+
+def make_rear_panel_detachable_bumpout_shell():
+    """Removable rear cable bump-out with straight vertical slide tongues."""
+    bw = P.rear_bumpout_width
+    bh = P.rear_bumpout_height
+    fw = P.rear_bumpout_face_width
+    fh = P.rear_bumpout_face_height
+    bd = P.rear_bumpout_depth
+    wall = P.rear_bumpout_wall_thickness
+    bz = P.rear_bumpout_center_z
+    base_y = P.rear_bumpout_detachable_base_gap
+
+    shell = tapered_xz_rect_loft(bw, bh, base_y, fw, fh, bd, bz)
+    shell -= tapered_xz_rect_loft(
+        bw - 2.0 * wall,
+        bh - 2.0 * wall,
+        base_y - 1.0,
+        fw - 2.0 * wall,
+        fh - 2.0 * wall,
+        bd - wall,
+        bz,
+    )
+    shell -= vertical_slot_y(
+        P.m4_clearance_diameter / 2.0,
+        P.rear_slide_retain_slot_height,
+        bd + 6.0,
+        (0.0, bd / 2.0, P.rear_slide_retain_screw_z),
+    )
+
+    tongue_z = P.rear_bumpout_center_z
+    head_center_y = (
+        P.rear_slide_face_clearance + P.rear_slide_head_depth / 2.0
+    )
+    head_y_max = P.rear_slide_face_clearance + P.rear_slide_head_depth
+    connector_y_min = head_y_max - 0.2
+    connector_y_max = bd - 0.4
+    connector_depth = connector_y_max - connector_y_min
+    for x in (-P.rear_slide_rail_x, P.rear_slide_rail_x):
+        head = box_at(
+            (
+                P.rear_slide_head_width,
+                P.rear_slide_head_depth,
+                P.rear_slide_tongue_height,
+            ),
+            (x, head_center_y, tongue_z),
+        )
+        connector = box_at(
+            (
+                P.rear_slide_neck_width,
+                connector_depth,
+                P.rear_slide_tongue_height,
+            ),
+            (x, (connector_y_min + connector_y_max) / 2.0, tongue_z),
+        )
+        shell = fused_shapes(shell, head, connector)
+
+    return safe_chamfer(shell, 0.45)
+
+
+def make_rear_panel_detachable_bumpout():
+    """Assembled preview of the compatible rear panel plus slide-on bump-out."""
+    return Compound(
+        children=[make_rear_panel_detachable_body(), make_rear_panel_detachable_bumpout_shell()],
+        label="erb_lower_chassis_rear_panel_detachable",
+    )
 
 
 def make_bottom_tray():
@@ -961,11 +1322,12 @@ def make_bottom_tray():
     # M5 heat-set pilot holes in side rails matching side plates.
     for x in (-w / 2.0 + side_rail_w / 2.0, w / 2.0 - side_rail_w / 2.0):
         for y in P.bottom_tray_mount_hole_y_positions:
-            tray -= cyl_x(
-                P.m5_heatset_pilot_diameter / 2.0,
-                P.bottom_tray_mount_hole_length,
-                (x, y, P.bottom_tray_mount_hole_z),
-            )
+            for z in P.bottom_tray_mount_hole_z_levels:
+                tray -= cyl_x(
+                    P.m5_heatset_pilot_diameter / 2.0,
+                    P.bottom_tray_mount_hole_length,
+                    (x, y, z),
+                )
 
     return tray
 
@@ -1055,17 +1417,32 @@ def make_top_lid():
 def make_equipment_shelf(
     side_cable_notches: bool = False,
     side_cable_notch_depth: float | None = None,
+    side_cable_notch_length: float | None = None,
     end_cable_notches: bool = False,
+    end_cable_notch_depth: float | None = None,  # Separate depth for end notches
+    end_cable_notch_length: float | None = None,
+    width: float | None = None,
+    depth: float | None = None,
+    mount_slot_length: float | None = None,
 ):
-    w = P.shelf_width
-    d = P.shelf_depth
+    w = P.shelf_width if width is None else width
+    d = P.shelf_depth if depth is None else depth
     t = P.shelf_thickness
     shelf = box_at((w, d, t), (0.0, 0.0, t / 2.0))
 
     # M4 clearance holes align to the side-plate shelf ledges.
     for x in (-P.shelf_side_hole_x, P.shelf_side_hole_x):
         for y in (-P.shelf_side_hole_y, P.shelf_side_hole_y):
-            shelf -= cyl_z(P.m4_clearance_diameter / 2.0, 22.0, (x, y, t / 2.0))
+            if mount_slot_length is None:
+                shelf -= cyl_z(P.m4_clearance_diameter / 2.0, 22.0, (x, y, t / 2.0))
+            else:
+                shelf -= horizontal_slot_z(
+                    P.m4_clearance_diameter / 2.0,
+                    mount_slot_length,
+                    mount_slot_length,
+                    22.0,
+                    (x, y, t / 2.0),
+                )
 
     # Open center wiring channels while leaving flat equipment space.
     for x in (-36.0, 0.0, 36.0):
@@ -1077,7 +1454,11 @@ def make_equipment_shelf(
             if side_cable_notch_depth is None
             else side_cable_notch_depth
         )
-        notch_length = P.shelf_side_cable_notch_length
+        notch_length = (
+            P.shelf_side_cable_notch_length
+            if side_cable_notch_length is None
+            else side_cable_notch_length
+        )
         for side in (-1, 1):
             shelf -= box_at(
                 (notch_depth, notch_length, t + 4.0),
@@ -1087,10 +1468,14 @@ def make_equipment_shelf(
     if end_cable_notches:
         notch_depth = (
             P.shelf_side_cable_notch_depth
-            if side_cable_notch_depth is None
-            else side_cable_notch_depth
+            if end_cable_notch_depth is None
+            else end_cable_notch_depth
         )
-        notch_length = P.shelf_side_cable_notch_length
+        notch_length = (
+            P.shelf_side_cable_notch_length
+            if end_cable_notch_length is None
+            else end_cable_notch_length
+        )
         for side in (-1, 1):
             shelf -= box_at(
                 (notch_length, notch_depth, t + 4.0),
@@ -1387,9 +1772,9 @@ def bbox_dims(shape) -> tuple[float, float, float]:
 
 def assert_printable(name: str, shape) -> None:
     dims = bbox_dims(shape)
-    if any(dim > 250.0 for dim in dims):
+    if any(dim > 256.05 for dim in dims):
         rounded = tuple(round(d, 2) for d in dims)
-        raise ValueError(f"{name} exceeds 250 mm build volume: {rounded}")
+        raise ValueError(f"{name} exceeds 256 mm P2S build volume: {rounded}")
 
 
 def export_shape(shape, filename: str) -> Path:
@@ -1413,6 +1798,11 @@ def build_parts():
         "right_side_plate": make_side_plate(inward=-1),
         "front_panel": make_end_panel(inward_y=1, cable_panel=False),
         "rear_panel": make_rear_panel_bumpout(),
+        "rear_panel_body": make_rear_panel_body_for_bumpout(),
+        "rear_panel_bumpout": make_rear_panel_bumpout_shell(),
+        "rear_panel_detachable": make_rear_panel_detachable_bumpout(),
+        "rear_panel_detachable_body": make_rear_panel_detachable_body(),
+        "rear_panel_detachable_bumpout": make_rear_panel_detachable_bumpout_shell(),
         "rear_panel_vented": make_end_panel(inward_y=-1, cable_panel=True),
         "bottom_tray": make_bottom_tray(),
         "top_lid": make_top_lid(),
@@ -1427,6 +1817,29 @@ def build_parts():
             side_cable_notches=True,
             side_cable_notch_depth=P.shelf_side_cable_notch_shallow_depth,
             end_cable_notches=True,
+            end_cable_notch_depth=P.shelf_side_cable_notch_shallow_depth,  # Shallow on all four sides
+        ),
+        "equipment_shelf_service_fit": make_equipment_shelf(
+            side_cable_notches=True,
+            side_cable_notch_depth=P.service_shelf_side_relief_depth,
+            side_cable_notch_length=P.service_shelf_side_relief_length,
+            # NO end notches - deep 36mm end cutouts would disconnect geometry
+            # Side reliefs alone provide needed wheel-side hardware clearance
+            width=P.service_shelf_width,
+            depth=P.service_shelf_depth,
+            # Fixed: removed absurd 14mm mount_slot_length - use simple M4 clearance holes
+        ),
+        "equipment_shelf_service_fit_four_way": make_equipment_shelf(
+            side_cable_notches=True,
+            side_cable_notch_depth=P.service_shelf_side_relief_depth,
+            side_cable_notch_length=P.service_shelf_side_relief_length,
+            # Shallow front/back end notches for cable access (like four_way_cable_shallow)
+            end_cable_notches=True,
+            end_cable_notch_depth=P.shelf_side_cable_notch_shallow_depth,
+            end_cable_notch_length=P.shelf_side_cable_notch_length,
+            width=P.service_shelf_width,
+            depth=P.service_shelf_depth,
+            # Fixed: removed absurd 14mm mount_slot_length - use simple M4 clearance holes
         ),
         "shelf_spacer_block_55mm": make_shelf_spacer_block(),
         "upper_wide_center_adapter_deck": make_upper_wide_center_adapter_deck(),
@@ -1477,12 +1890,19 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         f"Axle cartridge retention flange: {P.insert_retainer_flange_width:.1f} W x {P.insert_retainer_flange_height:.1f} H x {P.insert_retainer_flange_thickness:.1f} mm thick",
         f"Axle tab-washer relief pocket: {P.axle_tab_washer_relief_width:.1f} mm lateral x {P.axle_tab_washer_relief_height:.1f} mm vertical x {P.axle_tab_washer_relief_depth:.1f} mm deep, off one left/right side of the axle profile on the washer/nut-side cartridge face",
         f"Fit-safe cross-part envelope: {P.internal_width:.1f} W x {P.internal_depth:.1f} D mm",
-        f"Front/rear side-rail M5 heat-set pilots: {P.m5_heatset_pilot_diameter:.1f} mm diameter x {P.front_rear_panel_m5_pilot_cut_length:.1f} mm through-cut at Z "
+        f"Front/rear top retention M5 heat-set pilots: {P.m5_heatset_pilot_diameter:.1f} mm diameter x {P.front_rear_panel_m5_pilot_cut_length:.1f} mm through-cut at Z "
         + ", ".join(f"{z:.0f}" for z in SIDE_SCREW_Z_LEVELS),
-        f"Stopped front/rear panel dovetails: male rails {P.panel_dovetail_depth:.1f} mm deep, {P.panel_dovetail_neck_width:.1f}/{P.panel_dovetail_head_width:.1f} mm neck/head, side-plate slots carry {P.panel_dovetail_clearance:.2f} mm clearance per side and stop {P.panel_dovetail_stop_height:.1f} mm above the bottom",
+        f"Stopped front/rear panel dovetails: male rails {P.panel_dovetail_depth:.1f} mm deep, {P.panel_dovetail_neck_width:.1f}/{P.panel_dovetail_head_width:.1f} mm neck/head, side-plate slots carry {P.panel_dovetail_clearance:.2f} mm clearance per side, {P.panel_dovetail_root_relief_radius:.1f} mm female root reliefs, and stop {P.panel_dovetail_stop_height:.1f} mm above the bottom",
         f"Bottom tray panel-to-panel span: {P.internal_width:.1f} W x {P.bottom_tray_depth:.1f} D mm",
+        "Bottom tray M5 side mounts: "
+        + f"{len(P.bottom_tray_mount_hole_y_positions) * len(P.bottom_tray_mount_hole_z_levels)} per side at Y "
+        + "/".join(f"{y:.0f}" for y in P.bottom_tray_mount_hole_y_positions)
+        + " mm and Z "
+        + "/".join(f"{z:.0f}" for z in P.bottom_tray_mount_hole_z_levels)
+        + " mm",
         f"Top lid footprint: {P.top_lid_width:.1f} W x {P.top_lid_depth:.1f} D mm",
-        f"Rear panel: no vents, tapered hollow cable pocket from {P.rear_bumpout_width:.1f} W x {P.rear_bumpout_height:.1f} H at the panel to {P.rear_bumpout_face_width:.1f} W x {P.rear_bumpout_face_height:.1f} H at the blank outer face, {P.rear_bumpout_depth:.1f} mm deep",
+        f"Rear panel: no vents, two-solid colorable tapered hollow cable pocket from {P.rear_bumpout_width:.1f} W x {P.rear_bumpout_height:.1f} H at the panel to {P.rear_bumpout_face_width:.1f} W x {P.rear_bumpout_face_height:.1f} H at the blank outer face, {P.rear_bumpout_depth:.1f} mm deep, {P.rear_bumpout_wall_thickness:.1f} mm wall, {P.rear_bumpout_body_overlap:.1f} mm body overlap",
+        f"Alternate detachable rear panel: uses loosened male side dovetails {P.rear_detachable_panel_dovetail_depth:.2f} mm deep, {P.rear_detachable_panel_dovetail_neck_width:.1f}/{P.rear_detachable_panel_dovetail_head_width:.1f} mm neck/head against the unchanged side-chassis female slots, and a top-down vertical slide-on cable bump-out cartridge using two attached straight receiver channels at X +/-{P.rear_slide_rail_x:.1f} mm, PETG-friendly {P.rear_slide_side_clearance:.2f} mm side clearance and {P.rear_slide_face_clearance:.2f} mm front/back capture clearance, molded-in bottom/top support webbing, bottom stops at Z {P.rear_slide_channel_z_min:.1f} mm, and one M4 retaining slot near the top to prevent upward motion",
         f"Integrated battery tray floor: flush underside, {P.battery_tray_recess_width:.1f} W x {P.battery_tray_recess_length:.1f} D x {P.battery_tray_recess_floor_thickness:.1f} H mm",
         f"Integrated battery lanes: two {P.integrated_battery_lane_length:.1f} L x {P.integrated_battery_lane_width:.1f} W mm lanes for two {P.battery_measured_length:.0f} x {P.battery_measured_width:.0f} x {P.battery_measured_height:.0f} mm packs",
         f"Outer battery retaining ribs: {P.integrated_battery_outer_rib_width:.1f} W x {P.integrated_battery_outer_rib_length:.1f} L x {P.integrated_battery_outer_rib_height:.1f} H mm, shortened clear of the bottom-tray screw holes",
@@ -1497,6 +1917,8 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         f"Deep side-cable shelf variant: two side-edge notches, {P.shelf_side_cable_notch_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
         f"Shallow side-cable shelf variant: two side-edge notches, {P.shelf_side_cable_notch_shallow_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
         f"Default four-way shallow cable shelf variant: four centered edge notches, {P.shelf_side_cable_notch_shallow_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
+        f"Service-fit shelf variant: {P.service_shelf_width:.1f} W x {P.service_shelf_depth:.1f} D x {P.shelf_thickness:.1f} H mm with the same X/Y +/-{P.shelf_side_hole_x:.0f}/{P.shelf_side_hole_y:.0f} mm mount centers, simple M4 clearance holes (fixed: removed absurd 14mm slots), and deep side reliefs ({P.service_shelf_side_relief_depth:.1f}mm) for wheel-side hardware",
+        f"Service-fit four-way shelf variant: same {P.service_shelf_width:.1f} W x {P.service_shelf_depth:.1f} D size but with shallow front/back end notches ({P.shelf_side_cable_notch_shallow_depth:.1f}mm deep) for four-way cable access like the standard four_way variant",
         "Default four-way shallow equipment shelf assembly levels: "
         + ", ".join(f"Z={level:.1f} mm" for level in (*P.shelf_z_levels, THIRD_SHELF_Z)),
         "Side-plate shelf ledge levels: "
@@ -1522,9 +1944,11 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             "",
             "Screw sizes assumed:",
             f"- M5 structural screws: {P.m5_clearance_diameter:.1f} mm clearance, {P.m5_heatset_pilot_diameter:.1f} mm heat-set pilot pockets, {P.m5_washer_counterbore_diameter:.1f} mm washer/counterbore relief",
-            f"- Front/rear panels have M5 heat-set pilot holes in their side rails at X +/-{P.internal_width / 2.0 - P.front_rear_panel_side_rail_width / 2.0:.0f} mm and Z "
+            f"- Front/rear panels have a single top M5 heat-set pilot hole in each inboard retention boss at X +/-{P.internal_width / 2.0 - P.front_rear_panel_side_rail_width / 2.0:.0f} mm and Z "
             + ", ".join(f"{z:.0f}" for z in SIDE_SCREW_Z_LEVELS)
-            + "; these line up with the side-panel clearance holes at Y +/-111 mm.",
+            + "; these line up with the side-panel top retention clearance holes at Y "
+            + "/".join(f"{y:.0f}" for y in front_rear_panel_retention_y_positions())
+            + " mm.",
             f"- M4 service/electronics screws: {P.m4_clearance_diameter:.1f} mm clearance",
             f"- M3 electronics/IMU screws: {P.m3_clearance_diameter:.1f} mm clearance",
             "",
@@ -1540,7 +1964,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             "Assumptions made:",
             "- Coordinate convention: X is robot width, Y is front/rear depth, Z is vertical.",
             f"- The {P.center_box_outer_width:.0f} mm center_box_outer_width is the structural side-plate outside-to-outside width; axle cartridge inserts run through the full reinforced side-plate boss thickness.",
-            f"- Cross panels and trays use a {P.internal_width:.0f} x {P.internal_depth:.0f} mm fit-safe envelope to clear side-plate rails and axle bosses.",
+            f"- Cross panels and trays use a {P.internal_width:.0f} x {P.internal_depth:.0f} mm fit-safe envelope to clear side-plate rails and axle bosses; the side chassis depth is now {P.box_depth:.0f} mm to support the deeper stopped-dovetail rails.",
             f"- The top lid is now a top cap spanning {P.top_lid_width:.0f} x {P.top_lid_depth:.0f} mm; its underside locating lip stays inside the fit-safe envelope.",
             "- Front and rear panels extend to the 240 mm side-plate top plane so they meet the top cap without a visible top gap.",
             "- Top lid screw holes align over side-wall top-rail M4 heat-set pilot pockets.",
@@ -1549,7 +1973,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             f"- Axle inserts include a shallow tab-washer pocket on the washer/nut-side cartridge face: {P.axle_tab_washer_relief_width:.0f} mm lateral x {P.axle_tab_washer_relief_height:.0f} mm vertical x {P.axle_tab_washer_relief_depth:.1f} mm deep, placed off one left/right side of the axle profile with {P.axle_tab_washer_relief_radial_clearance:.1f} mm clearance.",
             f"- Axle insert bodies are {P.insert_thickness:.0f} mm thick to match the reinforced boss depth. The right-side insert is rotated in the assembly so the same printable STEP is used on both sides with the flange facing outward.",
             f"- Axle bosses, ribs, and side rails are capped at {P.reinforced_boss_total_thickness:.0f} mm total local side-plate thickness so the support stack is flush with the raised side-wall rails.",
-            f"- The wide-over-wheel architecture is now shown as a Stage 2 blockout in the main assembly: a {P.upper_module_overall_width:.0f} mm wide upper module located above the 10 inch wheel tops, with all individual printable pieces kept under 250 mm in their largest dimension.",
+            f"- The wide-over-wheel architecture is now shown as a Stage 2 blockout in the main assembly: a {P.upper_module_overall_width:.0f} mm wide upper module located above the 10 inch wheel tops, with all individual printable pieces kept within the 256 mm P2S build volume.",
             f"- The upper blockout uses a {P.upper_module_center_width:.0f} mm center compute bay for BOSGAME/GPU packaging studies and two side pods over the wheels for power distribution, ESP32, fuses, buck converters, and wiring channels.",
             f"- The active upper skeleton now uses a stacked adapter-deck architecture instead of J-hooks: center adapter deck -> over-wheel wing decks -> upper compute bay.",
             f"- The center adapter deck sits directly on the lower 240 mm side-plate top plane at Z {P.upper_adapter_deck_z:.0f} mm. The two over-wheel wing decks sit one layer above it at Z {P.upper_adapter_deck_z + P.upper_adapter_deck_thickness:.0f} mm and overlap inward to the existing X +/-{P.upper_crossmember_center_hole_x:.0f} mm lower side-rail bolt line.",
@@ -1558,17 +1982,20 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             "- The upper center bay remains open at left/right so later side pod walls can turn the wide upper structure into one continuous internal volume for large compute hardware.",
             "- The previous dome prototype STEP files remain exported for reference, but the main lower chassis assembly no longer places the dome; the wide-over-wheel blockout is now the active top architecture.",
             f"- The four-way shallow cable shelf is used three times in the assembly at Z {P.shelf_z_levels[0]:.0f} mm, Z {P.shelf_z_levels[1]:.0f} mm, and Z {THIRD_SHELF_Z:.0f} mm.",
-            "- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text.",
+            "- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text. It exports as a two-solid compound so Bambu Studio can assign the rear body and bump-out different filament colors while preserving the same positioned geometry.",
+            "- `erb_lower_chassis_rear_panel_body.step` and `erb_lower_chassis_rear_panel_bumpout.step` are also exported separately for slicer workflows that prefer importing the two color bodies as individual files. The bump-out shell overlaps the rear body by 0.2 mm.",
+            f"- `erb_lower_chassis_rear_panel_detachable.step` is an alternate assembled preview with loosened male side dovetails ({P.rear_detachable_panel_dovetail_depth:.2f} mm deep, {P.rear_detachable_panel_dovetail_neck_width:.1f}/{P.rear_detachable_panel_dovetail_head_width:.1f} mm neck/head) for the already-printed side-chassis female slots. It changes the bump-out into a separate top-down vertical slide-on cartridge. `erb_lower_chassis_rear_panel_detachable_body.step` contains the rear panel plus two straight receiver channels tied into the panel by molded-in bottom/top support webbing and bottom stops. `erb_lower_chassis_rear_panel_detachable_bumpout.step` contains the removable open-backed shell with matching hidden vertical tongues and one M4 retaining slot near the top. The removable shell keeps the same outer face depth as the default bump-out instead of adding another spacer layer behind it.",
             "- `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.",
-            "- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.",
+            f"- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges; `erb_equipment_shelf_service_fit.step` is the looser {P.service_shelf_width:.0f} x {P.service_shelf_depth:.0f} mm test shelf with simple M4 clearance holes (fixed: removed absurd 14mm slots) and deep side reliefs for wheel-side hardware; `erb_equipment_shelf_service_fit_four_way.step` is the same service-fit size but with shallow front/back end notches ({P.shelf_side_cable_notch_shallow_depth:.0f}mm deep) for four-way cable access like the standard four_way variant.",
             f"- `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z {P.shelf_side_ledge_z_levels[1]:.0f} mm instead of spacer blocks.",
             "- The lower shelf remains shown at Z 74 mm for packaging context, but its colliding side-plate ledges have been removed; future bottom-tray spacer posts should carry that shelf.",
             "- The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.",
             f"- Side-plate shelf ledges now exist only at Z {P.shelf_side_ledge_z_levels[0]:.0f} mm and Z {P.shelf_side_ledge_z_levels[1]:.0f} mm, with M4 shelf holes at X +/-{P.shelf_side_hole_x:.0f} mm and Y +/-{P.shelf_side_hole_y:.0f} mm.",
             f"- Side-plate shelf ledge pads overlap {P.shelf_side_ledge_wall_overlap:.0f} mm into the side wall, leave the center axle/wheel gap open, and use split triangular gussets offset +/-{P.shelf_side_gusset_bolt_clearance_offset:.0f} mm from each mounting hole so the bolt path remains accessible; the former first-level ledges were removed to clear the integrated bottom tray.",
-            f"- Front/rear panels now slide down from the top on stopped dovetail rails into matching side-chassis slots. The stops are {P.panel_dovetail_stop_height:.0f} mm above the bottom; existing screw paths remain cut through the panel-side rail/tail zone for retention experiments.",
+            f"- Front/rear panels now slide down from the top on stopped dovetail rails into matching side-chassis slots. The side chassis depth is {P.box_depth:.0f} mm and the front/rear rail depth is {P.front_rear_panel_side_rail_depth:.0f} mm, leaving about {P.front_rear_panel_side_rail_depth / 2.0 - (P.panel_dovetail_head_width + 2.0 * P.panel_dovetail_clearance) / 2.0:.2f} mm of plastic outside the slot head. Female slot roots have {P.panel_dovetail_root_relief_radius:.1f} mm relief radii. Only one top M5 retention screw per panel side remains at Z {SIDE_SCREW_Z_LEVELS[0]:.0f} mm, moved to an inboard top boss instead of cutting through the dovetail profile.",
             f"- The old removable battery cassette is replaced in the active assembly by the integrated bottom tray/cage. The separate cassette generator is kept only as legacy code and is not exported or placed.",
             f"- The integrated tray uses a {P.battery_tray_recess_floor_thickness:.0f} mm full floor, {P.integrated_battery_outer_rib_width:.0f} mm outer ribs set {P.integrated_battery_outer_offset:.0f} mm in from the 144 mm inside bottleneck, and a full-length {P.integrated_center_spine_outer_width:.0f} mm center electronics spine with a {P.integrated_imu_pad_size:.0f} mm wide top deck at Z={P.integrated_center_spine_height:.0f} mm.",
+            "- The integrated bottom tray is retained to each side chassis with four M5 screws: front/rear pairs at the lower floor level and upper battery-tray tower level.",
             f"- The front/rear battery cage bridges have {P.integrated_bridge_underside_z - P.battery_tray_recess_floor_thickness - P.battery_measured_height:.0f} mm battery height clearance and {P.shelf_z_levels[0] - (P.integrated_bridge_underside_z + P.integrated_bridge_thickness):.0f} mm clearance below the lower equipment shelf.",
             "- The bottom tray raised side rails are split into front/rear towers to avoid the central axle boss zone; the over-battery bridges are carried by the original screw-hole pillars plus local center-riser supports under the bridge spans.",
             "- The actual motor shaft is modeled as a double-D axle profile using diameter plus flat-to-flat dimensions.",

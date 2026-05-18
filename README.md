@@ -4,10 +4,39 @@ This project contains the active wider/taller lower chassis for Erb, a two-wheel
 
 Current work is Stage 1 only: the lower structural chassis box around the wheels, axle mounts, and two generic flat equipment shelves.
 
+## Project Setup
+
+Use Python 3.11 or newer. A local virtual environment is recommended:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install pytest
+```
+
+Install the CAD runtime used by the generator in that environment if it is not already available:
+
+```bash
+python -m pip install build123d
+```
+
+Optional machine-specific tool paths can be set in the environment or in a local `.env` copied from `.env.example`:
+
+- `TEXT_TO_CAD_ROOT`
+- `TEXT_TO_CAD_PYTHON`
+- `FREECAD_CMD`
+
+Run the unit tests after setup and after every code change:
+
+```bash
+python -m pytest
+```
+
 ## Generate STEP Files
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python cad/erb_lower_chassis.py
+python cad/erb_lower_chassis.py
 ```
 
 Generated files are written to:
@@ -20,13 +49,13 @@ Generated files are written to:
 Mirror the generated STEP files into the local text-to-cad app and generate the viewer sidecars:
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python scripts/sync_text_to_cad.py
+python scripts/sync_text_to_cad.py
 ```
 
 Then start CAD Explorer if it is not already running:
 
 ```bash
-cd /Users/jfurr/text-to-cad/viewer
+cd "${TEXT_TO_CAD_ROOT:-$HOME/BLR/text-to-cad}/viewer"
 npm run dev:ensure
 ```
 
@@ -34,6 +63,7 @@ Open:
 
 ```text
 http://127.0.0.1:4178/?dir=models/erb_balance_bot/stage1_lower_chassis&file=erb_lower_chassis_assembly.step
+http://127.0.0.1:4178/?dir=models/erb_balance_bot&file=erb_lower_chassis_assembly.step
 ```
 
 The Bambu Studio STEP files remain in this project under `exports/step/`. The text-to-cad copy is a viewer mirror.
@@ -43,7 +73,7 @@ The Bambu Studio STEP files remain in this project under `exports/step/`. The te
 Run the assembly interference checker before printing:
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python scripts/check_assembly_interference.py
+python scripts/check_assembly_interference.py
 ```
 
 It writes:
@@ -62,9 +92,17 @@ Generate or refresh the STEP files first, then run:
 scripts/export_freecad.sh
 ```
 
+Set `FREECAD_CMD=/path/to/freecadcmd` if FreeCAD is not discoverable on `PATH`.
+
 The FreeCAD documents are written to:
 
 - `exports/freecad/erb_lower_chassis_assembly.FCStd`
 - `exports/freecad/erb_lower_chassis_print_layout.FCStd`
 
-The persistent project notes are in `CODEX_CONTEXT.md`.
+## Local Tool Configuration
+
+The scripts are intended to work on Linux and macOS. Optional machine-specific paths can be set in the environment or in a local `.env` copied from `.env.example`:
+
+- `TEXT_TO_CAD_ROOT`
+- `TEXT_TO_CAD_PYTHON`
+- `FREECAD_CMD`

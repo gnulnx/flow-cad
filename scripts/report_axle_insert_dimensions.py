@@ -3,7 +3,7 @@
 
 Run with FreeCAD's Python:
 
-    /Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd -c \
+    ${FREECAD_CMD:-freecadcmd} -c \
       "g={'__file__':'scripts/report_axle_insert_dimensions.py','__name__':'__main__'}; exec(open('scripts/report_axle_insert_dimensions.py').read(), g)"
 
 The report intentionally measures the exported STEP topology instead of only

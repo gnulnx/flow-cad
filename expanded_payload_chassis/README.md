@@ -53,5 +53,3 @@ It writes:
 - `reports/interference_step/*.step` for each detected overlap volume
 
 The checker exits non-zero when it finds solid overlaps above the configured threshold.
-
-The persistent project notes are in `CODEX_CONTEXT.md`.
