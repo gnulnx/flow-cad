@@ -8,10 +8,10 @@ The project is productive but operating more like an active design notebook than
 
 The right next move is not a broad rewrite. The right next move is to put a professional operating layer around the current workflow:
 
-- one authoritative workstation workflow;
-- one command that validates the design before print handoff;
+- one portable workflow that runs on workstation or laptop;
+- one command that validates the design before print handoff on any machine;
 - a small pytest suite for cheap geometry invariants;
-- a print handoff manifest for the laptop/Bambu Studio path;
+- a print handoff manifest for Bambu Studio and cross-machine transfer;
 - a lean Codex/agent instruction file so future sessions stop burning tokens rediscovering the project;
 - a slower modular refactor only after the current generator is protected by tests.
 
@@ -48,7 +48,7 @@ This is a physical robot CAD project. The professional flow should optimize for:
 
 1. **Traceability:** know which source generated which STEP files.
 2. **Cheap checks first:** catch dimensional and connectivity mistakes before opening FreeCAD or Bambu Studio.
-3. **One authoritative source:** workstation generates CAD; laptop consumes print-ready STEP/3MF bundles.
+3. **One authoritative source:** the repo generates CAD with repo-relative paths; the workstation is the normal heavy-work machine, but the laptop can still check out, run Codex, generate, validate, and iterate.
 4. **Small context for agents:** future Codex sessions should start from a concise workflow contract, not the whole design diary.
 5. **No architecture heroics before tests:** refactor only after the existing behavior is pinned by validation.
 
@@ -91,17 +91,51 @@ This is the highest leverage Codex-credit fix.
 
 It should be short, maybe 80-120 lines, and say:
 
-- Workstation is authoritative for generation.
+- The repo is authoritative; workstation is the normal heavy-generation machine, and laptop must remain a supported checkout.
 - Do not reread all of `CODEX_CONTEXT.md` unless the task needs design history.
 - For active geometry facts, inspect `cad/erb_lower_chassis.py` and current reports first.
 - Before any printable change, run the validation command.
 - Never edit generated STEP/3MF files by hand.
-- Keep laptop/Bambu handoff as exported artifacts only.
+- Keep Bambu handoff as exported artifacts and dated bundles, while still allowing laptop-side source iteration when dependencies are configured.
 - Prefer updating a concise changelog or manifest over appending large prose to `CODEX_CONTEXT.md`.
 
 This will reduce repeated agent rediscovery more than a `SKILL.md` alone. A Codex skill is useful later if the workflow becomes reusable across repos, but this repo first needs local operating instructions.
 
-### 2. Add One Validation Command
+### 2. Add Portable Path and Environment Handling
+
+The project should not depend on `/home/gnulnx/...`, `/Users/jfurr/...`, or `/Applications/FreeCAD.app/...` being true. Those are machine facts, not project facts.
+
+Recommended approach:
+
+- Derive project paths from `Path(__file__).resolve().parents[...]`.
+- Use environment variables for external tools:
+  - `TEXT_TO_CAD_ROOT`
+  - `TEXT_TO_CAD_PYTHON`
+  - `FREECAD_CMD`
+- Support an ignored local config file such as `.env` or `.erb-cad.local.toml`.
+- Keep a committed example file such as `.env.example`.
+- Fail with clear messages when an optional external tool is missing.
+
+Example `.env.example`:
+
+```bash
+# Optional. Defaults should work if text-to-cad is under ~/BLR/text-to-cad.
+TEXT_TO_CAD_ROOT=~/BLR/text-to-cad
+TEXT_TO_CAD_PYTHON=~/BLR/text-to-cad/.venv/bin/python
+
+# Optional. Set per machine if FreeCAD exports are needed.
+FREECAD_CMD=/path/to/freecadcmd
+```
+
+The repo should work in three modes:
+
+- **Core mode:** generate STEP files and run Python validations.
+- **Viewer mode:** additionally mirror to text-to-cad if configured.
+- **FreeCAD mode:** additionally export `.FCStd` files if `FREECAD_CMD` exists.
+
+This lets the workstation stay the main place for long CAD work while still letting the laptop check out the repo, run Codex, make a quick change, regenerate the relevant STEP files, and continue.
+
+### 3. Add One Validation Command
 
 Create `scripts/validate_all.py` or a `Makefile` target that runs the project checks in the right order:
 
@@ -112,9 +146,9 @@ python scripts/check_assembly_interference.py --no-overlap-steps
 python scripts/check_upper_hook_geometry.py
 ```
 
-FreeCAD-only checks can be optional because they are environment-specific. The key is that Codex and the user both have one command to trust before print handoff.
+FreeCAD-only checks should be optional because they are environment-specific. The key is that Codex and the user both have one command to trust before print handoff on either machine.
 
-### 3. Add Minimal pytest Coverage
+### 4. Add Minimal pytest Coverage
 
 Do not start by moving files. Start by testing the current file.
 
@@ -130,9 +164,9 @@ Good first tests:
 
 These tests will be much faster than full STEP generation and will stop future agents from breaking known mechanical contracts.
 
-### 4. Create `PRINT_MANIFEST.md`
+### 5. Create `PRINT_MANIFEST.md`
 
-The laptop should not need the whole repo. It should receive a small dated bundle and a note.
+The laptop can operate from a full checkout, but it should not need to guess which files are print candidates. It should also be able to receive a small dated bundle and a note when the workstation produced the artifacts.
 
 Example:
 
@@ -157,7 +191,7 @@ Do not print:
 
 That one file will prevent a lot of “which STEP is current?” discussion.
 
-### 5. Clean Generated and Local Junk Policy
+### 6. Clean Generated and Local Junk Policy
 
 The repo currently tracks Python bytecode and includes local artifacts such as `.DS_Store`, FreeCAD backups, STEP sidecars, and large slicer files. Some generated artifacts are useful to track, but the policy should be explicit.
 
@@ -167,8 +201,9 @@ Recommended policy:
 - Do not track `__pycache__`, `.pyc`, `.DS_Store`, swap files, viewer sidecars, or FreeCAD `.FCBak` backups.
 - Treat `.3mf` as handoff artifacts. Track only intentional named snapshots, not every temporary slicer file.
 - Add `.gitignore` and then clean tracked junk in a separate commit.
+- Ignore `.env` and `.erb-cad.local.toml`; commit only example config files.
 
-### 6. Stop Duplicating Export Lists
+### 7. Stop Duplicating Export Lists
 
 There are now multiple places that need to know the active STEP set. That causes misses.
 
@@ -264,6 +299,14 @@ make bundle NAME=service-shelf-fit
 make sync-viewer
 ```
 
+Each command should be path-portable. If a command needs a non-repo dependency, it should discover it in this order:
+
+1. explicit CLI argument;
+2. environment variable;
+3. ignored local config file;
+4. common platform defaults;
+5. clear error with the exact variable to set.
+
 ### Add `AGENTS.md` Sections
 
 Recommended headings:
@@ -293,13 +336,14 @@ If you do create a skill, it should not contain all project history. It should t
 
 The clean operating model:
 
-1. Workstation owns source, generation, validation, and artifact bundling.
-2. `scripts/print_bundle.py` creates a dated folder under `exports/print_bundles/`.
-3. The bundle contains only the STEP/3MF files intended for Bambu Studio plus a small manifest.
-4. Laptop receives that bundle, not the full repo.
-5. Any slicer changes that matter get recorded back into `PRINT_MANIFEST.md` or a dated print note.
+1. The git repo is portable and can be checked out on workstation or laptop.
+2. Workstation is the normal heavy CAD generation and validation machine.
+3. Laptop can still run Codex, edit source, generate STEP files, and validate when dependencies are installed or configured.
+4. `scripts/print_bundle.py` creates a dated folder under `exports/print_bundles/` for Bambu Studio transfer.
+5. The bundle contains only the STEP/3MF files intended for Bambu Studio plus a small manifest.
+6. Any slicer changes that matter get recorded back into `PRINT_MANIFEST.md` or a dated print note.
 
-This keeps CAD source control and slicer experimentation separate.
+This keeps CAD source control and slicer experimentation separate without making the laptop a second-class checkout.
 
 ## QWEN Document Assessment
 
@@ -321,11 +365,13 @@ This keeps CAD source control and slicer experimentation separate.
 
 1. Add `.gitignore`.
 2. Add `AGENTS.md`.
-3. Add `pyproject.toml` with pytest config.
-4. Add `scripts/validate_all.py`.
-5. Add `PRINT_MANIFEST.md`.
-6. Add tests that import the current generator and validate registry/assembly invariants.
-7. Run the full validation flow once and record the result.
+3. Add `.env.example` and optional local-config loading.
+4. Replace hardcoded FreeCAD/text-to-cad paths with portable discovery.
+5. Add `pyproject.toml` with pytest config.
+6. Add `scripts/validate_all.py`.
+7. Add `PRINT_MANIFEST.md`.
+8. Add tests that import the current generator and validate registry/assembly invariants.
+9. Run the full validation flow once on workstation and a lightweight validation flow on laptop.
 
 That is the smallest change set that makes the project feel like software without disrupting the CAD work.
 
