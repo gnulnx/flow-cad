@@ -11,7 +11,8 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-TEXT_TO_CAD_ROOT = Path(os.environ.get("TEXT_TO_CAD_ROOT", "/Users/jfurr/text-to-cad")).expanduser()
+DEFAULT_TEXT_TO_CAD_ROOT = Path.home() / "BLR" / "text-to-cad"
+TEXT_TO_CAD_ROOT = Path(os.environ.get("TEXT_TO_CAD_ROOT", str(DEFAULT_TEXT_TO_CAD_ROOT))).expanduser()
 TEXT_TO_CAD_PYTHON = Path(
     os.environ.get("TEXT_TO_CAD_PYTHON", str(TEXT_TO_CAD_ROOT / ".venv" / "bin" / "python"))
 ).expanduser()
@@ -37,6 +38,22 @@ def require_path(path: Path, label: str) -> None:
         raise FileNotFoundError(f"{label} not found: {path}")
 
 
+def remove_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def sidecar_source_name(path: Path) -> str | None:
+    if not path.name.startswith("."):
+        return None
+    name = path.name[1:]
+    if name.endswith(".glb"):
+        return name[:-4]
+    return name
+
+
 def generate_project_steps() -> None:
     require_path(TEXT_TO_CAD_PYTHON, "text-to-cad Python")
     generator = PROJECT_ROOT / "cad" / "erb_esp32_wroom_holder.py"
@@ -54,33 +71,31 @@ def copy_steps_to_viewer() -> Path:
     for path in dest_dir.glob("erb_esp32_wroom*.step"):
         if path.name not in active_files:
             path.unlink()
-    for sidecar in dest_dir.glob(".erb_esp32_wroom*.step"):
-        if sidecar.name[1:] not in active_files and sidecar.is_dir():
-            shutil.rmtree(sidecar)
+    for sidecar in dest_dir.glob(".erb_esp32_wroom*"):
+        if sidecar_source_name(sidecar) not in active_files:
+            remove_path(sidecar)
 
     for filename in STEP_FILENAMES:
         source = source_dir / filename
         require_path(source, f"STEP source {filename}")
-        sidecar = dest_dir / f".{filename}"
-        if sidecar.exists():
-            shutil.rmtree(sidecar)
+        for sidecar in (dest_dir / f".{filename}", dest_dir / f".{filename}.glb"):
+            if sidecar.exists():
+                remove_path(sidecar)
         shutil.copy2(source, dest_dir / filename)
 
     return dest_dir
 
 
 def generate_viewer_assets(dest_dir: Path) -> None:
-    gen_part = TEXT_TO_CAD_ROOT / "skills" / "cad" / "scripts" / "gen_step_part"
-    gen_assembly = TEXT_TO_CAD_ROOT / "skills" / "cad" / "scripts" / "gen_step_assembly"
-    require_path(gen_part, "text-to-cad gen_step_part")
-    require_path(gen_assembly, "text-to-cad gen_step_assembly")
+    step_cli = TEXT_TO_CAD_ROOT / "skills" / "cad" / "scripts" / "step"
+    require_path(step_cli, "text-to-cad STEP generator")
 
     for filename in STEP_FILENAMES:
         target = dest_dir / filename
         if filename == ASSEMBLY_FILENAME:
-            run([TEXT_TO_CAD_PYTHON, gen_assembly, target, "--summary"], cwd=TEXT_TO_CAD_ROOT)
+            run([TEXT_TO_CAD_PYTHON, step_cli, "--kind", "assembly", target], cwd=TEXT_TO_CAD_ROOT)
         else:
-            run([TEXT_TO_CAD_PYTHON, gen_part, target, "--summary"], cwd=TEXT_TO_CAD_ROOT)
+            run([TEXT_TO_CAD_PYTHON, step_cli, "--kind", "part", target], cwd=TEXT_TO_CAD_ROOT)
 
 
 def main() -> int:

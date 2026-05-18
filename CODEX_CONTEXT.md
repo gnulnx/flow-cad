@@ -59,25 +59,25 @@ Vertical zones:
 Generate STEP files from this project directory:
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python cad/erb_lower_chassis.py
+~/BLR/text-to-cad/.venv/bin/python cad/erb_lower_chassis.py
 ```
 
 Run the interference checker:
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python scripts/check_assembly_interference.py
+~/BLR/text-to-cad/.venv/bin/python scripts/check_assembly_interference.py
 ```
 
 Run the mounting feature checker after battery tray or shelf-support changes:
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python scripts/check_mounting_features.py
+~/BLR/text-to-cad/.venv/bin/python scripts/check_mounting_features.py
 ```
 
 Run the upper adapter-deck stack geometry checker after changing the wide upper module deck/wing stack:
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python scripts/check_upper_hook_geometry.py
+~/BLR/text-to-cad/.venv/bin/python scripts/check_upper_hook_geometry.py
 ```
 
 Export the current full-bot FreeCAD assembly document:
@@ -104,25 +104,26 @@ FreeCAD outputs:
 Mirror this project to text-to-cad:
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python scripts/sync_text_to_cad.py
+~/BLR/text-to-cad/.venv/bin/python scripts/sync_text_to_cad.py
 ```
 
 Generate the ESP32-WROOM holder accessory:
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python cad/erb_esp32_wroom_holder.py
+~/BLR/text-to-cad/.venv/bin/python cad/erb_esp32_wroom_holder.py
 ```
 
 Mirror the ESP32-WROOM holder to text-to-cad:
 
 ```bash
-/Users/jfurr/text-to-cad/.venv/bin/python scripts/sync_esp32_to_text_to_cad.py
+~/BLR/text-to-cad/.venv/bin/python scripts/sync_esp32_to_text_to_cad.py
 ```
 
 Viewer URL:
 
 ```text
 http://127.0.0.1:4178/?dir=models/erb_balance_bot/stage1_lower_chassis&file=erb_lower_chassis_assembly.step
+http://127.0.0.1:4178/?dir=models/erb_balance_bot&file=erb_lower_chassis_assembly.step
 ```
 
 ## Active STEP Set
