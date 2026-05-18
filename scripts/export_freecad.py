@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Create FreeCAD documents for the current full Erb assembly.
 
-Run with FreeCAD's Python runtime:
+Run with FreeCAD's Python runtime, usually through scripts/export_freecad.sh:
 
-    /Applications/FreeCAD.app/Contents/MacOS/FreeCAD -c scripts/export_freecad.py
+    FREECAD_CMD=/path/to/freecadcmd scripts/export_freecad.sh
 """
 
 from __future__ import annotations

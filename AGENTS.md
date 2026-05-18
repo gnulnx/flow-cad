@@ -36,31 +36,31 @@ Keep the repo portable across workstation and laptop.
 Generate the active chassis STEP files:
 
 ```bash
-~/BLR/text-to-cad/.venv/bin/python cad/erb_lower_chassis.py
+python cad/erb_lower_chassis.py
 ```
 
 Run assembly interference validation:
 
 ```bash
-~/BLR/text-to-cad/.venv/bin/python scripts/check_assembly_interference.py
+python scripts/check_assembly_interference.py
 ```
 
 Run mounting feature validation:
 
 ```bash
-~/BLR/text-to-cad/.venv/bin/python scripts/check_mounting_features.py
+python scripts/check_mounting_features.py
 ```
 
 Run upper adapter-deck stack validation:
 
 ```bash
-~/BLR/text-to-cad/.venv/bin/python scripts/check_upper_hook_geometry.py
+python scripts/check_upper_hook_geometry.py
 ```
 
 Mirror STEP files to text-to-cad viewer:
 
 ```bash
-~/BLR/text-to-cad/.venv/bin/python scripts/sync_text_to_cad.py
+python scripts/sync_text_to_cad.py
 ```
 
 Export FreeCAD documents when FreeCAD is available:
@@ -69,7 +69,7 @@ Export FreeCAD documents when FreeCAD is available:
 scripts/export_freecad.sh
 ```
 
-These commands should be made more portable over time. Until then, inspect existing scripts before assuming the command works unchanged on every machine.
+Use `.env`, `TEXT_TO_CAD_ROOT`, `TEXT_TO_CAD_PYTHON`, or `FREECAD_CMD` when a machine needs non-default external tool paths.
 
 ## Validation Rules
 

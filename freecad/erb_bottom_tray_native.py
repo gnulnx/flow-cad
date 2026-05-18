@@ -3,7 +3,7 @@
 
 Run from FreeCAD:
 
-    /Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd freecad/erb_bottom_tray_native.py
+    FREECAD_CMD=/path/to/freecadcmd freecad/generate_native_parts.sh
 
 This is intentionally a FreeCAD-native construction file, not a STEP import.
 The feature tree is made from editable Part boxes/cylinders and booleans so

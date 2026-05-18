@@ -3,7 +3,7 @@
 
 Run from FreeCAD:
 
-    /Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd freecad/erb_bottom_tray_part_design.py
+    FREECAD_CMD=/path/to/freecadcmd freecad/generate_native_parts.sh
 
 This document is intentionally different from erb_bottom_tray_native.FCStd:
 it uses one active Part Design Body with named additive/subtractive primitive

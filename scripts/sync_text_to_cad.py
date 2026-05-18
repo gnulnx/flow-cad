@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import subprocess
 import sys
@@ -12,11 +11,14 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_TEXT_TO_CAD_ROOT = Path.home() / "BLR" / "text-to-cad"
-TEXT_TO_CAD_ROOT = Path(os.environ.get("TEXT_TO_CAD_ROOT", str(DEFAULT_TEXT_TO_CAD_ROOT))).expanduser()
-TEXT_TO_CAD_PYTHON = Path(
-    os.environ.get("TEXT_TO_CAD_PYTHON", str(TEXT_TO_CAD_ROOT / ".venv" / "bin" / "python"))
-).expanduser()
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from erb_cad.paths import require_existing, resolve_tool_config  # noqa: E402
+
+
+TOOL_CONFIG = resolve_tool_config(PROJECT_ROOT)
+TEXT_TO_CAD_ROOT = TOOL_CONFIG.text_to_cad_root
+TEXT_TO_CAD_PYTHON = TOOL_CONFIG.text_to_cad_python
 VIEWER_REL_DIR = Path("models/erb_balance_bot/stage1_lower_chassis")
 ASSEMBLY_VIEWER_REL_DIR = Path("models/erb_balance_bot")
 
@@ -69,8 +71,7 @@ def run(command: list[str | Path], cwd: Path) -> None:
 
 
 def require_path(path: Path, label: str) -> None:
-    if not path.exists():
-        raise FileNotFoundError(f"{label} not found: {path}")
+    require_existing(path, label)
 
 
 def remove_path(path: Path) -> None:
@@ -90,7 +91,7 @@ def sidecar_source_name(path: Path) -> str | None:
 
 
 def generate_project_steps() -> None:
-    require_path(TEXT_TO_CAD_PYTHON, "text-to-cad Python")
+    require_existing(TEXT_TO_CAD_PYTHON, "text-to-cad Python", env_var="TEXT_TO_CAD_PYTHON")
     generators = [
         PROJECT_ROOT / "cad" / "erb_lower_chassis.py",
         PROJECT_ROOT / "cad" / "erb_top_dome.py",
@@ -163,8 +164,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    require_path(TEXT_TO_CAD_ROOT, "text-to-cad root")
-    require_path(TEXT_TO_CAD_PYTHON, "text-to-cad Python")
+    require_existing(TEXT_TO_CAD_ROOT, "text-to-cad root", env_var="TEXT_TO_CAD_ROOT")
+    require_existing(TEXT_TO_CAD_PYTHON, "text-to-cad Python", env_var="TEXT_TO_CAD_PYTHON")
 
     if not args.skip_cad_generate:
         generate_project_steps()

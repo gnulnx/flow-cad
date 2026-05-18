@@ -7,7 +7,7 @@ Current work is Stage 1 only: the lower structural chassis box around the wheels
 ## Generate STEP Files
 
 ```bash
-~/BLR/text-to-cad/.venv/bin/python cad/erb_lower_chassis.py
+python cad/erb_lower_chassis.py
 ```
 
 Generated files are written to:
@@ -20,13 +20,13 @@ Generated files are written to:
 Mirror the generated STEP files into the local text-to-cad app and generate the viewer sidecars:
 
 ```bash
-~/BLR/text-to-cad/.venv/bin/python scripts/sync_text_to_cad.py
+python scripts/sync_text_to_cad.py
 ```
 
 Then start CAD Explorer if it is not already running:
 
 ```bash
-cd ~/BLR/text-to-cad/viewer
+cd "${TEXT_TO_CAD_ROOT:-$HOME/BLR/text-to-cad}/viewer"
 npm run dev:ensure
 ```
 
@@ -44,7 +44,7 @@ The Bambu Studio STEP files remain in this project under `exports/step/`. The te
 Run the assembly interference checker before printing:
 
 ```bash
-~/BLR/text-to-cad/.venv/bin/python scripts/check_assembly_interference.py
+python scripts/check_assembly_interference.py
 ```
 
 It writes:
@@ -63,9 +63,19 @@ Generate or refresh the STEP files first, then run:
 scripts/export_freecad.sh
 ```
 
+Set `FREECAD_CMD=/path/to/freecadcmd` if FreeCAD is not discoverable on `PATH`.
+
 The FreeCAD documents are written to:
 
 - `exports/freecad/erb_lower_chassis_assembly.FCStd`
 - `exports/freecad/erb_lower_chassis_print_layout.FCStd`
 
 The persistent project notes are in `CODEX_CONTEXT.md`.
+
+## Local Tool Configuration
+
+The scripts are intended to work on Linux and macOS. Optional machine-specific paths can be set in the environment or in a local `.env` copied from `.env.example`:
+
+- `TEXT_TO_CAD_ROOT`
+- `TEXT_TO_CAD_PYTHON`
+- `FREECAD_CMD`
