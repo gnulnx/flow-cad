@@ -23,7 +23,7 @@ Stopped front/rear panel dovetails: male rails 10.0 mm deep, 9.0/15.0 mm neck/he
 Bottom tray panel-to-panel span: 180.0 W x 204.0 D mm
 Bottom tray M5 side mounts: 4 per side at Y -82/82 mm and Z 16/58 mm
 Top lid footprint: 240.0 W x 256.0 D mm
-Rear panel: no vents, tapered hollow cable pocket from 132.0 W x 192.0 H at the panel to 104.0 W x 164.0 H at the blank outer face, 22.0 mm deep
+Rear panel: no vents, two-solid colorable tapered hollow cable pocket from 132.0 W x 192.0 H at the panel to 104.0 W x 164.0 H at the blank outer face, 22.0 mm deep, 3.2 mm wall, 0.2 mm body overlap
 Integrated battery tray floor: flush underside, 180.0 W x 204.0 D x 10.0 H mm
 Integrated battery lanes: two 164.0 L x 51.0 W mm lanes for two 155 x 50 x 50 mm packs
 Outer battery retaining ribs: 2.0 W x 148.0 L x 7.0 H mm, shortened clear of the bottom-tray screw holes
@@ -75,6 +75,8 @@ Exported STEP files:
 - exports/step/erb_lower_chassis_front_panel.step
 - exports/step/erb_lower_chassis_left_side_plate.step
 - exports/step/erb_lower_chassis_rear_panel.step
+- exports/step/erb_lower_chassis_rear_panel_body.step
+- exports/step/erb_lower_chassis_rear_panel_bumpout.step
 - exports/step/erb_lower_chassis_rear_panel_vented.step
 - exports/step/erb_lower_chassis_right_side_plate.step
 - exports/step/erb_lower_chassis_top_lid.step
@@ -111,7 +113,8 @@ Assumptions made:
 - The upper center bay remains open at left/right so later side pod walls can turn the wide upper structure into one continuous internal volume for large compute hardware.
 - The previous dome prototype STEP files remain exported for reference, but the main lower chassis assembly no longer places the dome; the wide-over-wheel blockout is now the active top architecture.
 - The four-way shallow cable shelf is used three times in the assembly at Z 74 mm, Z 122 mm, and Z 183 mm.
-- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text.
+- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text. It exports as a two-solid compound so Bambu Studio can assign the rear body and bump-out different filament colors while preserving the same positioned geometry.
+- `erb_lower_chassis_rear_panel_body.step` and `erb_lower_chassis_rear_panel_bumpout.step` are also exported separately for slicer workflows that prefer importing the two color bodies as individual files. The bump-out shell overlaps the rear body by 0.2 mm.
 - `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.
 - `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.
 - `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z 183 mm instead of spacer blocks.

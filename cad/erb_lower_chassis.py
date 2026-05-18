@@ -150,6 +150,7 @@ class ChassisParams:
     rear_bumpout_center_z: float = 120.0
     rear_bumpout_depth: float = 22.0
     rear_bumpout_wall_thickness: float = 3.2
+    rear_bumpout_body_overlap: float = 0.2
     battery_measured_length: float = 155.0
     battery_measured_width: float = 50.0
     battery_measured_height: float = 50.0
@@ -259,6 +260,8 @@ PART_FILENAMES = {
     "right_side_plate": "erb_lower_chassis_right_side_plate.step",
     "front_panel": "erb_lower_chassis_front_panel.step",
     "rear_panel": "erb_lower_chassis_rear_panel.step",
+    "rear_panel_body": "erb_lower_chassis_rear_panel_body.step",
+    "rear_panel_bumpout": "erb_lower_chassis_rear_panel_bumpout.step",
     "rear_panel_vented": "erb_lower_chassis_rear_panel_vented.step",
     "bottom_tray": "erb_lower_chassis_bottom_tray.step",
     "top_lid": "erb_lower_chassis_top_lid.step",
@@ -831,8 +834,8 @@ def make_end_panel(inward_y: int, cable_panel: bool):
     return safe_chamfer(panel, 0.7)
 
 
-def make_rear_panel_bumpout():
-    """Rear service panel variant with no vents and a hollow cable bump-out."""
+def make_rear_panel_body_for_bumpout():
+    """Rear service panel body with the bump-out pocket opening cut through it."""
     w = P.internal_width
     h = P.front_rear_panel_height
     t = P.wall_thickness
@@ -872,9 +875,6 @@ def make_rear_panel_bumpout():
     panel += box_at((w, 14.0, 18.0), (0.0, rail_y, 9.0))
     panel += box_at((w, 14.0, 18.0), (0.0, rail_y, h - 9.0))
 
-    # The bump-out protrudes outside the rear face and is hollow/open on the
-    # chassis interior side, creating a local cable pocket without through vents.
-    # It tapers to a smaller blank outer face so Bambu Studio can add logo text.
     bw = P.rear_bumpout_width
     bh = P.rear_bumpout_height
     fw = P.rear_bumpout_face_width
@@ -882,7 +882,6 @@ def make_rear_panel_bumpout():
     bd = P.rear_bumpout_depth
     wall = P.rear_bumpout_wall_thickness
     bz = P.rear_bumpout_center_z
-    panel += tapered_xz_rect_loft(bw, bh, 0.0, fw, fh, bd, bz)
     cavity_min_y = -t - 1.0
     cavity_max_y = bd - wall
     panel -= tapered_xz_rect_loft(
@@ -896,6 +895,40 @@ def make_rear_panel_bumpout():
     )
 
     return safe_chamfer(panel, 0.7)
+
+
+def make_rear_panel_bumpout_shell():
+    """Separate rear bump-out shell for two-color slicer assignment."""
+    bw = P.rear_bumpout_width
+    bh = P.rear_bumpout_height
+    fw = P.rear_bumpout_face_width
+    fh = P.rear_bumpout_face_height
+    bd = P.rear_bumpout_depth
+    wall = P.rear_bumpout_wall_thickness
+    bz = P.rear_bumpout_center_z
+    overlap = P.rear_bumpout_body_overlap
+
+    # The shell overlaps 0.2 mm into the rear panel so Bambu Studio can keep
+    # this as a separate colorable part while the print still fuses cleanly.
+    shell = tapered_xz_rect_loft(bw, bh, -overlap, fw, fh, bd, bz)
+    shell -= tapered_xz_rect_loft(
+        bw - 2.0 * wall,
+        bh - 2.0 * wall,
+        -P.wall_thickness - 1.0,
+        fw - 2.0 * wall,
+        fh - 2.0 * wall,
+        bd - wall,
+        bz,
+    )
+    return safe_chamfer(shell, 0.7)
+
+
+def make_rear_panel_bumpout():
+    """Two-solid rear panel: body plus separate hollow cable bump-out."""
+    return Compound(
+        children=[make_rear_panel_body_for_bumpout(), make_rear_panel_bumpout_shell()],
+        label="erb_lower_chassis_rear_panel",
+    )
 
 
 def make_bottom_tray():
@@ -1445,6 +1478,8 @@ def build_parts():
         "right_side_plate": make_side_plate(inward=-1),
         "front_panel": make_end_panel(inward_y=1, cable_panel=False),
         "rear_panel": make_rear_panel_bumpout(),
+        "rear_panel_body": make_rear_panel_body_for_bumpout(),
+        "rear_panel_bumpout": make_rear_panel_bumpout_shell(),
         "rear_panel_vented": make_end_panel(inward_y=-1, cable_panel=True),
         "bottom_tray": make_bottom_tray(),
         "top_lid": make_top_lid(),
@@ -1520,7 +1555,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         + "/".join(f"{z:.0f}" for z in P.bottom_tray_mount_hole_z_levels)
         + " mm",
         f"Top lid footprint: {P.top_lid_width:.1f} W x {P.top_lid_depth:.1f} D mm",
-        f"Rear panel: no vents, tapered hollow cable pocket from {P.rear_bumpout_width:.1f} W x {P.rear_bumpout_height:.1f} H at the panel to {P.rear_bumpout_face_width:.1f} W x {P.rear_bumpout_face_height:.1f} H at the blank outer face, {P.rear_bumpout_depth:.1f} mm deep",
+        f"Rear panel: no vents, two-solid colorable tapered hollow cable pocket from {P.rear_bumpout_width:.1f} W x {P.rear_bumpout_height:.1f} H at the panel to {P.rear_bumpout_face_width:.1f} W x {P.rear_bumpout_face_height:.1f} H at the blank outer face, {P.rear_bumpout_depth:.1f} mm deep, {P.rear_bumpout_wall_thickness:.1f} mm wall, {P.rear_bumpout_body_overlap:.1f} mm body overlap",
         f"Integrated battery tray floor: flush underside, {P.battery_tray_recess_width:.1f} W x {P.battery_tray_recess_length:.1f} D x {P.battery_tray_recess_floor_thickness:.1f} H mm",
         f"Integrated battery lanes: two {P.integrated_battery_lane_length:.1f} L x {P.integrated_battery_lane_width:.1f} W mm lanes for two {P.battery_measured_length:.0f} x {P.battery_measured_width:.0f} x {P.battery_measured_height:.0f} mm packs",
         f"Outer battery retaining ribs: {P.integrated_battery_outer_rib_width:.1f} W x {P.integrated_battery_outer_rib_length:.1f} L x {P.integrated_battery_outer_rib_height:.1f} H mm, shortened clear of the bottom-tray screw holes",
@@ -1598,7 +1633,8 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             "- The upper center bay remains open at left/right so later side pod walls can turn the wide upper structure into one continuous internal volume for large compute hardware.",
             "- The previous dome prototype STEP files remain exported for reference, but the main lower chassis assembly no longer places the dome; the wide-over-wheel blockout is now the active top architecture.",
             f"- The four-way shallow cable shelf is used three times in the assembly at Z {P.shelf_z_levels[0]:.0f} mm, Z {P.shelf_z_levels[1]:.0f} mm, and Z {THIRD_SHELF_Z:.0f} mm.",
-            "- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text.",
+            "- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text. It exports as a two-solid compound so Bambu Studio can assign the rear body and bump-out different filament colors while preserving the same positioned geometry.",
+            "- `erb_lower_chassis_rear_panel_body.step` and `erb_lower_chassis_rear_panel_bumpout.step` are also exported separately for slicer workflows that prefer importing the two color bodies as individual files. The bump-out shell overlaps the rear body by 0.2 mm.",
             "- `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.",
             "- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.",
             f"- `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z {P.shelf_side_ledge_z_levels[1]:.0f} mm instead of spacer blocks.",

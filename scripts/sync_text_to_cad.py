@@ -23,6 +23,8 @@ STEP_FILENAMES = [
     "erb_lower_chassis_right_side_plate.step",
     "erb_lower_chassis_front_panel.step",
     "erb_lower_chassis_rear_panel.step",
+    "erb_lower_chassis_rear_panel_body.step",
+    "erb_lower_chassis_rear_panel_bumpout.step",
     "erb_lower_chassis_rear_panel_vented.step",
     "erb_lower_chassis_bottom_tray.step",
     "erb_lower_chassis_top_lid.step",
