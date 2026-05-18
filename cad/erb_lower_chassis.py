@@ -118,6 +118,11 @@ class ChassisParams:
     shelf_side_cable_notch_depth: float = 46.0
     shelf_side_cable_notch_shallow_depth: float = 23.0
     shelf_side_cable_notch_length: float = 84.0
+    service_shelf_width: float = 170.0
+    service_shelf_depth: float = 188.0
+    service_shelf_mount_slot_length: float = 14.0
+    service_shelf_side_relief_depth: float = 36.0
+    service_shelf_side_relief_length: float = 128.0
     shelf_spacer_block_width: float = 20.0
     shelf_spacer_block_depth: float = 50.0
     shelf_spacer_block_height: float = 55.0
@@ -132,6 +137,9 @@ class ChassisParams:
     panel_dovetail_neck_width: float = 9.0
     panel_dovetail_head_width: float = 15.0
     panel_dovetail_clearance: float = 0.25
+    rear_detachable_panel_dovetail_depth: float = 9.25
+    rear_detachable_panel_dovetail_neck_width: float = 8.0
+    rear_detachable_panel_dovetail_head_width: float = 14.0
     panel_dovetail_stop_height: float = 8.0
     panel_dovetail_root_relief_radius: float = 1.0
     vent_slot_centers_x: tuple[float, ...] = (-38.0, -19.0, 0.0, 19.0, 38.0)
@@ -300,6 +308,7 @@ PART_FILENAMES = {
     "equipment_shelf_side_cable": "erb_equipment_shelf_side_cable.step",
     "equipment_shelf_side_cable_shallow": "erb_equipment_shelf_side_cable_shallow.step",
     "equipment_shelf_four_way_cable_shallow": "erb_equipment_shelf_four_way_cable_shallow.step",
+    "equipment_shelf_service_fit": "erb_equipment_shelf_service_fit.step",
     "shelf_spacer_block_55mm": "erb_shelf_spacer_block_55mm.step",
     "upper_wide_center_adapter_deck": "erb_upper_wide_center_adapter_deck.step",
     "upper_wide_center_compute_bay": "erb_upper_wide_center_compute_bay.step",
@@ -325,9 +334,9 @@ ASSEMBLY_PLACEMENTS = [
     ("front_panel", "front_panel", (0.0, -P.box_depth / 2.0, 0.0)),
     ("rear_panel", "rear_panel", (0.0, P.box_depth / 2.0, 0.0)),
     ("bottom_tray", "bottom_tray", (0.0, 0.0, 0.0)),
-    ("lower_equipment_shelf", "equipment_shelf_four_way_cable_shallow", (0.0, 0.0, P.shelf_z_levels[0])),
-    ("upper_equipment_shelf", "equipment_shelf_four_way_cable_shallow", (0.0, 0.0, P.shelf_z_levels[1])),
-    ("third_equipment_shelf", "equipment_shelf_four_way_cable_shallow", (0.0, 0.0, THIRD_SHELF_Z)),
+    ("lower_equipment_shelf", "equipment_shelf_service_fit", (0.0, 0.0, P.shelf_z_levels[0])),
+    ("upper_equipment_shelf", "equipment_shelf_service_fit", (0.0, 0.0, P.shelf_z_levels[1])),
+    ("third_equipment_shelf", "equipment_shelf_service_fit", (0.0, 0.0, THIRD_SHELF_Z)),
     (
         "left_axle_insert_medium",
         "axle_insert_medium",
@@ -404,6 +413,33 @@ def vertical_slot_y(radius: float, height_z: float, length_y: float, center: tup
     slot = box_at((2.0 * radius, length_y, height_z - 2.0 * radius), center)
     slot += cyl_y(radius, length_y, (x, y, z - height_z / 2.0 + radius))
     slot += cyl_y(radius, length_y, (x, y, z + height_z / 2.0 - radius))
+    return slot
+
+
+def horizontal_slot_z(
+    radius: float,
+    length_x: float,
+    length_y: float,
+    cut_height: float,
+    center: tuple[float, float, float],
+):
+    """Create a rounded rectangular through-slot cutting along Z."""
+    x, y, z = center
+    length_x = max(length_x, 2.0 * radius)
+    length_y = max(length_y, 2.0 * radius)
+    slot = box_at((length_x, length_y - 2.0 * radius, cut_height), center)
+    slot += box_at((length_x - 2.0 * radius, length_y, cut_height), center)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            slot += cyl_z(
+                radius,
+                cut_height,
+                (
+                    x + sx * (length_x / 2.0 - radius),
+                    y + sy * (length_y / 2.0 - radius),
+                    z,
+                ),
+            )
     return slot
 
 
@@ -890,12 +926,23 @@ def make_end_panel(inward_y: int, cable_panel: bool):
     return safe_chamfer(panel, 0.7)
 
 
-def make_rear_panel_body_for_bumpout():
+def make_rear_panel_body_for_bumpout(
+    dovetail_depth: float | None = None,
+    dovetail_neck_width: float | None = None,
+    dovetail_head_width: float | None = None,
+):
     """Rear service panel body with the bump-out pocket opening cut through it."""
     w = P.internal_width
     h = P.front_rear_panel_height
     t = P.wall_thickness
     inward_y = -1
+    dovetail_depth = P.panel_dovetail_depth if dovetail_depth is None else dovetail_depth
+    dovetail_neck_width = (
+        P.panel_dovetail_neck_width if dovetail_neck_width is None else dovetail_neck_width
+    )
+    dovetail_head_width = (
+        P.panel_dovetail_head_width if dovetail_head_width is None else dovetail_head_width
+    )
 
     panel = box_at((w, t, h), (0.0, inward_y * t / 2.0, h / 2.0))
     rail_y = inward_y * (P.front_rear_panel_side_rail_depth / 2.0)
@@ -921,9 +968,9 @@ def make_rear_panel_body_for_bumpout():
             side=side,
             base_x=side * w / 2.0,
             center_y=rail_y,
-            depth=P.panel_dovetail_depth,
-            neck_width=P.panel_dovetail_neck_width,
-            head_width=P.panel_dovetail_head_width,
+            depth=dovetail_depth,
+            neck_width=dovetail_neck_width,
+            head_width=dovetail_head_width,
             z_min=P.panel_dovetail_stop_height,
             z_max=h,
         )
@@ -1031,7 +1078,7 @@ def make_rear_slide_receiver(center_x: float):
             z_min - P.rear_slide_stop_height / 2.0,
         ),
     )
-    return safe_chamfer(receiver, 0.35)
+    return safe_chamfer(receiver, 0.15)
 
 
 def make_rear_slide_support_webs():
@@ -1083,7 +1130,11 @@ def make_rear_slide_support_webs():
 
 def make_rear_panel_detachable_body():
     """Rear panel body with attached vertical slide receiver channels."""
-    panel = make_rear_panel_body_for_bumpout()
+    panel = make_rear_panel_body_for_bumpout(
+        dovetail_depth=P.rear_detachable_panel_dovetail_depth,
+        dovetail_neck_width=P.rear_detachable_panel_dovetail_neck_width,
+        dovetail_head_width=P.rear_detachable_panel_dovetail_head_width,
+    )
     panel += make_rear_slide_support_webs()
 
     for x in (-P.rear_slide_rail_x, P.rear_slide_rail_x):
@@ -1138,7 +1189,7 @@ def make_rear_panel_detachable_bumpout_shell():
         (0.0, bd / 2.0, P.rear_slide_retain_screw_z),
     )
 
-    tongue_z = P.rear_bumpout_center_z + P.rear_bumpout_detachable_base_gap
+    tongue_z = P.rear_bumpout_center_z
     head_center_y = (
         P.rear_slide_face_clearance + P.rear_slide_head_depth / 2.0
     )
@@ -1365,17 +1416,31 @@ def make_top_lid():
 def make_equipment_shelf(
     side_cable_notches: bool = False,
     side_cable_notch_depth: float | None = None,
+    side_cable_notch_length: float | None = None,
     end_cable_notches: bool = False,
+    end_cable_notch_length: float | None = None,
+    width: float | None = None,
+    depth: float | None = None,
+    mount_slot_length: float | None = None,
 ):
-    w = P.shelf_width
-    d = P.shelf_depth
+    w = P.shelf_width if width is None else width
+    d = P.shelf_depth if depth is None else depth
     t = P.shelf_thickness
     shelf = box_at((w, d, t), (0.0, 0.0, t / 2.0))
 
     # M4 clearance holes align to the side-plate shelf ledges.
     for x in (-P.shelf_side_hole_x, P.shelf_side_hole_x):
         for y in (-P.shelf_side_hole_y, P.shelf_side_hole_y):
-            shelf -= cyl_z(P.m4_clearance_diameter / 2.0, 22.0, (x, y, t / 2.0))
+            if mount_slot_length is None:
+                shelf -= cyl_z(P.m4_clearance_diameter / 2.0, 22.0, (x, y, t / 2.0))
+            else:
+                shelf -= horizontal_slot_z(
+                    P.m4_clearance_diameter / 2.0,
+                    mount_slot_length,
+                    mount_slot_length,
+                    22.0,
+                    (x, y, t / 2.0),
+                )
 
     # Open center wiring channels while leaving flat equipment space.
     for x in (-36.0, 0.0, 36.0):
@@ -1387,7 +1452,11 @@ def make_equipment_shelf(
             if side_cable_notch_depth is None
             else side_cable_notch_depth
         )
-        notch_length = P.shelf_side_cable_notch_length
+        notch_length = (
+            P.shelf_side_cable_notch_length
+            if side_cable_notch_length is None
+            else side_cable_notch_length
+        )
         for side in (-1, 1):
             shelf -= box_at(
                 (notch_depth, notch_length, t + 4.0),
@@ -1400,7 +1469,11 @@ def make_equipment_shelf(
             if side_cable_notch_depth is None
             else side_cable_notch_depth
         )
-        notch_length = P.shelf_side_cable_notch_length
+        notch_length = (
+            P.shelf_side_cable_notch_length
+            if end_cable_notch_length is None
+            else end_cable_notch_length
+        )
         for side in (-1, 1):
             shelf -= box_at(
                 (notch_length, notch_depth, t + 4.0),
@@ -1743,6 +1816,16 @@ def build_parts():
             side_cable_notch_depth=P.shelf_side_cable_notch_shallow_depth,
             end_cable_notches=True,
         ),
+        "equipment_shelf_service_fit": make_equipment_shelf(
+            side_cable_notches=True,
+            side_cable_notch_depth=P.service_shelf_side_relief_depth,
+            side_cable_notch_length=P.service_shelf_side_relief_length,
+            end_cable_notches=True,
+            end_cable_notch_length=P.shelf_side_cable_notch_length,
+            width=P.service_shelf_width,
+            depth=P.service_shelf_depth,
+            mount_slot_length=P.service_shelf_mount_slot_length,
+        ),
         "shelf_spacer_block_55mm": make_shelf_spacer_block(),
         "upper_wide_center_adapter_deck": make_upper_wide_center_adapter_deck(),
         "upper_wide_center_compute_bay": make_upper_wide_center_compute_bay(),
@@ -1804,7 +1887,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         + " mm",
         f"Top lid footprint: {P.top_lid_width:.1f} W x {P.top_lid_depth:.1f} D mm",
         f"Rear panel: no vents, two-solid colorable tapered hollow cable pocket from {P.rear_bumpout_width:.1f} W x {P.rear_bumpout_height:.1f} H at the panel to {P.rear_bumpout_face_width:.1f} W x {P.rear_bumpout_face_height:.1f} H at the blank outer face, {P.rear_bumpout_depth:.1f} mm deep, {P.rear_bumpout_wall_thickness:.1f} mm wall, {P.rear_bumpout_body_overlap:.1f} mm body overlap",
-        f"Alternate detachable rear panel: same side-panel dovetails and top M5 retention bosses, but the cable bump-out is a top-down vertical slide-on cartridge using two attached straight receiver channels at X +/-{P.rear_slide_rail_x:.1f} mm, PETG-friendly {P.rear_slide_side_clearance:.2f} mm side clearance and {P.rear_slide_face_clearance:.2f} mm front/back capture clearance, molded-in bottom/top support webbing, bottom stops at Z {P.rear_slide_channel_z_min:.1f} mm, and one M4 retaining slot near the top to prevent upward motion",
+        f"Alternate detachable rear panel: uses loosened male side dovetails {P.rear_detachable_panel_dovetail_depth:.2f} mm deep, {P.rear_detachable_panel_dovetail_neck_width:.1f}/{P.rear_detachable_panel_dovetail_head_width:.1f} mm neck/head against the unchanged side-chassis female slots, and a top-down vertical slide-on cable bump-out cartridge using two attached straight receiver channels at X +/-{P.rear_slide_rail_x:.1f} mm, PETG-friendly {P.rear_slide_side_clearance:.2f} mm side clearance and {P.rear_slide_face_clearance:.2f} mm front/back capture clearance, molded-in bottom/top support webbing, bottom stops at Z {P.rear_slide_channel_z_min:.1f} mm, and one M4 retaining slot near the top to prevent upward motion",
         f"Integrated battery tray floor: flush underside, {P.battery_tray_recess_width:.1f} W x {P.battery_tray_recess_length:.1f} D x {P.battery_tray_recess_floor_thickness:.1f} H mm",
         f"Integrated battery lanes: two {P.integrated_battery_lane_length:.1f} L x {P.integrated_battery_lane_width:.1f} W mm lanes for two {P.battery_measured_length:.0f} x {P.battery_measured_width:.0f} x {P.battery_measured_height:.0f} mm packs",
         f"Outer battery retaining ribs: {P.integrated_battery_outer_rib_width:.1f} W x {P.integrated_battery_outer_rib_length:.1f} L x {P.integrated_battery_outer_rib_height:.1f} H mm, shortened clear of the bottom-tray screw holes",
@@ -1819,6 +1902,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         f"Deep side-cable shelf variant: two side-edge notches, {P.shelf_side_cable_notch_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
         f"Shallow side-cable shelf variant: two side-edge notches, {P.shelf_side_cable_notch_shallow_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
         f"Default four-way shallow cable shelf variant: four centered edge notches, {P.shelf_side_cable_notch_shallow_depth:.1f} mm deep x {P.shelf_side_cable_notch_length:.1f} mm long",
+        f"Service-fit shelf variant: {P.service_shelf_width:.1f} W x {P.service_shelf_depth:.1f} D x {P.shelf_thickness:.1f} H mm with the same X/Y +/-{P.shelf_side_hole_x:.0f}/{P.shelf_side_hole_y:.0f} mm mount centers, {P.service_shelf_mount_slot_length:.1f} mm rounded-square M4 adjustment slots, {P.service_shelf_side_relief_depth:.1f} mm deep x {P.service_shelf_side_relief_length:.1f} mm long side reliefs to clear wheel-side hardware, and the original shallow end notches",
         "Default four-way shallow equipment shelf assembly levels: "
         + ", ".join(f"Z={level:.1f} mm" for level in (*P.shelf_z_levels, THIRD_SHELF_Z)),
         "Side-plate shelf ledge levels: "
@@ -1884,9 +1968,9 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             f"- The four-way shallow cable shelf is used three times in the assembly at Z {P.shelf_z_levels[0]:.0f} mm, Z {P.shelf_z_levels[1]:.0f} mm, and Z {THIRD_SHELF_Z:.0f} mm.",
             "- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text. It exports as a two-solid compound so Bambu Studio can assign the rear body and bump-out different filament colors while preserving the same positioned geometry.",
             "- `erb_lower_chassis_rear_panel_body.step` and `erb_lower_chassis_rear_panel_bumpout.step` are also exported separately for slicer workflows that prefer importing the two color bodies as individual files. The bump-out shell overlaps the rear body by 0.2 mm.",
-            "- `erb_lower_chassis_rear_panel_detachable.step` is an alternate assembled preview that keeps the same outer side-panel dovetails and top M5 retention bosses as the default rear panel, but changes the bump-out into a separate top-down vertical slide-on cartridge. `erb_lower_chassis_rear_panel_detachable_body.step` contains the rear panel plus two straight receiver channels tied into the panel by molded-in bottom/top support webbing and bottom stops. `erb_lower_chassis_rear_panel_detachable_bumpout.step` contains the removable open-backed shell with matching hidden vertical tongues and one M4 retaining slot near the top. The removable shell keeps the same outer face depth as the default bump-out instead of adding another spacer layer behind it.",
+            f"- `erb_lower_chassis_rear_panel_detachable.step` is an alternate assembled preview with loosened male side dovetails ({P.rear_detachable_panel_dovetail_depth:.2f} mm deep, {P.rear_detachable_panel_dovetail_neck_width:.1f}/{P.rear_detachable_panel_dovetail_head_width:.1f} mm neck/head) for the already-printed side-chassis female slots. It changes the bump-out into a separate top-down vertical slide-on cartridge. `erb_lower_chassis_rear_panel_detachable_body.step` contains the rear panel plus two straight receiver channels tied into the panel by molded-in bottom/top support webbing and bottom stops. `erb_lower_chassis_rear_panel_detachable_bumpout.step` contains the removable open-backed shell with matching hidden vertical tongues and one M4 retaining slot near the top. The removable shell keeps the same outer face depth as the default bump-out instead of adding another spacer layer behind it.",
             "- `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.",
-            "- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.",
+            f"- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges, and `erb_equipment_shelf_service_fit.step` is the looser {P.service_shelf_width:.0f} x {P.service_shelf_depth:.0f} mm test shelf with {P.service_shelf_mount_slot_length:.0f} mm rounded-square M4 adjustment slots and long side reliefs for wheel-side hardware.",
             f"- `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z {P.shelf_side_ledge_z_levels[1]:.0f} mm instead of spacer blocks.",
             "- The lower shelf remains shown at Z 74 mm for packaging context, but its colliding side-plate ledges have been removed; future bottom-tray spacer posts should carry that shelf.",
             "- The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.",

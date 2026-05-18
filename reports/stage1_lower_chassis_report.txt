@@ -24,7 +24,7 @@ Bottom tray panel-to-panel span: 180.0 W x 204.0 D mm
 Bottom tray M5 side mounts: 4 per side at Y -82/82 mm and Z 16/58 mm
 Top lid footprint: 240.0 W x 256.0 D mm
 Rear panel: no vents, two-solid colorable tapered hollow cable pocket from 132.0 W x 192.0 H at the panel to 104.0 W x 164.0 H at the blank outer face, 22.0 mm deep, 3.2 mm wall, 0.2 mm body overlap
-Alternate detachable rear panel: same side-panel dovetails and top M5 retention bosses, but the cable bump-out is a top-down vertical slide-on cartridge using two attached straight receiver channels at X +/-46.0 mm, PETG-friendly 0.45 mm side clearance and 0.40 mm front/back capture clearance, molded-in bottom/top support webbing, bottom stops at Z 40.0 mm, and one M4 retaining slot near the top to prevent upward motion
+Alternate detachable rear panel: uses loosened male side dovetails 9.25 mm deep, 8.0/14.0 mm neck/head against the unchanged side-chassis female slots, and a top-down vertical slide-on cable bump-out cartridge using two attached straight receiver channels at X +/-46.0 mm, PETG-friendly 0.45 mm side clearance and 0.40 mm front/back capture clearance, molded-in bottom/top support webbing, bottom stops at Z 40.0 mm, and one M4 retaining slot near the top to prevent upward motion
 Integrated battery tray floor: flush underside, 180.0 W x 204.0 D x 10.0 H mm
 Integrated battery lanes: two 164.0 L x 51.0 W mm lanes for two 155 x 50 x 50 mm packs
 Outer battery retaining ribs: 2.0 W x 148.0 L x 7.0 H mm, shortened clear of the bottom-tray screw holes
@@ -39,6 +39,7 @@ Flat equipment shelf footprint: 180.0 W x 200.0 D x 6.0 H mm
 Deep side-cable shelf variant: two side-edge notches, 46.0 mm deep x 84.0 mm long
 Shallow side-cable shelf variant: two side-edge notches, 23.0 mm deep x 84.0 mm long
 Default four-way shallow cable shelf variant: four centered edge notches, 23.0 mm deep x 84.0 mm long
+Service-fit shelf variant: 170.0 W x 188.0 D x 6.0 H mm with the same X/Y +/-75/75 mm mount centers, 14.0 mm rounded-square M4 adjustment slots, 36.0 mm deep x 128.0 mm long side reliefs to clear wheel-side hardware, and the original shallow end notches
 Default four-way shallow equipment shelf assembly levels: Z=74.0 mm, Z=122.0 mm, Z=183.0 mm
 Side-plate shelf ledge levels: Z=122.0 mm, Z=183.0 mm
 Third-shelf spacer block: 20.0 W x 50.0 D x 55.0 H mm with 4.5 mm through-clearance, exported as an optional legacy support but not placed in the active assembly
@@ -69,6 +70,7 @@ Exported STEP files:
 - exports/step/erb_axle_insert_tight.step
 - exports/step/erb_equipment_shelf.step
 - exports/step/erb_equipment_shelf_four_way_cable_shallow.step
+- exports/step/erb_equipment_shelf_service_fit.step
 - exports/step/erb_equipment_shelf_side_cable.step
 - exports/step/erb_equipment_shelf_side_cable_shallow.step
 - exports/step/erb_lower_chassis_assembly.step
@@ -119,9 +121,9 @@ Assumptions made:
 - The four-way shallow cable shelf is used three times in the assembly at Z 74 mm, Z 122 mm, and Z 183 mm.
 - `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text. It exports as a two-solid compound so Bambu Studio can assign the rear body and bump-out different filament colors while preserving the same positioned geometry.
 - `erb_lower_chassis_rear_panel_body.step` and `erb_lower_chassis_rear_panel_bumpout.step` are also exported separately for slicer workflows that prefer importing the two color bodies as individual files. The bump-out shell overlaps the rear body by 0.2 mm.
-- `erb_lower_chassis_rear_panel_detachable.step` is an alternate assembled preview that keeps the same outer side-panel dovetails and top M5 retention bosses as the default rear panel, but changes the bump-out into a separate top-down vertical slide-on cartridge. `erb_lower_chassis_rear_panel_detachable_body.step` contains the rear panel plus two straight receiver channels tied into the panel by molded-in bottom/top support webbing and bottom stops. `erb_lower_chassis_rear_panel_detachable_bumpout.step` contains the removable open-backed shell with matching hidden vertical tongues and one M4 retaining slot near the top. The removable shell keeps the same outer face depth as the default bump-out instead of adding another spacer layer behind it.
+- `erb_lower_chassis_rear_panel_detachable.step` is an alternate assembled preview with loosened male side dovetails (9.25 mm deep, 8.0/14.0 mm neck/head) for the already-printed side-chassis female slots. It changes the bump-out into a separate top-down vertical slide-on cartridge. `erb_lower_chassis_rear_panel_detachable_body.step` contains the rear panel plus two straight receiver channels tied into the panel by molded-in bottom/top support webbing and bottom stops. `erb_lower_chassis_rear_panel_detachable_bumpout.step` contains the removable open-backed shell with matching hidden vertical tongues and one M4 retaining slot near the top. The removable shell keeps the same outer face depth as the default bump-out instead of adding another spacer layer behind it.
 - `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.
-- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, and `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges.
+- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges, and `erb_equipment_shelf_service_fit.step` is the looser 170 x 188 mm test shelf with 14 mm rounded-square M4 adjustment slots and long side reliefs for wheel-side hardware.
 - `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z 183 mm instead of spacer blocks.
 - The lower shelf remains shown at Z 74 mm for packaging context, but its colliding side-plate ledges have been removed; future bottom-tray spacer posts should carry that shelf.
 - The front panel uses vertical ventilation slots; the current rear panel has no vents and uses the tapered cable bump-out.
