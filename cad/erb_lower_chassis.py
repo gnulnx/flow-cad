@@ -639,6 +639,13 @@ def make_side_plate(inward: int):
     return safe_chamfer(shape, 0.8)
 
 
+def panel_end_span_rib_depth(total_depth: float) -> float:
+    rib_depth = total_depth - P.wall_thickness
+    if rib_depth <= 0.0:
+        raise ValueError("Panel end span total depth must be greater than wall thickness")
+    return rib_depth
+
+
 def make_end_panel(inward_y: int, cable_panel: bool):
     if inward_y not in (-1, 1):
         raise ValueError("inward_y must be -1 or 1")
@@ -699,8 +706,10 @@ def make_end_panel(inward_y: int, cable_panel: bool):
             )
         )
 
-    components.append(box_at((w, 14.0, 18.0), (0.0, rail_y, 9.0)))
-    components.append(box_at((w, 14.0, 18.0), (0.0, rail_y, h - 9.0)))
+    end_span_rib_depth = panel_end_span_rib_depth(P.front_rear_panel_end_span_total_depth)
+    end_span_y = inward_y * (t + end_span_rib_depth / 2.0)
+    components.append(box_at((w, end_span_rib_depth, 18.0), (0.0, end_span_y, 9.0)))
+    components.append(box_at((w, end_span_rib_depth, 18.0), (0.0, end_span_y, h - 9.0)))
 
     panel = components[0]
     for component in components[1:]:
@@ -713,6 +722,8 @@ def make_rear_panel_body_for_bumpout(
     dovetail_depth: float | None = None,
     dovetail_neck_width: float | None = None,
     dovetail_head_width: float | None = None,
+    lower_span_total_depth: float | None = None,
+    upper_span_total_depth: float | None = None,
 ):
     """Rear service panel body with the bump-out pocket opening cut through it."""
     w = P.internal_width
@@ -725,6 +736,16 @@ def make_rear_panel_body_for_bumpout(
     )
     dovetail_head_width = (
         P.panel_dovetail_head_width if dovetail_head_width is None else dovetail_head_width
+    )
+    lower_span_total_depth = (
+        P.front_rear_panel_end_span_total_depth
+        if lower_span_total_depth is None
+        else lower_span_total_depth
+    )
+    upper_span_total_depth = (
+        P.front_rear_panel_end_span_total_depth
+        if upper_span_total_depth is None
+        else upper_span_total_depth
     )
 
     panel = box_at((w, t, h), (0.0, inward_y * t / 2.0, h / 2.0))
@@ -758,8 +779,12 @@ def make_rear_panel_body_for_bumpout(
             z_max=h,
         )
 
-    panel += box_at((w, 14.0, 18.0), (0.0, rail_y, 9.0))
-    panel += box_at((w, 14.0, 18.0), (0.0, rail_y, h - 9.0))
+    lower_span_rib_depth = panel_end_span_rib_depth(lower_span_total_depth)
+    upper_span_rib_depth = panel_end_span_rib_depth(upper_span_total_depth)
+    lower_span_y = inward_y * (t + lower_span_rib_depth / 2.0)
+    upper_span_y = inward_y * (t + upper_span_rib_depth / 2.0)
+    panel += box_at((w, lower_span_rib_depth, 18.0), (0.0, lower_span_y, 9.0))
+    panel += box_at((w, upper_span_rib_depth, 18.0), (0.0, upper_span_y, h - 9.0))
 
     bw = P.rear_bumpout_width
     bh = P.rear_bumpout_height
@@ -926,6 +951,7 @@ def make_rear_panel_detachable_body():
         dovetail_depth=P.rear_detachable_panel_dovetail_depth,
         dovetail_neck_width=P.rear_detachable_panel_dovetail_neck_width,
         dovetail_head_width=P.rear_detachable_panel_dovetail_head_width,
+        lower_span_total_depth=P.rear_detachable_panel_lower_span_total_depth,
     )
     panel += make_rear_slide_support_webs()
 

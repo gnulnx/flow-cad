@@ -117,6 +117,7 @@ class ChassisParams:
     front_rear_panel_retention_boss_height: float = 22.0
     front_rear_panel_retention_boss_rail_overlap: float = 4.0
     front_rear_panel_m5_pilot_cut_length: float = 24.0
+    front_rear_panel_end_span_total_depth: float = 20.0
     panel_dovetail_depth: float = 10.0
     panel_dovetail_neck_width: float = 9.0
     panel_dovetail_head_width: float = 15.0
@@ -124,6 +125,7 @@ class ChassisParams:
     rear_detachable_panel_dovetail_depth: float = 9.25
     rear_detachable_panel_dovetail_neck_width: float = 8.0
     rear_detachable_panel_dovetail_head_width: float = 14.0
+    rear_detachable_panel_lower_span_total_depth: float = 12.0
     panel_dovetail_stop_height: float = 8.0
     panel_dovetail_root_relief_radius: float = 1.0
     vent_slot_centers_x: tuple[float, ...] = (-38.0, -19.0, 0.0, 19.0, 38.0)
