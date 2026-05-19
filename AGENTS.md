@@ -141,6 +141,7 @@ Bambu Studio should receive intentional print artifacts, not the whole working t
 
 Read `PRINT_MANIFEST.md` before changing the intended print set, preparing a handoff, or deciding whether a STEP file is printable, reference-only, or inspection-only. Update it whenever the current print handoff intent changes.
 
+- Any part exceeding 256mm in any dimension (256mm x 256mm x 256mm) is an automatic failure (P2S envelope limit).
 - STEP files for slicing live under `exports/step/`.
 - Reference wheel/axle files are not printable parts.
 - Assembly STEP files are for inspection, not direct printing, unless the user explicitly says otherwise.
@@ -183,6 +184,7 @@ For most tasks:
 - Run `python -m pytest` for every code change.
 - Preserve generated STEP handoff behavior unless the user asks to change it.
 - Keep `PART_INTERFACES.md` and `PRINT_MANIFEST.md` current when changing durable mating contracts or print handoff intent.
+- Never hardcode a coordinate in `cad/erb_lower_chassis.py` if it relates to a mating interface; it must be derived from the `P` (Parameters) object.
 
 ## Git Hygiene
 

@@ -16,11 +16,12 @@ For every mating-interface change:
 
 1. Identify fixed part, moving part, STEP files, and source functions.
 2. State install/slide direction, capture direction, and clearance or lead-in direction.
-3. Measure current feature positions on both parts before editing.
-4. Regenerate STEP files after editing.
-5. Re-measure the same features after editing.
-6. Validate direct part-pair clearance or overlap, not only full assembly interference.
-7. Sync viewer assets only after source geometry validates.
+3. Define the Clearance Budget (Negative Space): Explicitly state the required gap (e.g., `P.panel_dovetail_clearance`) to ensure the part is printable and assemblable; avoid "perfectly flush" geometry.
+4. Measure current feature positions on both parts before editing.
+5. Regenerate STEP files after editing.
+6. Re-measure the same features after editing.
+7. Validate direct part-pair clearance or overlap, not only full assembly interference.
+8. Sync viewer assets only after source geometry validates.
 
 ## Rear Detachable Panel Slide
 
