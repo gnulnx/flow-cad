@@ -57,7 +57,7 @@ INSERT_VARIANTS = {
 }
 
 SIDE_SCREW_Z_LEVELS = (220.0,)
-REAR_SLIDE_TONGUE_LEAD_IN = 2.0
+REAR_SLIDE_TONGUE_LEAD_IN = 5.0  # Increased for better T-head protrusion past receiver backing
 
 
 def front_rear_panel_slot_y_positions() -> tuple[float, float]:
