@@ -55,6 +55,7 @@ INSERT_VARIANTS = {
 }
 
 SIDE_SCREW_Z_LEVELS = (220.0,)
+REAR_SLIDE_TONGUE_LEAD_IN = 2.0
 
 
 def front_rear_panel_slot_y_positions() -> tuple[float, float]:
@@ -829,7 +830,16 @@ def make_rear_slide_receiver(center_x: float):
     side_wall_y_min = -0.25
     side_wall_y_depth = depth - side_wall_y_min
 
-    receiver = box_at((total_w + 2.0, 3.2, h + 16.0), (center_x, -1.45, zc))
+    backing_depth = 3.2
+    backing_y_max = (
+        P.rear_bumpout_detachable_base_gap
+        - REAR_SLIDE_TONGUE_LEAD_IN
+        - P.rear_slide_face_clearance
+    )
+    receiver = box_at(
+        (total_w + 2.0, backing_depth, h + 16.0),
+        (center_x, backing_y_max - backing_depth / 2.0, zc),
+    )
     receiver += box_at(
         (wall, side_wall_y_depth, h),
         (center_x - head_slot / 2.0 - wall / 2.0, (depth + side_wall_y_min) / 2.0, zc),
@@ -970,10 +980,9 @@ def make_rear_panel_detachable_bumpout_shell():
     )
 
     tongue_z = P.rear_bumpout_center_z
-    head_center_y = (
-        P.rear_slide_face_clearance + P.rear_slide_head_depth / 2.0
-    )
-    head_y_max = P.rear_slide_face_clearance + P.rear_slide_head_depth
+    head_y_min = base_y - REAR_SLIDE_TONGUE_LEAD_IN
+    head_center_y = head_y_min + P.rear_slide_head_depth / 2.0
+    head_y_max = head_y_min + P.rear_slide_head_depth
     connector_y_min = head_y_max - 0.2
     connector_y_max = bd - 0.4
     connector_depth = connector_y_max - connector_y_min

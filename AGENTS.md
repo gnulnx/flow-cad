@@ -88,6 +88,43 @@ Before claiming a printable CAD change is ready, run the relevant checks:
 
 If a command cannot be run because dependencies are missing, say so explicitly and include the command that should be run on the configured machine.
 
+## CAD Interface Change Protocol
+
+For any change involving fit, latch, slide, hook, dovetail, T-slot, receiver, rail, tongue, groove, screw alignment, or collision clearance, treat the mating interface as the unit of work.
+
+Before editing source:
+
+1. Identify the exact mating files and source functions.
+2. State the fixed part, moving part, slide/install direction, capture direction, and proud/lead-in direction.
+3. Map ambiguous words such as "out", "taller", "wider", "deeper", "stick out", and "extend" to X/Y/Z before changing code.
+4. Measure the current bbox or feature positions for both mating parts.
+
+Use this repo's global coordinate convention unless a source function explicitly defines a local frame:
+
+- X is robot width / left-right.
+- Y is front/rear depth.
+- Z is vertical.
+
+For paired printable parts, inspect and validate the pair directly. Do not rely only on the whole assembly if the assembly view makes two mating pieces look like one solid.
+
+Example rear detachable panel contract:
+
+- Fixed part: `exports/step/erb_lower_chassis_rear_panel_detachable_body.step`
+- Moving part: `exports/step/erb_lower_chassis_rear_panel_detachable_bumpout.step`
+- Source functions: `make_rear_panel_detachable_body()` and `make_rear_panel_detachable_bumpout_shell()`
+- Slide/install direction: Z
+- Capture direction: X
+- Proud/lead-in direction: Y
+- Required behavior: bumpout T heads must protrude in Y past the shell rim enough to enter the rear-panel receiver before the shell perimeter contacts the panel.
+
+Before reporting a mating-geometry change as complete:
+
+- Regenerate STEP files from source.
+- Re-measure the relevant before/after feature positions.
+- Check direct body-to-body overlap or clearance for the mating pair.
+- Run any targeted validator that applies; if no targeted validator exists, report the manual measurement used.
+- Sync text-to-cad only after the source geometry validates.
+
 ## Print Handoff Rules
 
 Bambu Studio should receive intentional print artifacts, not the whole working tree.
