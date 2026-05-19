@@ -12,13 +12,13 @@ Use Python 3.11 or newer. A local virtual environment is recommended:
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install pytest
+python -m pip install -e ".[test]"
 ```
 
-Install the CAD runtime used by the generator in that environment if it is not already available:
+For a runtime-only editable install without test dependencies:
 
 ```bash
-python -m pip install build123d
+python -m pip install -e .
 ```
 
 Optional machine-specific tool paths can be set in the environment or in a local `.env` copied from `.env.example`:
