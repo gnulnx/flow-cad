@@ -41,6 +41,25 @@ def test_create_exports_bundle_excludes_local_junk(tmp_path: Path, monkeypatch) 
     assert "exports/freecad/backup.FCBak" not in names
 
 
+def test_create_exports_bundle_replaces_existing_fixed_bundle(tmp_path: Path, monkeypatch) -> None:
+    exports_dir = tmp_path / "exports"
+    output_dir = tmp_path
+    (exports_dir / "step").mkdir(parents=True)
+    (exports_dir / "step" / "part.step").write_text("old\n", encoding="utf-8")
+
+    monkeypatch.setattr("scripts.create_exports_bundle.EXPORTS_DIR", exports_dir)
+
+    bundle = create_bundle(output_dir, "exports.tar.gz")
+    (exports_dir / "step" / "part.step").write_text("new\n", encoding="utf-8")
+    bundle = create_bundle(output_dir, "exports.tar.gz")
+
+    assert bundle == output_dir / "exports.tar.gz"
+    with tarfile.open(bundle, "r:gz") as archive:
+        part = archive.extractfile("exports/step/part.step")
+        assert part is not None
+        assert part.read() == b"new\n"
+
+
 def test_should_include_keeps_regular_export_paths() -> None:
     assert should_include(Path("exports/step/part.step"), Path("exports"))
     assert not should_include(Path("exports/step/.part.step/model.glb"), Path("exports"))
