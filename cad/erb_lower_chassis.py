@@ -118,6 +118,32 @@ class ChassisParams:
     shelf_side_cable_notch_depth: float = 46.0
     shelf_side_cable_notch_shallow_depth: float = 23.0
     shelf_side_cable_notch_length: float = 84.0
+
+    def validate_params(self):
+        """Mechanical contract validation to prevent 'vibe' errors."""
+        # 1. Shelf Connectivity Contract (The most critical one)
+        # Ensure side notches don't overlap with center channels or leave too thin a bridge
+        half_width = self.shelf_width / 2
+        notch_edge = half_width - self.shelf_side_cable_notch_depth
+        # Assuming center channels are roughly around the middle; check if notch eats into them
+        if notch_edge < (self.shelf_width * 0.1): # Arbitrary safety margin for central spine
+             raise ValueError(f"CRITICAL: Shelf side notches too deep ({self.shelf_side_cable_notch_depth}mm). "
+                              f"Remaining bridge {notch_edge}mm is below safety threshold.")
+
+        # 2. Chassis Envelope Contract
+        if self.center_box_outer_width < self.internal_width + (2 * self.wall_thickness):
+            raise ValueError("Chassis outer width must accommodate internal width plus walls.")
+
+        # 3. Axle Height Contract
+        if self.axle_center_height_from_bottom < self.bottom_thickness + 5:
+            raise ValueError("Axle center is too low; it will collide with the bottom tray.")
+
+        # 4. Battery Cassette Fit
+        if self.battery_cassette_width > self.internal_width:
+             raise ValueError("Battery cassette is wider than the internal chassis width.")
+
+        print("Mechanical contracts validated successfully.")
+
     service_shelf_width: float = 170.0
     service_shelf_depth: float = 188.0
     service_shelf_mount_slot_length: float = 14.0
@@ -265,6 +291,8 @@ class ChassisParams:
 
 
 P = ChassisParams()
+P.validate_params() # Enforce contracts before any geometry is built
+
 
 STEP_DIR = PROJECT_ROOT / "exports" / "step"
 REPORT_DIR = PROJECT_ROOT / "reports"
