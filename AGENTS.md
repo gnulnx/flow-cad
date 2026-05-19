@@ -12,6 +12,8 @@ The repo is authoritative. The workstation is normally the heavy CAD generation 
 
 - Primary active generator: `cad/erb_lower_chassis.py`
 - Current improvement proposal: `CODEX_SUGGESTIONS.md`
+- Active mating-interface registry: `PART_INTERFACES.md`
+- Active print handoff manifest: `PRINT_MANIFEST.md`
 - Generated STEP outputs: `exports/step/`
 - Validation reports: `reports/`
 
@@ -62,6 +64,12 @@ Mirror STEP files to text-to-cad viewer:
 python scripts/sync_text_to_cad.py
 ```
 
+Create a laptop/Bambu handoff tarball:
+
+```bash
+python scripts/create_exports_bundle.py
+```
+
 Export FreeCAD documents when FreeCAD is available:
 
 ```bash
@@ -91,6 +99,8 @@ If a command cannot be run because dependencies are missing, say so explicitly a
 ## CAD Interface Change Protocol
 
 For any change involving fit, latch, slide, hook, dovetail, T-slot, receiver, rail, tongue, groove, screw alignment, or collision clearance, treat the mating interface as the unit of work.
+
+Read `PART_INTERFACES.md` before editing any mating-interface geometry. If the interface is listed there, use its fixed/moving part contract, directions, clearances, and validation notes. If the interface is not listed, add or update a concise entry when the task creates a new durable mating contract.
 
 Before editing source:
 
@@ -129,11 +139,14 @@ Before reporting a mating-geometry change as complete:
 
 Bambu Studio should receive intentional print artifacts, not the whole working tree.
 
+Read `PRINT_MANIFEST.md` before changing the intended print set, preparing a handoff, or deciding whether a STEP file is printable, reference-only, or inspection-only. Update it whenever the current print handoff intent changes.
+
 - STEP files for slicing live under `exports/step/`.
 - Reference wheel/axle files are not printable parts.
 - Assembly STEP files are for inspection, not direct printing, unless the user explicitly says otherwise.
 - `.3mf` files are slicer/project artifacts. Treat them as handoff snapshots, not generated source.
 - Prefer a dated print bundle and a short manifest for laptop transfer.
+- Use `python scripts/create_exports_bundle.py` to create a local `handoff/*.tar.gz` bundle of the current `exports/` tree. The script prints an `scp` command for copying it to `jfurr@laptop:/Users/jfurr/`.
 
 ## Files Not To Edit Directly
 
@@ -147,6 +160,8 @@ Do not hand-edit generated CAD artifacts:
 
 Instead, edit the Python source or validation script that produces the artifact, regenerate, and then report what changed.
 
+Generated STEP files are tracked, but export timestamps are intentionally normalized after generation so unchanged geometry does not churn every commit. If a STEP file still diffs after regeneration, inspect the DATA-section geometry diff before assuming it is metadata-only.
+
 ## Context Policy
 
 Do not rely on historical narrative docs as project state. Inspect current source, tests, generated reports, and manifests.
@@ -154,8 +169,10 @@ Do not rely on historical narrative docs as project state. Inspect current sourc
 For most tasks:
 
 1. Inspect current source and reports first.
-2. Read `CODEX_SUGGESTIONS.md` when the task concerns workflow, project structure, tests, validation, or agent/tooling improvements.
-3. Preserve concise updates. Avoid creating long running narratives unless the user explicitly asks for one.
+2. Read `PART_INTERFACES.md` when the task touches mating geometry, fit, clearance, or hardware alignment.
+3. Read `PRINT_MANIFEST.md` when the task touches print handoff, Bambu Studio artifacts, printable/reference classification, or bundle contents.
+4. Read `CODEX_SUGGESTIONS.md` when the task concerns workflow, project structure, tests, validation, or agent/tooling improvements.
+5. Preserve concise updates. Avoid creating long running narratives unless the user explicitly asks for one.
 
 ## Change Style
 
@@ -165,6 +182,7 @@ For most tasks:
 - Add tests/validators around existing behavior before extracting modules.
 - Run `python -m pytest` for every code change.
 - Preserve generated STEP handoff behavior unless the user asks to change it.
+- Keep `PART_INTERFACES.md` and `PRINT_MANIFEST.md` current when changing durable mating contracts or print handoff intent.
 
 ## Git Hygiene
 

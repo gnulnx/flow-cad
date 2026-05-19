@@ -10,14 +10,17 @@ and the practical 0.25 mm clearance before applying the idea to larger parts.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 os.environ.setdefault("XDG_CACHE_HOME", "/tmp/erb-balance-bot-cad-cache")
 Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 from build123d import Box, Compound, Location, export_step  # noqa: E402
+from erb_cad.step_io import normalize_step_file  # noqa: E402
 
 
 STEP_DIR = PROJECT_ROOT / "exports" / "step" / "kawai_test_joint"
@@ -71,6 +74,7 @@ def export_shape(shape, filename: str) -> Path:
     ok = export_step(shape, path)
     if not ok:
         raise RuntimeError(f"STEP export failed: {path}")
+    normalize_step_file(path)
     return path
 
 

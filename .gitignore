@@ -45,3 +45,7 @@ htmlcov/
 *.log
 .env.local
 .env.*.local
+
+# Local handoff bundles
+handoff/
+exports*.tar.gz
