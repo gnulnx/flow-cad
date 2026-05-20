@@ -8,13 +8,18 @@ class Exporter:
     def __init__(self, project_root: Path, params: ChassisParams):
         self.project_root = project_root
         self.params = params
-        self.step_dir = project_root / "exports" / "step"
-        self.report_dir = project_root / "reports"
+        self.step_dir = project_root / "b3" / "exports" / "step"
+        self.report_dir = project_root / "b3" / "reports"
         self.step_dir.mkdir(parents=True, exist_ok=True)
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
-    def export(self, shape, filename: str) -> Path:
-        path = self.step_dir / filename
+    def export(self, shape, filename: str, module_id: str | None = None) -> Path:
+        if module_id:
+            dest_dir = self.step_dir / module_id
+            dest_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            dest_dir = self.step_dir
+        path = dest_dir / filename
         ok = export_step(shape, path)
         if not ok:
             raise RuntimeError(f"STEP export failed: {path}")
@@ -22,8 +27,10 @@ class Exporter:
         return path
 
     def clear(self):
-        for path in self.step_dir.glob("erb_*.step"):
-            path.unlink()
+        if self.step_dir.exists():
+            for path in self.step_dir.rglob("*.step"):
+                if path.is_file():
+                    path.unlink()
 
 def bbox_dims(shape) -> tuple[float, float, float]:
     bb = shape.bounding_box()

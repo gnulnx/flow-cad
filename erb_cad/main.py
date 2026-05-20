@@ -175,16 +175,17 @@ def build(bundle):
             
     exported = []
     for name, filename in PART_FILENAMES.items():
-        exported.append(exporter.export(parts[name], filename))
+        module_id = "upper_module" if name.startswith("upper_") else "lower_chassis"
+        exported.append(exporter.export(parts[name], filename, module_id=module_id))
         
     for variant in INSERT_VARIANTS:
-        exported.append(exporter.export(parts[f"axle_insert_{variant}"], f"erb_axle_insert_{variant}.step"))
+        exported.append(exporter.export(parts[f"axle_insert_{variant}"], f"erb_axle_insert_{variant}.step", module_id="inserts"))
         
     for name, filename in REFERENCE_FILENAMES.items():
-        exported.append(exporter.export(parts[name], filename))
+        exported.append(exporter.export(parts[name], filename, module_id="reference"))
         
     parts["assembly"] = make_assembly(params, parts)
-    exported.append(exporter.export(parts["assembly"], "erb_lower_chassis_assembly.step"))
+    exported.append(exporter.export(parts["assembly"], "erb_lower_chassis_assembly.step", module_id="lower_chassis"))
     
     report_path = write_report(params, parts, exported, exporter.report_dir, PROJECT_ROOT)
     
