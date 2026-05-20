@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from erb_cad.paths import require_existing, resolve_tool_config  # noqa: E402
+from scripts.create_exports_bundle import create_bundle  # noqa: E402
 
 
 TOOL_CONFIG = resolve_tool_config(PROJECT_ROOT)
@@ -32,6 +33,7 @@ STEP_FILENAMES = [
     "erb_lower_chassis_rear_panel_detachable.step",
     "erb_lower_chassis_rear_panel_detachable_body.step",
     "erb_lower_chassis_rear_panel_detachable_bumpout.step",
+    "erb_lower_chassis_rear_panel_detachable_bumpout_TPU.step",
     "erb_lower_chassis_rear_panel_vented.step",
     "erb_lower_chassis_bottom_tray.step",
     "erb_lower_chassis_top_lid.step",
@@ -45,23 +47,14 @@ STEP_FILENAMES = [
     "erb_equipment_shelf_service_fit.step",
     "erb_equipment_shelf_service_fit_four_way.step",
     "erb_shelf_spacer_block_55mm.step",
-    "erb_upper_wide_center_adapter_deck.step",
-    "erb_upper_wide_center_compute_bay.step",
-    "erb_upper_wide_left_overwheel_pod.step",
-    "erb_upper_wide_right_overwheel_pod.step",
-    "erb_upper_wide_center_crossmember.step",
-    "erb_upper_wide_side_crossmember.step",
-    "erb_upper_perception_pod.step",
     "erb_reference_wheel_pair.step",
     "erb_reference_axle_pair.step",
     "erb_reference_wheel_axle_pair.step",
-    "erb_top_dome_plain.step",
-    "erb_top_dome_sensor_mockup.step",
-    "erb_top_dome_prototypes.step",
     "erb_lower_chassis_assembly.step",
 ]
 
 ASSEMBLY_FILENAME = "erb_lower_chassis_assembly.step"
+EXPORTS_BUNDLE_FILENAME = "exports.tar.gz"
 
 
 def run(command: list[str | Path], cwd: Path) -> None:
@@ -94,7 +87,6 @@ def generate_project_steps() -> None:
     require_existing(TEXT_TO_CAD_PYTHON, "text-to-cad Python", env_var="TEXT_TO_CAD_PYTHON")
     generators = [
         PROJECT_ROOT / "cad" / "erb_lower_chassis.py",
-        PROJECT_ROOT / "cad" / "erb_top_dome.py",
     ]
     for generator in generators:
         require_path(generator, f"Erb CAD generator {generator.name}")
@@ -155,6 +147,13 @@ def generate_top_level_assembly_asset(assembly_dest_dir: Path) -> None:
     run([TEXT_TO_CAD_PYTHON, step_cli, "--kind", "assembly", target], cwd=TEXT_TO_CAD_ROOT)
 
 
+def rebuild_root_exports_bundle() -> Path:
+    bundle_path = PROJECT_ROOT / EXPORTS_BUNDLE_FILENAME
+    if bundle_path.exists():
+        bundle_path.unlink()
+    return create_bundle(PROJECT_ROOT, EXPORTS_BUNDLE_FILENAME)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -172,6 +171,7 @@ def main() -> int:
     dest_dir, assembly_dest_dir = copy_steps_to_viewer()
     generate_viewer_assets(dest_dir)
     generate_top_level_assembly_asset(assembly_dest_dir)
+    bundle_path = rebuild_root_exports_bundle()
 
     viewer_url = (
         "http://127.0.0.1:4178/"
@@ -181,6 +181,7 @@ def main() -> int:
     print()
     print(f"Mirrored STEP files to: {dest_dir}")
     print(f"Mirrored top-level assembly to: {assembly_dest_dir / ASSEMBLY_FILENAME}")
+    print(f"Rebuilt exports bundle: {bundle_path}")
     print(f"CAD Explorer URL: {viewer_url}")
     return 0
 

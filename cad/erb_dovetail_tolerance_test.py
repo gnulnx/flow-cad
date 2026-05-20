@@ -15,11 +15,13 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.environ.setdefault("XDG_CACHE_HOME", "/tmp/erb-balance-bot-cad-cache")
 Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 from build123d import Compound, Location, export_step  # noqa: E402
+from erb_cad.step_io import normalize_step_file  # noqa: E402
 
 from erb_lower_chassis import P, box_at, cyl_z, panel_dovetail_prism, safe_chamfer  # noqa: E402
 
@@ -53,6 +55,7 @@ def export_shape(shape, filename: str) -> Path:
     ok = export_step(shape, path)
     if not ok:
         raise RuntimeError(f"STEP export failed: {path}")
+    normalize_step_file(path)
     return path
 
 

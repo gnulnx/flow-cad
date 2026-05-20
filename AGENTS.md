@@ -12,6 +12,8 @@ The repo is authoritative. The workstation is normally the heavy CAD generation 
 
 - Primary active generator: `cad/erb_lower_chassis.py`
 - Current improvement proposal: `CODEX_SUGGESTIONS.md`
+- Active mating-interface registry: `PART_INTERFACES.md`
+- Active print handoff manifest: `PRINT_MANIFEST.md`
 - Generated STEP outputs: `exports/step/`
 - Validation reports: `reports/`
 
@@ -62,6 +64,12 @@ Mirror STEP files to text-to-cad viewer:
 python scripts/sync_text_to_cad.py
 ```
 
+Create a laptop/Bambu handoff tarball:
+
+```bash
+python scripts/create_exports_bundle.py
+```
+
 Export FreeCAD documents when FreeCAD is available:
 
 ```bash
@@ -88,15 +96,58 @@ Before claiming a printable CAD change is ready, run the relevant checks:
 
 If a command cannot be run because dependencies are missing, say so explicitly and include the command that should be run on the configured machine.
 
+## CAD Interface Change Protocol
+
+For any change involving fit, latch, slide, hook, dovetail, T-slot, receiver, rail, tongue, groove, screw alignment, or collision clearance, treat the mating interface as the unit of work.
+
+Read `PART_INTERFACES.md` before editing any mating-interface geometry. If the interface is listed there, use its fixed/moving part contract, directions, clearances, and validation notes. If the interface is not listed, add or update a concise entry when the task creates a new durable mating contract.
+
+Before editing source:
+
+1. Identify the exact mating files and source functions.
+2. State the fixed part, moving part, slide/install direction, capture direction, and proud/lead-in direction.
+3. Map ambiguous words such as "out", "taller", "wider", "deeper", "stick out", and "extend" to X/Y/Z before changing code.
+4. Measure the current bbox or feature positions for both mating parts.
+
+Use this repo's global coordinate convention unless a source function explicitly defines a local frame:
+
+- X is robot width / left-right.
+- Y is front/rear depth.
+- Z is vertical.
+
+For paired printable parts, inspect and validate the pair directly. Do not rely only on the whole assembly if the assembly view makes two mating pieces look like one solid.
+
+Example rear detachable panel contract:
+
+- Fixed part: `exports/step/erb_lower_chassis_rear_panel_detachable_body.step`
+- Moving part: `exports/step/erb_lower_chassis_rear_panel_detachable_bumpout.step`
+- Source functions: `make_rear_panel_detachable_body()` and `make_rear_panel_detachable_bumpout_shell()`
+- Slide/install direction: Z
+- Capture direction: X
+- Proud/lead-in direction: Y
+- Required behavior: bumpout T heads must protrude in Y past the shell rim enough to enter the rear-panel receiver before the shell perimeter contacts the panel.
+
+Before reporting a mating-geometry change as complete:
+
+- Regenerate STEP files from source.
+- Re-measure the relevant before/after feature positions.
+- Check direct body-to-body overlap or clearance for the mating pair.
+- Run any targeted validator that applies; if no targeted validator exists, report the manual measurement used.
+- Sync text-to-cad only after the source geometry validates.
+
 ## Print Handoff Rules
 
 Bambu Studio should receive intentional print artifacts, not the whole working tree.
 
+Read `PRINT_MANIFEST.md` before changing the intended print set, preparing a handoff, or deciding whether a STEP file is printable, reference-only, or inspection-only. Update it whenever the current print handoff intent changes.
+
+- Any part exceeding 256mm in any dimension (256mm x 256mm x 256mm) is an automatic failure (P2S envelope limit).
 - STEP files for slicing live under `exports/step/`.
 - Reference wheel/axle files are not printable parts.
 - Assembly STEP files are for inspection, not direct printing, unless the user explicitly says otherwise.
 - `.3mf` files are slicer/project artifacts. Treat them as handoff snapshots, not generated source.
 - Prefer a dated print bundle and a short manifest for laptop transfer.
+- Use `python scripts/create_exports_bundle.py` to create a local `handoff/*.tar.gz` bundle of the current `exports/` tree. The script prints an `scp` command for copying it to `jfurr@laptop:/Users/jfurr/`.
 
 ## Files Not To Edit Directly
 
@@ -110,6 +161,8 @@ Do not hand-edit generated CAD artifacts:
 
 Instead, edit the Python source or validation script that produces the artifact, regenerate, and then report what changed.
 
+Generated STEP files are tracked, but export timestamps are intentionally normalized after generation so unchanged geometry does not churn every commit. If a STEP file still diffs after regeneration, inspect the DATA-section geometry diff before assuming it is metadata-only.
+
 ## Context Policy
 
 Do not rely on historical narrative docs as project state. Inspect current source, tests, generated reports, and manifests.
@@ -117,8 +170,10 @@ Do not rely on historical narrative docs as project state. Inspect current sourc
 For most tasks:
 
 1. Inspect current source and reports first.
-2. Read `CODEX_SUGGESTIONS.md` when the task concerns workflow, project structure, tests, validation, or agent/tooling improvements.
-3. Preserve concise updates. Avoid creating long running narratives unless the user explicitly asks for one.
+2. Read `PART_INTERFACES.md` when the task touches mating geometry, fit, clearance, or hardware alignment.
+3. Read `PRINT_MANIFEST.md` when the task touches print handoff, Bambu Studio artifacts, printable/reference classification, or bundle contents.
+4. Read `CODEX_SUGGESTIONS.md` when the task concerns workflow, project structure, tests, validation, or agent/tooling improvements.
+5. Preserve concise updates. Avoid creating long running narratives unless the user explicitly asks for one.
 
 ## Change Style
 
@@ -128,6 +183,8 @@ For most tasks:
 - Add tests/validators around existing behavior before extracting modules.
 - Run `python -m pytest` for every code change.
 - Preserve generated STEP handoff behavior unless the user asks to change it.
+- Keep `PART_INTERFACES.md` and `PRINT_MANIFEST.md` current when changing durable mating contracts or print handoff intent.
+- Never hardcode a coordinate in `cad/erb_lower_chassis.py` if it relates to a mating interface; it must be derived from the `P` (Parameters) object.
 
 ## Git Hygiene
 

@@ -9,15 +9,18 @@ Dimensions are millimeters.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 os.environ.setdefault("XDG_CACHE_HOME", "/tmp/erb-balance-bot-cad-cache")
 Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 from build123d import Box, Compound, Cylinder, Location, chamfer, export_step  # noqa: E402
+from erb_cad.step_io import normalize_step_file  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -269,6 +272,7 @@ def export_shape(shape, filename: str) -> Path:
     ok = export_step(shape, path)
     if not ok:
         raise RuntimeError(f"STEP export failed: {path}")
+    normalize_step_file(path)
     return path
 
 
