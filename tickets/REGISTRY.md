@@ -1,6 +1,21 @@
-# Project B3: Registry Implementation Tickets
+# Project B3: Registry and Active Cache Implementation Tickets
 
-This document defines the structured roadmap and engineering tickets to transition B3 CAD from a manual manifest configuration to a SQLite-driven SQLModel part registry.
+This document defines the structured roadmap and engineering tickets for moving B3 CAD from scattered manual export lists toward an explicit code-first part registry plus a generated SQLite active cache.
+
+The architectural decision for Phase 2 is:
+
+- Geometry, dimensions, structural rules, and intended parts remain source-controlled Python.
+- `src/flow_cad/registry.py` becomes the canonical registry of part definitions.
+- `b3/registry.db` is a compiled metadata cache written by `flow cad build`, not the source of design truth.
+- MCP tools, future web backends, and agent helpers may query the cache for lightweight facts such as bbox, volume, STEP path, print role, and build snapshots.
+- Durable user-entered data, such as measured print mass, must not be stored only in a disposable cache unless we explicitly decide to treat the DB as persistent project state.
+
+Why this route:
+
+- Python source and text config are reviewable, diffable, branchable, and testable in git.
+- SQLite is poor as the primary source for parametric geometry because silent DB edits can change printed parts without meaningful code review.
+- A generated DB still adds value as a fast query surface for agents and tools, avoiding repeated source parsing or heavy geometry evaluation when only compiled facts are needed.
+- This keeps the project ready for an MCP server or future web UI without making the database a second source of truth.
 
 ---
 
@@ -22,7 +37,7 @@ This document defines the structured roadmap and engineering tickets to transiti
 * **Requirements**:
   * Rename STEP assets: e.g. `erb_lower_chassis_left_side_plate.step` becomes `b3_lower_chassis_left_side_plate.step`.
   * Retain logical, clean names under modular subdirectories (e.g. `b3/exports/step/lower_chassis/left_side_plate.step`).
-  * Switch naming registry key-values in `PART_FILENAMES` inside `erb_cad/main.py`.
+  * Switch naming registry key-values in `PART_FILENAMES` inside `src/flow_cad/main.py`.
 * **Verification**:
   * Run `verify_modularization.py` (updated to point to the new paths) to guarantee **100% geometric parity** (exact volume and bounding box matching) during the renaming process.
 
@@ -38,51 +53,101 @@ This document defines the structured roadmap and engineering tickets to transiti
 
 ---
 
-## Phase 2: SQLModel Core Modeling & Database Integration
+## Phase 2: Code-First Registry + SQLite Active Cache
 
-### REG-2.1: Establish SQLModel Schema & Tables
-* **Goal**: Define the data models for projects, modules, components, and print specs.
+### REG-2.1: Python Source Registry
+* **Goal**: Establish the canonical, code-first mapping of intended B3 parts.
 * **Requirements**:
-  * Create `erb_cad/core/registry.py`.
-  * Define `Project` class: `id` (PK, "b3"), `name`, `description`.
-  * Define `Component` class: `id` (PK), `project_id` (FK), `module`, `name`, `step_path`, `volume_mm3`, `bbox_x`, `bbox_y`, `bbox_z`.
-  * Define `PrintSpecification` class: `id` (PK), `component_id` (FK), `material` (PLA/TPU/PETG), `infill_density`, `shell_count`, `nozzle_diameter`, `weight_actual_g` (measured physical mass).
+  * Create `src/flow_cad/registry.py`.
+  * Define a small explicit `PartDefinition` dataclass, with fields such as:
+    * `id`
+    * `module_id`
+    * `filename`
+    * `factory`
+    * `role` (`printable`, `reference`, `inspection`, or equivalent enum)
+    * `material`
+    * `shell_count`
+    * `infill_density`
+  * Centralize all active project parts in a `REGISTRY` mapping or ordered tuple.
+  * Move export intent out of `PART_FILENAMES`, `REFERENCE_FILENAMES`, and ad hoc insert loops in `src/flow_cad/main.py`.
+  * Keep geometry factories and dimensions in source code; do not move CAD-generation parameters into SQLite.
 * **Verification**:
-  * Write SQLite table generation logic (`SQLModel.metadata.create_all()`).
+  * Add tests that import `REGISTRY`.
+  * Verify every registered factory can be built with `ChassisParams()`.
+  * Verify every registered part has a unique id, unique export path, module id, and role.
+  * Verify printable parts have print intent metadata.
 
-### REG-2.2: Add CLI Interface for Registry Management
-* **Goal**: Expose database operations via the `flow` CLI.
+### REG-2.2: Refactor Build, Bundle, and Sync to Use the Source Registry
+* **Goal**: Make `src/flow_cad/registry.py` the single source for intended generated parts.
 * **Requirements**:
-  * Add click command: `flow project init <project_id> --name <name> --desc <desc>`.
-  * Add click command: `flow registry list` (displays a rich-styled table of registered components, materials, and volumes).
-  * Add click command: `flow registry weight <component_id> <weight_in_grams>` (allows physical print telemetry to be entered directly).
+  * Update `flow cad build` to iterate over registry definitions for exports.
+  * Keep `build_parts()` or its replacement aligned with registry ids.
+  * Update bundle and text-to-cad sync logic to derive active STEP files from registry output where practical.
+  * Keep generated artifacts under `b3/exports/step/{module_id}/`.
 * **Verification**:
-  * Command line execution checks via local environment.
+  * Run `python -m pytest`.
+  * Run `flow cad build`.
+  * Run `scripts/verify_modularization.py`.
+  * Confirm generated STEP filenames and module directories match the existing print handoff intent.
 
-### REG-2.3: Integrate Registry Writes into the CAD Build Pipeline
-* **Goal**: Automatically update database records on successful geometry compilation.
+### REG-2.3: SQLModel Active Cache Schema
+* **Goal**: Define a generated SQLite cache of compiled CAD facts without making the DB the design source of truth.
 * **Requirements**:
-  * Integrate database sessions into `flow cad build`.
-  * On run, calculate geometry statistics (volume, bounding box) in memory for all constructed `build123d` parts.
-  * Upsert records in the `Component` table to match the current successful design state.
+  * Add SQLModel only when the source registry is stable.
+  * Write the cache to `b3/registry.db`.
+  * Define cache tables such as:
+    * `ComponentCache`: `id`, `module_id`, `role`, `step_path`, `volume_mm3`, `bbox_x`, `bbox_y`, `bbox_z`, `compiled_at`, `build_id`.
+    * `BuildMetadata`: `build_id`, `git_commit`, `is_dirty`, `parameters_json`, `compiled_at`.
+    * `ParameterSnapshot`: resolved `ChassisParams` values used for the successful build, keyed by `build_id`.
+  * Treat these tables as rebuildable derived metadata from source and generated geometry.
+  * Do not store the only copy of measured print telemetry in these cache tables.
 * **Verification**:
-  * Confirm database file `b3/registry.db` is created/updated upon running `flow cad build`.
+  * Database initialization creates `b3/registry.db`.
+  * Deleting `b3/registry.db` and rerunning `flow cad build` recreates the cache from source.
+  * Tests verify cache rows match registry ids and generated STEP paths.
+
+### REG-2.4: Integrate Cache Writes into `flow cad build`
+* **Goal**: Make cache updates a predictable post-process of successful geometry compilation.
+* **Requirements**:
+  * After successful STEP export, calculate bbox and volume from in-memory build123d shapes.
+  * Upsert component cache rows for all registry parts.
+  * Snapshot resolved params and build metadata.
+  * Fail clearly if cache writing fails, or provide an explicit `--no-cache` option if we want cache writes to be optional.
+* **Verification**:
+  * `flow cad build` creates or updates `b3/registry.db`.
+  * Cache metrics match direct shape bbox/volume calculations in focused tests.
+  * Failed builds do not publish misleading successful cache rows.
+
+### REG-2.5: CLI and Agent Query Surface
+* **Goal**: Expose lightweight compiled facts to developers, agents, and future MCP/web tooling.
+* **Requirements**:
+  * Add `flow registry list` to show ids, modules, roles, STEP paths, volumes, and bbox values from the active cache.
+  * Add `flow registry show <component_id>` for one component.
+  * Defer `flow registry weight <component_id> <grams>` until durable physical telemetry storage is designed.
+  * If an MCP server is added, it should read the active cache and return small JSON payloads.
+* **Verification**:
+  * Commands work after `flow cad build`.
+  * Commands report a clear message when `b3/registry.db` is missing or stale.
+  * Query output does not require importing or evaluating heavy CAD geometry.
 
 ---
 
 ## Phase 3: Test-Driven Parity & Verification
 
-### REG-3.2: DB-Backed Assembly Clearance Validators
-* **Goal**: Convert file-based validation checks into database-driven checks.
+### REG-3.2: Cache-Assisted Assembly Clearance Validators
+* **Goal**: Let validators consume lightweight compiled facts without making SQLite the source of mating-interface truth.
 * **Requirements**:
-  * Define a `MatingInterface` relational table mapping component pairs and design clearances (e.g. `dovetail_clearance = 0.15`).
-  * Refactor validation scripts to query the SQLite registry for target clearances instead of hardcoding python lists.
+  * Keep durable mating-interface definitions in source/docs until a better text-config home exists.
+  * Optionally mirror compiled mating-interface facts into the active cache for MCP and agent queries.
+  * Refactor validation scripts to reuse the source registry and cache snapshots where doing so removes duplicated file/path logic.
 * **Verification**:
   * Verify validation output matches baseline calculations.
 
 ### REG-3.3: Automatic Print Manifest Sync
-* **Goal**: Auto-generate `PRINT_MANIFEST.md` directly from the database.
+* **Goal**: Generate or check `PRINT_MANIFEST.md` from source registry intent plus any approved durable print metadata.
 * **Requirements**:
-  * Build a synchronization script that translates registered `PrintSpecification` records into markdown files for slicer handoff.
+  * Derive printable/reference/inspection classification from `src/flow_cad/registry.py`.
+  * Do not depend on disposable cache rows as the only source for handoff intent.
+  * Build a synchronization or validation script that flags drift between registry intent and `docs/PRINT_MANIFEST.md`.
 * **Verification**:
   * Verify generated manifest files match original baseline records.
