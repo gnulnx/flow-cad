@@ -83,6 +83,7 @@ PART_FILENAMES = {
     "rear_panel_detachable": "erb_lower_chassis_rear_panel_detachable.step",
     "rear_panel_detachable_body": "erb_lower_chassis_rear_panel_detachable_body.step",
     "rear_panel_detachable_bumpout": "erb_lower_chassis_rear_panel_detachable_bumpout.step",
+    "rear_panel_detachable_bumpout_tpu": "erb_lower_chassis_rear_panel_detachable_bumpout_TPU.step",
     "rear_panel_vented": "erb_lower_chassis_rear_panel_vented.step",
     "bottom_tray": "erb_lower_chassis_bottom_tray.step",
     "top_lid": "erb_lower_chassis_top_lid.step",
@@ -979,7 +980,10 @@ def make_rear_panel_detachable_body():
     return safe_chamfer(panel, 0.45)
 
 
-def make_rear_panel_detachable_bumpout_shell():
+def make_rear_panel_detachable_bumpout_shell(
+    head_width: float = P.rear_slide_head_width,
+    head_depth: float = P.rear_slide_head_depth,
+):
     """Removable rear cable bump-out with straight vertical slide tongues."""
     bw = P.rear_bumpout_width
     bh = P.rear_bumpout_height
@@ -1009,16 +1013,16 @@ def make_rear_panel_detachable_bumpout_shell():
 
     tongue_z = P.rear_bumpout_center_z
     head_y_min = base_y - REAR_SLIDE_TONGUE_LEAD_IN
-    head_center_y = head_y_min + P.rear_slide_head_depth / 2.0
-    head_y_max = head_y_min + P.rear_slide_head_depth
+    head_center_y = head_y_min + head_depth / 2.0
+    head_y_max = head_y_min + head_depth
     connector_y_min = head_y_max - 0.2
     connector_y_max = bd - 0.4
     connector_depth = connector_y_max - connector_y_min
     for x in (-P.rear_slide_rail_x, P.rear_slide_rail_x):
         head = box_at(
             (
-                P.rear_slide_head_width,
-                P.rear_slide_head_depth,
+                head_width,
+                head_depth,
                 P.rear_slide_tongue_height,
             ),
             (x, head_center_y, tongue_z),
@@ -1041,6 +1045,14 @@ def make_rear_panel_detachable_bumpout():
     return Compound(
         children=[make_rear_panel_detachable_body(), make_rear_panel_detachable_bumpout_shell()],
         label="erb_lower_chassis_rear_panel_detachable",
+    )
+
+
+def make_rear_panel_detachable_bumpout_shell_tpu():
+    """TPU test variant with narrower T-heads for flexible-material drag."""
+    return make_rear_panel_detachable_bumpout_shell(
+        head_width=P.rear_slide_tpu_head_width,
+        head_depth=P.rear_slide_tpu_head_depth,
     )
 
 
@@ -1620,6 +1632,7 @@ def build_parts():
         "rear_panel_detachable": make_rear_panel_detachable_bumpout(),
         "rear_panel_detachable_body": make_rear_panel_detachable_body(),
         "rear_panel_detachable_bumpout": make_rear_panel_detachable_bumpout_shell(),
+        "rear_panel_detachable_bumpout_tpu": make_rear_panel_detachable_bumpout_shell_tpu(),
         "rear_panel_vented": make_end_panel(inward_y=-1, cable_panel=True),
         "bottom_tray": make_bottom_tray(),
         "top_lid": make_top_lid(),
@@ -1720,6 +1733,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
         f"Top lid footprint: {P.top_lid_width:.1f} W x {P.top_lid_depth:.1f} D mm",
         f"Rear panel: no vents, two-solid colorable tapered hollow cable pocket from {P.rear_bumpout_width:.1f} W x {P.rear_bumpout_height:.1f} H at the panel to {P.rear_bumpout_face_width:.1f} W x {P.rear_bumpout_face_height:.1f} H at the blank outer face, {P.rear_bumpout_depth:.1f} mm deep, {P.rear_bumpout_wall_thickness:.1f} mm wall, {P.rear_bumpout_body_overlap:.1f} mm body overlap",
         f"Alternate detachable rear panel: uses loosened male side dovetails {P.rear_detachable_panel_dovetail_depth:.2f} mm deep, {P.rear_detachable_panel_dovetail_neck_width:.1f}/{P.rear_detachable_panel_dovetail_head_width:.1f} mm neck/head against the unchanged side-chassis female slots, and a top-down vertical slide-on cable bump-out cartridge using two attached straight receiver channels at X +/-{P.rear_slide_rail_x:.1f} mm, PETG-friendly {P.rear_slide_side_clearance:.2f} mm side clearance and {P.rear_slide_face_clearance:.2f} mm front/back capture clearance, molded-in bottom/top support webbing, bottom stops at Z {P.rear_slide_channel_z_min:.1f} mm, and one M4 retaining slot near the top to prevent upward motion",
+        f"TPU detachable bumpout test variant: same shell and receiver interface as the PETG bumpout, but T-head width is reduced from {P.rear_slide_head_width:.1f} mm to {P.rear_slide_tpu_head_width:.1f} mm and T-head depth is reduced from {P.rear_slide_head_depth:.2f} mm to {P.rear_slide_tpu_head_depth:.2f} mm for lower drag in flexible material.",
         f"Integrated battery tray floor: flush underside, {P.battery_tray_recess_width:.1f} W x {P.battery_tray_recess_length:.1f} D x {P.battery_tray_recess_floor_thickness:.1f} H mm",
         f"Integrated battery lanes: two {P.integrated_battery_lane_length:.1f} L x {P.integrated_battery_lane_width:.1f} W mm lanes for two {P.battery_measured_length:.0f} x {P.battery_measured_width:.0f} x {P.battery_measured_height:.0f} mm packs",
         f"Outer battery retaining ribs: {P.integrated_battery_outer_rib_width:.1f} W x {P.integrated_battery_outer_rib_length:.1f} L x {P.integrated_battery_outer_rib_height:.1f} H mm, shortened clear of the bottom-tray screw holes",
@@ -1802,6 +1816,7 @@ def write_report(parts: dict[str, object], exported: list[Path]) -> Path:
             "- `erb_lower_chassis_rear_panel.step` is now the default no-vent rear panel with an outward tapered hollow cable pocket and a blank exterior face for slicer-added text. It exports as a two-solid compound so Bambu Studio can assign the rear body and bump-out different filament colors while preserving the same positioned geometry.",
             "- `erb_lower_chassis_rear_panel_body.step` and `erb_lower_chassis_rear_panel_bumpout.step` are also exported separately for slicer workflows that prefer importing the two color bodies as individual files. The bump-out shell overlaps the rear body by 0.2 mm.",
             f"- `erb_lower_chassis_rear_panel_detachable.step` is an alternate assembled preview with loosened male side dovetails ({P.rear_detachable_panel_dovetail_depth:.2f} mm deep, {P.rear_detachable_panel_dovetail_neck_width:.1f}/{P.rear_detachable_panel_dovetail_head_width:.1f} mm neck/head) for the already-printed side-chassis female slots. It changes the bump-out into a separate top-down vertical slide-on cartridge. `erb_lower_chassis_rear_panel_detachable_body.step` contains the rear panel plus two straight receiver channels tied into the panel by molded-in bottom/top support webbing and bottom stops. `erb_lower_chassis_rear_panel_detachable_bumpout.step` contains the removable open-backed shell with matching hidden vertical tongues and one M4 retaining slot near the top. The removable shell keeps the same outer face depth as the default bump-out instead of adding another spacer layer behind it.",
+            f"- `erb_lower_chassis_rear_panel_detachable_bumpout_TPU.step` is a quick TPU fit-test variant of the detachable bumpout. It keeps the receiver, neck width, Y proud lead-in, and retaining slot unchanged, but reduces the T-head X capture width from {P.rear_slide_head_width:.1f} mm to {P.rear_slide_tpu_head_width:.1f} mm and the T-head Y capture depth from {P.rear_slide_head_depth:.2f} mm to {P.rear_slide_tpu_head_depth:.2f} mm.",
             "- `erb_lower_chassis_rear_panel_vented.step` preserves the previous vented rear panel as an alternate.",
             f"- `erb_equipment_shelf.step` remains the solid-edge shelf; `erb_equipment_shelf_side_cable.step` is the deep side-cable alternate, `erb_equipment_shelf_side_cable_shallow.step` is the shallow left/right alternate, `erb_equipment_shelf_four_way_cable_shallow.step` is the default assembly shelf with shallow notches on all four edges; `erb_equipment_shelf_service_fit.step` is the looser {P.service_shelf_width:.0f} x {P.service_shelf_depth:.0f} mm test shelf with simple M4 clearance holes (fixed: removed absurd 14mm slots) and deep side reliefs for wheel-side hardware; `erb_equipment_shelf_service_fit_four_way.step` is the same service-fit size but with shallow front/back end notches ({P.shelf_side_cable_notch_shallow_depth:.0f}mm deep) for four-way cable access like the standard four_way variant.",
             f"- `erb_shelf_spacer_block_55mm.step` remains exported as an optional legacy spacer block, but the active third shelf is now carried by side-plate ledges at Z {P.shelf_side_ledge_z_levels[1]:.0f} mm instead of spacer blocks.",

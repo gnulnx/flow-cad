@@ -36,6 +36,7 @@ Fixed part:
 Moving part:
 
 - STEP: `exports/step/erb_lower_chassis_rear_panel_detachable_bumpout.step`
+- TPU test variant: `exports/step/erb_lower_chassis_rear_panel_detachable_bumpout_TPU.step`
 - Source: `make_rear_panel_detachable_bumpout_shell()`
 - Nominal bbox: `132.0 W x 23.7 D x 192.0 H mm`
 
@@ -50,12 +51,13 @@ Interface contract:
 - Front/back capture clearance: `P.rear_slide_face_clearance`.
 - Required behavior: bumpout T heads must protrude in Y past the shell rim enough to enter the rear-panel receiver before the shell perimeter contacts the panel.
 - The retaining M4 screw prevents upward sliding only; it must not carry the main alignment load.
+- TPU test variant keeps the receiver, neck width, Y proud lead-in, and retaining slot unchanged, but reduces the T-head X capture width from `P.rear_slide_head_width` to `P.rear_slide_tpu_head_width` and the T-head Y capture depth from `P.rear_slide_head_depth` to `P.rear_slide_tpu_head_depth`.
 
 Validation:
 
 - Generate: `python cad/erb_lower_chassis.py`
 - Pair check: directly intersect `make_rear_panel_detachable_body()` and `make_rear_panel_detachable_bumpout_shell()` in seated position; expected overlap is `0.0 mm^3`.
-- Feature check: T-head Y minimum must be proud of the shell rim by the intended lead-in, while the receiver backing leaves at least `P.rear_slide_face_clearance`.
+- Feature check: T-head Y minimum must be proud of the shell rim by the intended lead-in, while the receiver backing leaves at least `P.rear_slide_face_clearance`. For TPU, also confirm the T-head X width is `P.rear_slide_tpu_head_width` and Y depth is `P.rear_slide_tpu_head_depth`.
 - Viewer files: inspect both individual STEP files and `erb_lower_chassis_rear_panel_detachable.step`.
 
 ## Side Plates To Front/Rear Panels

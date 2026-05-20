@@ -24,6 +24,7 @@ Rear-panel options:
 - Detachable rear panel:
   - `exports/step/erb_lower_chassis_rear_panel_detachable_body.step`
   - `exports/step/erb_lower_chassis_rear_panel_detachable_bumpout.step`
+  - TPU fit-test bumpout: `exports/step/erb_lower_chassis_rear_panel_detachable_bumpout_TPU.step`
   - Inspection preview: `exports/step/erb_lower_chassis_rear_panel_detachable.step`
 - Alternate vented panel:
   - `exports/step/erb_lower_chassis_rear_panel_vented.step`
@@ -76,6 +77,12 @@ Rear detachable panel group:
 
 - `exports/step/erb_lower_chassis_rear_panel_detachable_body.step`
 - `exports/step/erb_lower_chassis_rear_panel_detachable_bumpout.step`
+- `exports/step/erb_lower_chassis_rear_panel_detachable_bumpout_TPU.step` for TPU fit testing only
+
+## Material Fit Notes
+
+- TPU flexible slide features can bind even when PETG fits cleanly. Start with an explicit material variant rather than changing the proven PETG geometry.
+- Current TPU rear detachable bumpout test keeps the fixed receiver unchanged, reduces the bumpout T-head X capture width from 10.0 mm to 8.0 mm, and reduces the T-head Y capture depth from 2.30 mm to 1.75 mm.
 
 Front/rear panel dovetail group:
 

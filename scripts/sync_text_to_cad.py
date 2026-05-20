@@ -33,6 +33,7 @@ STEP_FILENAMES = [
     "erb_lower_chassis_rear_panel_detachable.step",
     "erb_lower_chassis_rear_panel_detachable_body.step",
     "erb_lower_chassis_rear_panel_detachable_bumpout.step",
+    "erb_lower_chassis_rear_panel_detachable_bumpout_TPU.step",
     "erb_lower_chassis_rear_panel_vented.step",
     "erb_lower_chassis_bottom_tray.step",
     "erb_lower_chassis_top_lid.step",

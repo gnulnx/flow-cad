@@ -100,6 +100,12 @@ class ChassisParams:
         if hasattr(self, 'battery_cassette_width') and self.battery_cassette_width > self.internal_width:
             raise ValueError("Battery cassette is wider than the internal chassis width.")
 
+        # 5. Rear detachable bumpout TPU variant must still have a real T profile.
+        if not self.rear_slide_neck_width < self.rear_slide_tpu_head_width < self.rear_slide_head_width:
+            raise ValueError("TPU rear slide head width must be between the neck width and PETG head width.")
+        if not 0.0 < self.rear_slide_tpu_head_depth < self.rear_slide_head_depth:
+            raise ValueError("TPU rear slide head depth must be positive and less than PETG head depth.")
+
         print("Mechanical contracts validated successfully.")
 
     service_shelf_width: float = 170.0
@@ -151,7 +157,9 @@ class ChassisParams:
     rear_slide_channel_z_max: float = 207.0
     rear_slide_stop_height: float = 4.0
     rear_slide_head_width: float = 10.0
+    rear_slide_tpu_head_width: float = 8.0
     rear_slide_head_depth: float = 2.3
+    rear_slide_tpu_head_depth: float = 1.75
     rear_slide_neck_width: float = 5.0
     rear_slide_side_clearance: float = 0.45
     rear_slide_face_clearance: float = 0.40
