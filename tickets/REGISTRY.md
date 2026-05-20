@@ -100,7 +100,7 @@ Why this route:
   * Added optional active STEP filtering to the bundle script while preserving non-STEP export assets.
   * Added tests for registry-derived export paths and bundle stale-STEP filtering.
 
-### REG-2.3: SQLModel Active Cache Schema
+### REG-2.3: SQLModel Active Cache Schema - DONE
 * **Goal**: Define a generated SQLite cache of compiled CAD facts without making the DB the design source of truth.
 * **Requirements**:
   * Add SQLModel only when the source registry is stable.
@@ -115,6 +115,11 @@ Why this route:
   * Database initialization creates `b3/registry.db`.
   * Deleting `b3/registry.db` and rerunning `flow cad build` recreates the cache from source.
   * Tests verify cache rows match registry ids and generated STEP paths.
+* **Completed**:
+  * Added SQLModel as a project dependency.
+  * Added `src/flow_cad/core/cache.py` with `ComponentCache`, `BuildMetadata`, and `ParameterSnapshot` table models.
+  * Added cache helpers for project-local `b3/registry.db`, table initialization, build metadata writes, and parameter snapshots.
+  * Added `tests/test_cache.py` coverage for project-local DB pathing, table creation, and complete `ChassisParams` snapshot rows.
 
 ### REG-2.4: Integrate Cache Writes into `flow cad build`
 * **Goal**: Make cache updates a predictable post-process of successful geometry compilation.
