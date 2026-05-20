@@ -34,6 +34,9 @@ def create_bundle(
         raise FileNotFoundError(f"exports directory not found: {exports_dir}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    if not bundle_name.endswith(".tar.gz"):
+        bundle_name = f"{bundle_name}.tar.gz"
+
     bundle_path = output_dir / bundle_name
     
     if bundle_path.exists():

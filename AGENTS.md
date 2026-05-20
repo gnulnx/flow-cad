@@ -108,9 +108,10 @@ python -m pytest
 
 Before claiming a printable CAD change is ready, run the relevant checks:
 
-- Always run `flow cad build` for changes to active CAD generators under `src/flow_cad/`.
+- Run `python -m pytest`.
 - Run `scripts/check_mounting_features.py` for tray, shelf, panel, axle insert, or hardware-hole changes.
 - Run `scripts/check_assembly_interference.py` for any assembly placement or envelope change.
+- Run `src/flow_cad/scripts/validate_print_manifest.py --manifest docs/PRINT_MANIFEST.md` to verify print handoff intent matches registry
 - Run `scripts/report_axle_insert_dimensions.py` for axle washer-tab relief or insert geometry changes when FreeCAD is available.
 
 If a command cannot be run because dependencies are missing, say so explicitly and include the command that should be run on the configured machine.

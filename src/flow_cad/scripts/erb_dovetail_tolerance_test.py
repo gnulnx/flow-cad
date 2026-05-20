@@ -23,7 +23,10 @@ Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 from build123d import Compound, Location, export_step  # noqa: E402
 from flow_cad.step_io import normalize_step_file  # noqa: E402
 
-from erb_lower_chassis import P, box_at, cyl_z, panel_dovetail_prism, safe_chamfer  # noqa: E402
+from flow_cad.core.geometry import box_at, cyl_z, panel_dovetail_prism, safe_chamfer
+from flow_cad.params import ChassisParams
+
+P = ChassisParams()
 
 
 STEP_DIR = PROJECT_ROOT / "exports" / "step" / "dovetail_tolerance_test"

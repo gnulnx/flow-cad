@@ -172,7 +172,7 @@ Phase 3 starts after deliberately removing the stale top-dome and upper-chassis 
   * `flow registry list` reports no upper-module/top-dome component ids.
   * `python -m pytest`, `scripts/check_mounting_features.py`, and `scripts/check_assembly_interference.py` pass.
 
-### REG-3.2: Cache-Assisted Assembly Clearance Validators
+### REG-3.2: Cache-Assisted Assembly Clearance Validators - DONE
 * **Goal**: Let validators consume lightweight compiled facts without making SQLite the source of mating-interface truth.
 * **Requirements**:
   * Keep durable mating-interface definitions in source/docs until a better text-config home exists.
@@ -180,6 +180,10 @@ Phase 3 starts after deliberately removing the stale top-dome and upper-chassis 
   * Refactor validation scripts to reuse the source registry and cache snapshots where doing so removes duplicated file/path logic.
 * **Verification**:
   * Verify validation output matches baseline calculations.
+* **Completed**:
+  * `check_assembly_interference.py` refactored to use `build_parts(params)` from registry
+  * `check_mounting_features.py` updated to use source params and registry-derived paths
+  * Both validators now run against the active B3 configuration
 
 ### REG-3.3: Automatic Print Manifest Sync
 * **Goal**: Generate or check `PRINT_MANIFEST.md` from source registry intent plus any approved durable print metadata.

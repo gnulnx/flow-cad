@@ -9,7 +9,6 @@ from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 import sys
 
@@ -46,10 +45,11 @@ def create_bundle(output_dir: Path, name: str | None = None, active_step_paths: 
     if not EXPORTS_DIR.exists():
         raise FileNotFoundError(f"exports directory not found: {EXPORTS_DIR}")
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    bundle_name = name or f"{P.project_id}-exports-{timestamp}.tar.gz"
-    if not bundle_name.endswith(".tar.gz"):
-        bundle_name = f"{bundle_name}.tar.gz"
+    # Bundle filename is fixed — no timestamp
+    bundle_name = "exports.tar.gz"
+    if name:
+        print(f"Warning: {name} ignored; using fixed bundle name 'exports.tar.gz'")
+
 
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = output_dir / bundle_name

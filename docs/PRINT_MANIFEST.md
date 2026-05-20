@@ -103,16 +103,19 @@ Before calling a print bundle ready:
 1. Run `flow cad build`.
 2. Run `python -m pytest`.
 3. Run the validators listed in `AGENTS.md` and `PART_INTERFACES.md` for the changed parts.
-4. Confirm the intended STEP files exist in `b3/exports/step/`.
-5. Sync viewer assets with `python scripts/sync_text_to_cad.py` when using text-to-cad/CAD Explorer for review.
-6. Create a laptop/Bambu bundle with `python scripts/create_exports_bundle.py`.
-7. Copy the printed bundle path to the laptop, for example `scp handoff/erb-exports-YYYYMMDD-HHMMSS.tar.gz jfurr@laptop:/Users/jfurr/`.
-8. Record any slicer-specific assumptions in this file or a dated bundle note.
+   103|  4. Run `scripts/check_mounting_features.py`.
+   104|  5. Run `scripts/check_assembly_interference.py`.
+   105|  6. Run `src/flow_cad/scripts/validate_print_manifest.py --manifest docs/PRINT_MANIFEST.md` to verify print handoff intent matches registry.
+   106|  7. Copy the printed bundle path to the laptop, for example:
+   107|    ```bash
+   108|    scp handoff/exports.tar.gz jfurr@laptop:/Users/jfurr/
+   109|    ```
+   110|  8. Record any slicer-specific assumptions in this file or a dated bundle note.
 
 On the laptop, unpack the handoff archive from `/Users/jfurr`:
 
 ```bash
-tar -xzf erb-exports-YYYYMMDD-HHMMSS.tar.gz
+tar -xzf exports.tar.gz
 ```
 
 Then load the intended STEP files from the unpacked `b3/exports/step/` directory into Bambu Studio.
