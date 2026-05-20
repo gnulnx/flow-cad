@@ -57,6 +57,10 @@ To accelerate human design reviews and enable automated agentic self-correction 
   - Skip snapshotting for reference-only parts or non-printable assemblies unless explicitly desired.
 * **Verification**:
   - Run `flow cad build` and verify that the `b3/exports/snapshots/` folder is cleanly populated with SVGs matching all registered printable parts.
+* **Completed**:
+  - Integrated `export_part_snapshots` call within the `Exporter.export()` workflow in `src/flow_cad/core/assembly.py`.
+  - Snapshots are written to `b3/exports/snapshots/{module_id}/{part_id}_{view}.svg`.
+  - Wrapped snapshot generation with `is_printable` check to only snapshot printable parts (skipping the full assembly and non-printable items).
 
 ### VIS-2.2: Add CLI Control Flags
 * **Goal**: Add CLI arguments to `flow cad build` to control snapshot behavior.
@@ -67,6 +71,10 @@ To accelerate human design reviews and enable automated agentic self-correction 
 * **Verification**:
   - Run `flow cad build --no-snapshots` and verify no SVGs are generated.
   - Run `flow cad build --snapshots-only` and verify that SVGs are refreshed while existing STEP files remain unmodified.
+* **Completed**:
+  - Added `@click.option("--snapshots/--no-snapshots", default=True)` and `@click.option("--snapshots-only", is_flag=True, default=False)` to the `build` command in `src/flow_cad/main.py`.
+  - Configured `Exporter` to dynamically accept and act on these flags.
+  - Ensured `Exporter.clear()` is bypassed when `--snapshots-only` is provided, preserving existing STEP files.
 
 ---
 

@@ -36,13 +36,16 @@ def cli():
 @cli.command()
 @click.option("--bundle/--no-bundle", default=True, help="Automatically create a tar.gz bundle of exports.")
 @click.option("--cache/--no-cache", default=True, help="Update the generated SQLite active cache.")
-def build(bundle, cache):
+@click.option("--snapshots/--no-snapshots", default=True, help="Automatically generate 2D SVG snapshots of each part.")
+@click.option("--snapshots-only", is_flag=True, default=False, help="Only regenerate SVG snapshots without rebuilding STEP geometry.")
+def build(bundle, cache, snapshots, snapshots_only):
     """Build all chassis parts and export STEP files."""
     params = ChassisParams()
     params.validate_params()
     
-    exporter = Exporter(PROJECT_ROOT, params)
-    exporter.clear()
+    exporter = Exporter(PROJECT_ROOT, params, enable_snapshots=snapshots, snapshots_only=snapshots_only)
+    if not snapshots_only:
+        exporter.clear()
     
     parts = build_parts(params)
     
@@ -53,12 +56,22 @@ def build(bundle, cache):
     exported = []
     cache_components = []
     for definition in iter_part_definitions():
-        path = exporter.export(parts[definition.id], definition.filename, module_id=definition.module_id)
+        path = exporter.export(
+            parts[definition.id],
+            definition.filename,
+            module_id=definition.module_id,
+            is_printable=definition.is_printable
+        )
         exported.append(path)
         cache_components.append((definition, parts[definition.id], path))
         
     parts["assembly"] = make_assembly(params, parts)
-    assembly_path = exporter.export(parts["assembly"], ASSEMBLY_DEFINITION.filename, module_id=ASSEMBLY_DEFINITION.module_id)
+    assembly_path = exporter.export(
+        parts["assembly"],
+        ASSEMBLY_DEFINITION.filename,
+        module_id=ASSEMBLY_DEFINITION.module_id,
+        is_printable=ASSEMBLY_DEFINITION.is_printable
+    )
     exported.append(assembly_path)
     cache_components.append((ASSEMBLY_DEFINITION, parts["assembly"], assembly_path))
     

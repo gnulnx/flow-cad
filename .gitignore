@@ -50,6 +50,7 @@ htmlcov/
 handoff/
 exports*.tar.gz
 b3/registry.db
+b3/exports/snapshots/
 
 # Agent-specific metadata
 .antigravitycli/
