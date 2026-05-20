@@ -55,7 +55,7 @@ Why this route:
 
 ## Phase 2: Code-First Registry + SQLite Active Cache
 
-### REG-2.1: Python Source Registry
+### REG-2.1: Python Source Registry - DONE
 * **Goal**: Establish the canonical, code-first mapping of intended B3 parts.
 * **Requirements**:
   * Create `src/flow_cad/registry.py`.
@@ -76,6 +76,10 @@ Why this route:
   * Verify every registered factory can be built with `ChassisParams()`.
   * Verify every registered part has a unique id, unique export path, module id, and role.
   * Verify printable parts have print intent metadata.
+* **Completed**:
+  * Added `src/flow_cad/registry.py` with `PartDefinition`, `PartRole`, `PART_DEFINITIONS`, `REGISTRY`, `INSERT_VARIANTS`, and assembly export metadata.
+  * Centralized active part ids, module ids, filenames, roles, material hints, and factory callables in source.
+  * Added `tests/test_registry.py` coverage for unique ids/paths, required metadata, role coverage, and factory buildability.
 
 ### REG-2.2: Refactor Build, Bundle, and Sync to Use the Source Registry
 * **Goal**: Make `src/flow_cad/registry.py` the single source for intended generated parts.
