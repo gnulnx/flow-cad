@@ -21,6 +21,9 @@ To accelerate human design reviews and enable automated agentic self-correction 
   - Correctly extract and return the tuple of `(visible_edges, hidden_edges)` for each view.
 * **Verification**:
   - Write unit tests in `test/test_snapshots.py` that pass a basic shape (e.g., `Box(10, 20, 30)`) to the projection function and verify that it returns three views with non-empty edge lists.
+* **Completed**:
+  - Implemented `project_part_views` inside `src/flow_cad/core/snapshots.py` generating Top (XY), Front (XZ), and Side (YZ) orthographic views using `.project_to_viewport(focus=None)`.
+  - Added unit test coverage in `tests/test_snapshots.py`.
 
 ### VIS-1.2: Styled SVG Exporter with Margin Scaling
 * **Goal**: Render the projected 2D edges to SVG files with clean line styles and proportional viewport bounds.
@@ -34,6 +37,11 @@ To accelerate human design reviews and enable automated agentic self-correction 
   - Add XML comment headers inside each generated SVG file embedding part metadata (e.g., generating package version, part ID, bounding box dimensions, and timestamp).
 * **Verification**:
   - Verify that the generated SVGs can be parsed cleanly by standard XML libraries and open perfectly in modern web browsers (e.g., Chrome, Firefox).
+* **Completed**:
+  - Added `export_part_snapshots` in `src/flow_cad/core/snapshots.py` using `build123d.ExportSVG` with standard styling (solid black visible, dashed gray hidden).
+  - Implemented dynamic bounding box margins (10% padding, minimum 5mm) and `fit_to_stroke=True`.
+  - Configured custom XML post-processing to prepend a detailed comment header block with part ID, view, physical bounding box size, and timestamp.
+  - Verified SVG compatibility through XML-parsing unit tests in `tests/test_snapshots.py`.
 
 ---
 
