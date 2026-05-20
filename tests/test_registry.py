@@ -1,5 +1,7 @@
 from flow_cad.params import ChassisParams
-from flow_cad.registry import ASSEMBLY_DEFINITION, PART_DEFINITIONS, PartRole, REGISTRY
+from pathlib import Path
+
+from flow_cad.registry import ASSEMBLY_DEFINITION, PART_DEFINITIONS, PartRole, REGISTRY, expected_step_relative_paths
 
 
 def test_registry_ids_and_export_paths_are_unique() -> None:
@@ -38,3 +40,11 @@ def test_registry_includes_expected_roles() -> None:
     assert PartRole.PRINTABLE in roles
     assert PartRole.REFERENCE in roles
     assert ASSEMBLY_DEFINITION.role == PartRole.INSPECTION
+
+
+def test_expected_step_relative_paths_include_parts_and_assembly() -> None:
+    paths = expected_step_relative_paths()
+
+    assert Path("step/lower_chassis/b3_lower_chassis_left_side_plate.step") in paths
+    assert Path("step/lower_chassis/b3_lower_chassis_assembly.step") in paths
+    assert len(paths) == len(PART_DEFINITIONS) + 1

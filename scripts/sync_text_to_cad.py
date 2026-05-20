@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from flow_cad.paths import require_existing, resolve_tool_config  # noqa: E402
 from flow_cad.params import ChassisParams  # noqa: E402
+from flow_cad.registry import ASSEMBLY_DEFINITION, expected_step_relative_paths, iter_part_definitions  # noqa: E402
 from scripts.create_exports_bundle import create_bundle  # noqa: E402
 
 
@@ -27,6 +28,7 @@ ASSEMBLY_VIEWER_REL_DIR = Path("models/b3_balance_bot")
 
 ASSEMBLY_FILENAME = "b3_lower_chassis_assembly.step"
 EXPORTS_BUNDLE_FILENAME = "exports.tar.gz"
+ACTIVE_STEP_RELATIVE_PATHS = expected_step_relative_paths()
 
 
 def run(command: list[str | Path], cwd: Path) -> None:
@@ -75,9 +77,7 @@ def copy_steps_to_viewer() -> tuple[Path, Path]:
     dest_dir.mkdir(parents=True, exist_ok=True)
     assembly_dest_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find all generated STEP files recursively
-    step_paths = list(source_dir.rglob("*.step"))
-    active_filenames = {p.name for p in step_paths}
+    active_filenames = {path.name for path in ACTIVE_STEP_RELATIVE_PATHS}
 
     for path in dest_dir.glob("*.step"):
         if path.name not in active_filenames:
@@ -87,14 +87,16 @@ def copy_steps_to_viewer() -> tuple[Path, Path]:
         if src_name and src_name not in active_filenames:
             remove_path(sidecar)
 
-    for src_path in step_paths:
-        filename = src_path.name
+    for definition in iter_part_definitions():
+        filename = definition.filename
         if filename == ASSEMBLY_FILENAME:
             continue
+        src_path = source_dir / definition.module_id / filename
+        require_path(src_path, f"STEP source {filename}")
         remove_step_sidecars(dest_dir, filename)
         shutil.copy2(src_path, dest_dir / filename)
 
-    assembly_source = source_dir / "lower_chassis" / ASSEMBLY_FILENAME
+    assembly_source = source_dir / ASSEMBLY_DEFINITION.module_id / ASSEMBLY_DEFINITION.filename
     remove_step_sidecars(assembly_dest_dir, ASSEMBLY_FILENAME)
     shutil.copy2(assembly_source, assembly_dest_dir / ASSEMBLY_FILENAME)
 
@@ -120,7 +122,7 @@ def rebuild_root_exports_bundle() -> Path:
     bundle_path = PROJECT_ROOT / EXPORTS_BUNDLE_FILENAME
     if bundle_path.exists():
         bundle_path.unlink()
-    return create_bundle(PROJECT_ROOT, EXPORTS_BUNDLE_FILENAME)
+    return create_bundle(PROJECT_ROOT, EXPORTS_BUNDLE_FILENAME, ACTIVE_STEP_RELATIVE_PATHS)
 
 
 def main() -> int:

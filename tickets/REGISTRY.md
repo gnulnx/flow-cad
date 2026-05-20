@@ -81,7 +81,7 @@ Why this route:
   * Centralized active part ids, module ids, filenames, roles, material hints, and factory callables in source.
   * Added `tests/test_registry.py` coverage for unique ids/paths, required metadata, role coverage, and factory buildability.
 
-### REG-2.2: Refactor Build, Bundle, and Sync to Use the Source Registry
+### REG-2.2: Refactor Build, Bundle, and Sync to Use the Source Registry - DONE
 * **Goal**: Make `src/flow_cad/registry.py` the single source for intended generated parts.
 * **Requirements**:
   * Update `flow cad build` to iterate over registry definitions for exports.
@@ -93,6 +93,12 @@ Why this route:
   * Run `flow cad build`.
   * Run `scripts/verify_modularization.py`.
   * Confirm generated STEP filenames and module directories match the existing print handoff intent.
+* **Completed**:
+  * Refactored `flow cad build` to build, printability-check, and export from registry definitions.
+  * Removed duplicate filename/reference/insert export lists from `src/flow_cad/main.py`; `INSERT_VARIANTS` is now re-exported from the source registry for compatibility.
+  * Updated text-to-cad sync to copy registry-listed STEP files and assembly metadata instead of recursively mirroring every STEP file.
+  * Added optional active STEP filtering to the bundle script while preserving non-STEP export assets.
+  * Added tests for registry-derived export paths and bundle stale-STEP filtering.
 
 ### REG-2.3: SQLModel Active Cache Schema
 * **Goal**: Define a generated SQLite cache of compiled CAD facts without making the DB the design source of truth.

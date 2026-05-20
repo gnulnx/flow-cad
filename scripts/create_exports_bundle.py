@@ -15,17 +15,19 @@ import sys
 
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from flow_cad.params import ChassisParams
+from flow_cad.registry import expected_step_relative_paths
 
 P = ChassisParams()
 EXPORTS_DIR = PROJECT_ROOT / P.project_id / "exports"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "handoff"
+ACTIVE_STEP_PATHS = expected_step_relative_paths()
 
 
 EXCLUDED_NAMES = {".DS_Store", "__pycache__"}
 EXCLUDED_SUFFIXES = {".FCBak", ".pyc", ".pyo"}
 
 
-def should_include(path: Path, exports_dir: Path = EXPORTS_DIR) -> bool:
+def should_include(path: Path, exports_dir: Path = EXPORTS_DIR, active_step_paths: set[Path] | None = None) -> bool:
     relative_parts: Iterable[str] = path.relative_to(exports_dir).parts if path != exports_dir else ()
     for part in relative_parts:
         if part in EXCLUDED_NAMES:
@@ -34,10 +36,13 @@ def should_include(path: Path, exports_dir: Path = EXPORTS_DIR) -> bool:
             return False
         if any(part.endswith(suffix) for suffix in EXCLUDED_SUFFIXES):
             return False
+    relative_path = Path(*relative_parts) if relative_parts else Path()
+    if active_step_paths is not None and relative_path.suffix == ".step":
+        return relative_path in active_step_paths
     return True
 
 
-def create_bundle(output_dir: Path, name: str | None = None) -> Path:
+def create_bundle(output_dir: Path, name: str | None = None, active_step_paths: set[Path] | None = None) -> Path:
     if not EXPORTS_DIR.exists():
         raise FileNotFoundError(f"exports directory not found: {EXPORTS_DIR}")
 
@@ -52,7 +57,7 @@ def create_bundle(output_dir: Path, name: str | None = None) -> Path:
         archive.add(
             EXPORTS_DIR,
             arcname="exports",
-            filter=lambda info: info if should_include(Path(info.name), Path("exports")) else None,
+            filter=lambda info: info if should_include(Path(info.name), Path("exports"), active_step_paths) else None,
         )
     return bundle_path
 
@@ -71,7 +76,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    bundle_path = create_bundle(args.output_dir, args.name)
+    bundle_path = create_bundle(args.output_dir, args.name, ACTIVE_STEP_PATHS)
     print(f"Created exports handoff bundle: {bundle_path}")
     print(f"Copy to laptop with: scp {bundle_path} jfurr@laptop:/Users/jfurr/")
     return 0

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 from flow_cad.params import ChassisParams
 from flow_cad.parts.chassis import make_bottom_tray, make_side_plate, make_top_lid
@@ -165,6 +166,22 @@ def iter_part_definitions(*, include_references: bool = True) -> Iterable[PartDe
     for definition in PART_DEFINITIONS:
         if include_references or definition.role != PartRole.REFERENCE:
             yield definition
+
+
+def iter_export_definitions(*, include_references: bool = True, include_assembly: bool = True) -> Iterable[PartDefinition]:
+    yield from iter_part_definitions(include_references=include_references)
+    if include_assembly:
+        yield ASSEMBLY_DEFINITION
+
+
+def expected_step_relative_paths(*, include_references: bool = True, include_assembly: bool = True) -> set[Path]:
+    return {
+        Path("step") / definition.module_id / definition.filename
+        for definition in iter_export_definitions(
+            include_references=include_references,
+            include_assembly=include_assembly,
+        )
+    }
 
 
 def build_registered_parts(params: ChassisParams) -> dict[str, object]:

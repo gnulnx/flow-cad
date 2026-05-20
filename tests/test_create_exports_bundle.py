@@ -63,3 +63,11 @@ def test_create_exports_bundle_replaces_existing_fixed_bundle(tmp_path: Path, mo
 def test_should_include_keeps_regular_export_paths() -> None:
     assert should_include(Path("exports/step/part.step"), Path("exports"))
     assert not should_include(Path("exports/step/.part.step/model.glb"), Path("exports"))
+
+
+def test_should_include_can_filter_stale_step_exports() -> None:
+    active_steps = {Path("step/lower_chassis/active.step")}
+
+    assert should_include(Path("exports/step/lower_chassis/active.step"), Path("exports"), active_steps)
+    assert not should_include(Path("exports/step/lower_chassis/stale.step"), Path("exports"), active_steps)
+    assert should_include(Path("exports/freecad/model.FCStd"), Path("exports"), active_steps)
