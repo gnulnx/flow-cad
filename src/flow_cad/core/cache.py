@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from sqlmodel import Field, SQLModel, Session, create_engine, select
 
 from flow_cad.params import ChassisParams
+from flow_cad.registry import PartDefinition
 
 
 def utc_now() -> datetime:
@@ -100,3 +103,107 @@ def list_component_cache(db_path: Path) -> list[ComponentCache]:
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         return list(session.exec(select(ComponentCache).order_by(ComponentCache.module_id, ComponentCache.id)))
+
+
+def new_build_id() -> str:
+    return uuid4().hex
+
+
+def git_state(project_root: Path) -> tuple[str | None, bool]:
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project_root,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            cwd=project_root,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        return commit, bool(status.strip())
+    except (OSError, subprocess.CalledProcessError):
+        return None, True
+
+
+def bbox_dimensions(shape) -> tuple[float, float, float]:
+    bbox = shape.bounding_box()
+    return (
+        float(bbox.max.X - bbox.min.X),
+        float(bbox.max.Y - bbox.min.Y),
+        float(bbox.max.Z - bbox.min.Z),
+    )
+
+
+def shape_volume(shape) -> float:
+    try:
+        return float(shape.volume or 0.0)
+    except Exception:
+        return 0.0
+
+
+def _relative_path(path: Path, project_root: Path) -> str:
+    try:
+        return str(path.relative_to(project_root))
+    except ValueError:
+        return str(path)
+
+
+def write_active_cache(
+    db_path: Path,
+    *,
+    project_root: Path,
+    params: ChassisParams,
+    components: list[tuple[PartDefinition, object, Path]],
+    build_id: str | None = None,
+    git_commit: str | None = None,
+    is_dirty: bool | None = None,
+    compiled_at: datetime | None = None,
+) -> str:
+    engine = create_cache_engine(db_path)
+    SQLModel.metadata.create_all(engine)
+
+    resolved_build_id = build_id or new_build_id()
+    resolved_compiled_at = compiled_at or utc_now()
+    if git_commit is None or is_dirty is None:
+        detected_commit, detected_dirty = git_state(project_root)
+        git_commit = detected_commit if git_commit is None else git_commit
+        is_dirty = detected_dirty if is_dirty is None else is_dirty
+
+    with Session(engine) as session:
+        metadata = BuildMetadata(
+            build_id=resolved_build_id,
+            git_commit=git_commit,
+            is_dirty=bool(is_dirty),
+            parameters_json=params_as_json(params),
+            compiled_at=resolved_compiled_at,
+        )
+        session.merge(metadata)
+
+        for name, value in asdict(params).items():
+            session.merge(ParameterSnapshot(build_id=resolved_build_id, name=name, value_json=_json_value(value)))
+
+        for existing in session.exec(select(ComponentCache)).all():
+            session.delete(existing)
+        session.flush()
+
+        for definition, shape, step_path in components:
+            bbox_x, bbox_y, bbox_z = bbox_dimensions(shape)
+            session.add(
+                ComponentCache(
+                    id=definition.id,
+                    module_id=definition.module_id,
+                    role=str(definition.role),
+                    step_path=_relative_path(step_path, project_root),
+                    volume_mm3=shape_volume(shape),
+                    bbox_x=bbox_x,
+                    bbox_y=bbox_y,
+                    bbox_z=bbox_z,
+                    compiled_at=resolved_compiled_at,
+                    build_id=resolved_build_id,
+                )
+            )
+        session.commit()
+    return resolved_build_id

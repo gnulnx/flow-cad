@@ -7,6 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 from flow_cad.params import ChassisParams
 from flow_cad.core.assembly import make_assembly, Exporter, bbox_dims
+from flow_cad.core.cache import registry_db_path, write_active_cache
 from flow_cad.core.report import write_report
 from flow_cad.core.bundler import create_bundle
 from flow_cad.registry import (
@@ -34,7 +35,8 @@ def cli():
 
 @cli.command()
 @click.option("--bundle/--no-bundle", default=True, help="Automatically create a tar.gz bundle of exports.")
-def build(bundle):
+@click.option("--cache/--no-cache", default=True, help="Update the generated SQLite active cache.")
+def build(bundle, cache):
     """Build all chassis parts and export STEP files."""
     params = ChassisParams()
     params.validate_params()
@@ -49,13 +51,28 @@ def build(bundle):
             assert_printable(definition.id, parts[definition.id])
             
     exported = []
+    cache_components = []
     for definition in iter_part_definitions():
-        exported.append(exporter.export(parts[definition.id], definition.filename, module_id=definition.module_id))
+        path = exporter.export(parts[definition.id], definition.filename, module_id=definition.module_id)
+        exported.append(path)
+        cache_components.append((definition, parts[definition.id], path))
         
     parts["assembly"] = make_assembly(params, parts)
-    exported.append(exporter.export(parts["assembly"], ASSEMBLY_DEFINITION.filename, module_id=ASSEMBLY_DEFINITION.module_id))
+    assembly_path = exporter.export(parts["assembly"], ASSEMBLY_DEFINITION.filename, module_id=ASSEMBLY_DEFINITION.module_id)
+    exported.append(assembly_path)
+    cache_components.append((ASSEMBLY_DEFINITION, parts["assembly"], assembly_path))
     
     report_path = write_report(params, parts, exported, exporter.report_dir, PROJECT_ROOT)
+
+    if cache:
+        db_path = registry_db_path(PROJECT_ROOT, params)
+        build_id = write_active_cache(
+            db_path,
+            project_root=PROJECT_ROOT,
+            params=params,
+            components=cache_components,
+        )
+        click.echo(click.style(f"Updated active cache {db_path} for build {build_id}", fg="green"))
     
     click.echo(click.style(f"Exported {len(exported)} STEP files to {exporter.step_dir}", fg="green"))
     click.echo(click.style(f"Wrote report to {report_path}", fg="green"))

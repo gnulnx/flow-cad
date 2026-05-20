@@ -121,7 +121,7 @@ Why this route:
   * Added cache helpers for project-local `b3/registry.db`, table initialization, build metadata writes, and parameter snapshots.
   * Added `tests/test_cache.py` coverage for project-local DB pathing, table creation, and complete `ChassisParams` snapshot rows.
 
-### REG-2.4: Integrate Cache Writes into `flow cad build`
+### REG-2.4: Integrate Cache Writes into `flow cad build` - DONE
 * **Goal**: Make cache updates a predictable post-process of successful geometry compilation.
 * **Requirements**:
   * After successful STEP export, calculate bbox and volume from in-memory build123d shapes.
@@ -132,6 +132,11 @@ Why this route:
   * `flow cad build` creates or updates `b3/registry.db`.
   * Cache metrics match direct shape bbox/volume calculations in focused tests.
   * Failed builds do not publish misleading successful cache rows.
+* **Completed**:
+  * Added `write_active_cache()` to snapshot successful build metadata, resolved params, and current component cache rows.
+  * Integrated cache writes into `flow cad build` after all STEP exports and report generation succeed.
+  * Added `--cache/--no-cache` to allow explicit cache write control.
+  * Added focused tests proving component cache rows include role, relative STEP path, bbox, volume, build id, and build metadata.
 
 ### REG-2.5: CLI and Agent Query Surface
 * **Goal**: Expose lightweight compiled facts to developers, agents, and future MCP/web tooling.

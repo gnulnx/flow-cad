@@ -49,6 +49,7 @@ htmlcov/
 # Local handoff bundles
 handoff/
 exports*.tar.gz
+b3/registry.db
 
 # Agent-specific metadata
 .antigravitycli/
