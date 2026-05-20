@@ -22,9 +22,8 @@ b3/
 │   │   │   ├── right_side_plate.step
 │   │   │   ├── bottom_tray.step
 │   │   │   └── axle_insert_tight.step
-│   │   └── upper_module/
-│   │       ├── center_adapter_deck.step
-│   │       └── perception_pod.step
+│   │   └── inserts/
+│   │       └── axle_insert_medium.step
 │   └── freecad/
 │       └── b3_lower_chassis_assembly.FCStd
 └── reports/

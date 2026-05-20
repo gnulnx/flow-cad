@@ -1,7 +1,7 @@
 B3 Stage 1 assembly interference report
 ========================================
 
-Pair count checked: 105
+Pair count checked: 45
 Bounding-box candidate pairs: 22
 Solid intersections above threshold: 0
 Minimum reported volume: 0.050000 mm^3

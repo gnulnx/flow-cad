@@ -25,7 +25,7 @@ Why this route:
 * **Goal**: Transition from flat root-level `exports/` folder to project-isolated directories.
 * **Requirements**:
   * Set primary output directories relative to `b3/exports/`.
-  * STEP files must export to `b3/exports/step/{module_id}/` (e.g. `b3/exports/step/lower_chassis/`, `b3/exports/step/upper_module/`).
+  * STEP files must export to `b3/exports/step/{module_id}/` (e.g. `b3/exports/step/lower_chassis/`, `b3/exports/step/inserts/`).
   * FreeCAD files must export to `b3/exports/freecad/`.
   * Reports must write to `b3/reports/`.
 * **Verification**:
@@ -39,14 +39,13 @@ Why this route:
   * Retain logical, clean names under modular subdirectories (e.g. `b3/exports/step/lower_chassis/left_side_plate.step`).
   * Switch naming registry key-values in `PART_FILENAMES` inside `src/flow_cad/main.py`.
 * **Verification**:
-  * Run `verify_modularization.py` (updated to point to the new paths) to guarantee **100% geometric parity** (exact volume and bounding box matching) during the renaming process.
+  * Run the unit tests and generated STEP/report checks to verify the renamed exports are still produced from the active registry.
 
 ### REG-1.3: Update Validation Scripts for the New Layout
 * **Goal**: Keep auxiliary tools and validation suites functional post-refactoring.
 * **Requirements**:
   * Update paths in `scripts/check_assembly_interference.py`.
   * Update paths in `scripts/check_mounting_features.py`.
-  * Update paths in `scripts/check_upper_hook_geometry.py`.
   * Update paths in `scripts/sync_text_to_cad.py`.
 * **Verification**:
   * Run all scripts successfully and confirm they produce clean reports in `b3/reports/`.
@@ -91,7 +90,7 @@ Why this route:
 * **Verification**:
   * Run `python -m pytest`.
   * Run `flow cad build`.
-  * Run `scripts/verify_modularization.py`.
+  * Run `flow registry list`.
   * Confirm generated STEP filenames and module directories match the existing print handoff intent.
 * **Completed**:
   * Refactored `flow cad build` to build, printability-check, and export from registry definitions.
@@ -99,6 +98,7 @@ Why this route:
   * Updated text-to-cad sync to copy registry-listed STEP files and assembly metadata instead of recursively mirroring every STEP file.
   * Added optional active STEP filtering to the bundle script while preserving non-STEP export assets.
   * Added tests for registry-derived export paths and bundle stale-STEP filtering.
+  * The legacy monolith parity script was later removed during REG-3.1 after `src/flow_cad/` became the only active CAD source.
 
 ### REG-2.3: SQLModel Active Cache Schema - DONE
 * **Goal**: Define a generated SQLite cache of compiled CAD facts without making the DB the design source of truth.
@@ -157,7 +157,20 @@ Why this route:
 
 ---
 
-## Phase 3: Test-Driven Parity & Verification
+## Phase 3: Lower-Chassis Parity & Manifest Verification
+
+Phase 3 starts after deliberately removing the stale top-dome and upper-chassis prototype work. Active B3 exports are now limited to lower-chassis printable parts, axle inserts, reference wheel/axle geometry, and the lower-chassis inspection assembly. Future upper-chassis work should be introduced as new source/registry tickets rather than reviving the removed prototype files.
+
+### REG-3.1: Lower-Chassis Scope Cleanup - DONE
+* **Goal**: Remove stale upper-chassis and top-dome artifacts before adding more registry checks.
+* **Requirements**:
+  * Remove active source, validators, generated STEP files, and reports for the discarded upper-module/top-dome prototypes.
+  * Remove upper-module entries from the source registry, assembly placements, print manifest, AGENTS instructions, and interface docs.
+  * Keep lower-chassis shelf levels, rear-panel features, axle inserts, and reference wheel/axle geometry intact.
+* **Verification**:
+  * `flow cad build` exports only lower-chassis, insert, reference, and lower-chassis assembly STEP files.
+  * `flow registry list` reports no upper-module/top-dome component ids.
+  * `python -m pytest`, `scripts/check_mounting_features.py`, and `scripts/check_assembly_interference.py` pass.
 
 ### REG-3.2: Cache-Assisted Assembly Clearance Validators
 * **Goal**: Let validators consume lightweight compiled facts without making SQLite the source of mating-interface truth.

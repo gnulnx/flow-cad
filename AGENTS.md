@@ -12,7 +12,6 @@ The repo is authoritative. The workstation is normally the heavy CAD generation 
 
 - Primary active generator: `src/flow_cad/main.py` (Entry point for the `flow cad` command)
 - Package root: `src/flow_cad/` (Modular part and core definitions)
-- Legacy monolith: `cad/erb_lower_chassis.py` (Historical reference only)
 - Parameters: `src/flow_cad/params.py` (Source of truth for all dimensions)
 - Source part registry: `src/flow_cad/registry.py` (Source of truth for intended parts, export filenames, module ids, roles, and print intent)
 - Active cache schema: `src/flow_cad/core/cache.py`
@@ -79,12 +78,6 @@ Run mounting feature validation:
 python scripts/check_mounting_features.py
 ```
 
-Run upper adapter-deck stack validation:
-
-```bash
-python scripts/check_upper_hook_geometry.py
-```
-
 Mirror STEP files to text-to-cad viewer:
 
 ```bash
@@ -115,10 +108,9 @@ python -m pytest
 
 Before claiming a printable CAD change is ready, run the relevant checks:
 
-- Always run the generator for changes to `cad/erb_lower_chassis.py`.
+- Always run `flow cad build` for changes to active CAD generators under `src/flow_cad/`.
 - Run `scripts/check_mounting_features.py` for tray, shelf, panel, axle insert, or hardware-hole changes.
 - Run `scripts/check_assembly_interference.py` for any assembly placement or envelope change.
-- Run `scripts/check_upper_hook_geometry.py` for upper adapter-deck or upper blockout changes.
 - Run `scripts/report_axle_insert_dimensions.py` for axle washer-tab relief or insert geometry changes when FreeCAD is available.
 
 If a command cannot be run because dependencies are missing, say so explicitly and include the command that should be run on the configured machine.

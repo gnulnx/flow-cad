@@ -3,7 +3,7 @@ Erb Stage 1 lower chassis CAD report (MODULAR)
 
 Final outer dimensions:
 - Center structural box: 240.0 W x 256.0 D x 240.0 H mm
-- Printable chassis assembly bbox: 460.0 W x 278.0 D x 410.0 H mm
+- Printable chassis assembly bbox: 252.0 W x 278.0 D x 240.0 H mm
 
 Exported STEP files:
 - b3/exports/step/inserts/b3_axle_insert_loose.step
@@ -33,10 +33,3 @@ Exported STEP files:
 - b3/exports/step/reference/b3_reference_wheel_axle_pair.step
 - b3/exports/step/reference/b3_reference_wheel_pair.step
 - b3/exports/step/lower_chassis/b3_shelf_spacer_block_55mm.step
-- b3/exports/step/upper_module/b3_upper_perception_pod.step
-- b3/exports/step/upper_module/b3_upper_wide_center_adapter_deck.step
-- b3/exports/step/upper_module/b3_upper_wide_center_compute_bay.step
-- b3/exports/step/upper_module/b3_upper_wide_center_crossmember.step
-- b3/exports/step/upper_module/b3_upper_wide_left_overwheel_pod.step
-- b3/exports/step/upper_module/b3_upper_wide_right_overwheel_pod.step
-- b3/exports/step/upper_module/b3_upper_wide_side_crossmember.step

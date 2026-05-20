@@ -24,14 +24,6 @@ from flow_cad.parts.reference import (
     make_reference_wheel_pair,
 )
 from flow_cad.parts.shelves import make_equipment_shelf, make_shelf_spacer_block
-from flow_cad.parts.upper_module import (
-    make_upper_perception_pod,
-    make_upper_wide_center_adapter_deck,
-    make_upper_wide_center_compute_bay,
-    make_upper_wide_center_crossmember,
-    make_upper_wide_overwheel_pod,
-    make_upper_wide_side_crossmember,
-)
 
 
 class PartRole(StrEnum):
@@ -134,13 +126,6 @@ PART_DEFINITIONS: tuple[PartDefinition, ...] = (
         ),
     ),
     PartDefinition("shelf_spacer_block_55mm", "lower_chassis", "b3_shelf_spacer_block_55mm.step", make_shelf_spacer_block),
-    PartDefinition("upper_wide_center_adapter_deck", "upper_module", "b3_upper_wide_center_adapter_deck.step", make_upper_wide_center_adapter_deck),
-    PartDefinition("upper_wide_center_compute_bay", "upper_module", "b3_upper_wide_center_compute_bay.step", make_upper_wide_center_compute_bay),
-    PartDefinition("upper_wide_left_overwheel_pod", "upper_module", "b3_upper_wide_left_overwheel_pod.step", lambda p: make_upper_wide_overwheel_pod(p, side=-1)),
-    PartDefinition("upper_wide_right_overwheel_pod", "upper_module", "b3_upper_wide_right_overwheel_pod.step", lambda p: make_upper_wide_overwheel_pod(p, side=1)),
-    PartDefinition("upper_wide_center_crossmember", "upper_module", "b3_upper_wide_center_crossmember.step", make_upper_wide_center_crossmember),
-    PartDefinition("upper_wide_side_crossmember", "upper_module", "b3_upper_wide_side_crossmember.step", make_upper_wide_side_crossmember),
-    PartDefinition("upper_perception_pod", "upper_module", "b3_upper_perception_pod.step", make_upper_perception_pod),
     *(
         PartDefinition(f"axle_insert_{variant}", "inserts", f"b3_axle_insert_{variant}.step", _insert_factory(diameter, flat_to_flat))
         for variant, (diameter, flat_to_flat) in INSERT_VARIANTS.items()

@@ -23,7 +23,7 @@ FULL_CURRENT_BOT_PARTDESIGN_FILE = FREECAD_DIR / "erb_full_current_bot_partdesig
 
 
 # These placements intentionally mirror the current active assembly exported by
-# cad/erb_lower_chassis.py. The STEP geometry remains the source of shape data;
+# flow cad build. The STEP geometry remains the source of shape data;
 # this script only packages those solids into one editable FreeCAD document.
 FULL_BOT_OCCURRENCES = [
     ("Lower chassis", "left_side_plate", "erb_lower_chassis_left_side_plate.step", (-120.0, 0.0, 0.0)),
@@ -81,31 +81,6 @@ FULL_BOT_OCCURRENCES = [
         (120.0, 0.0, 58.0),
         (0.0, 0.0, 180.0),
     ),
-    (
-        "Upper chassis",
-        "upper_wide_center_adapter_deck",
-        "erb_upper_wide_center_adapter_deck.step",
-        (0.0, 0.0, 240.0),
-    ),
-    (
-        "Upper chassis",
-        "upper_wide_center_compute_bay",
-        "erb_upper_wide_center_compute_bay.step",
-        (0.0, 0.0, 256.0),
-    ),
-    (
-        "Upper chassis",
-        "upper_wide_left_overwheel_pod",
-        "erb_upper_wide_left_overwheel_pod.step",
-        (-175.0, 0.0, 248.0),
-    ),
-    (
-        "Upper chassis",
-        "upper_wide_right_overwheel_pod",
-        "erb_upper_wide_right_overwheel_pod.step",
-        (175.0, 0.0, 248.0),
-    ),
-    ("Upper chassis", "upper_perception_pod", "erb_upper_perception_pod.step", (0.0, -34.0, 360.0)),
     ("Reference wheels and axles", "reference_wheel_pair", "erb_reference_wheel_pair.step", (0.0, 0.0, 0.0)),
     ("Reference wheels and axles", "reference_axle_pair", "erb_reference_axle_pair.step", (0.0, 0.0, 0.0)),
 ]
@@ -211,7 +186,6 @@ def make_full_current_bot_document() -> None:
 
     groups = {
         "Lower chassis": make_group(doc, "LowerChassis", "Lower chassis"),
-        "Upper chassis": make_group(doc, "UpperChassis", "Upper chassis"),
         "Reference wheels and axles": make_group(
             doc,
             "ReferenceWheelsAndAxles",

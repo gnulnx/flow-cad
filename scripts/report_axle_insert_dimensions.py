@@ -12,17 +12,21 @@ printing source constants. It focuses on the washer-tab relief pocket.
 
 from __future__ import annotations
 
-import ast
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 import Part
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CAD_FILE = PROJECT_ROOT / "cad" / "erb_lower_chassis.py"
-STEP_DIR = PROJECT_ROOT / "exports" / "step"
-REPORT_FILE = PROJECT_ROOT / "reports" / "axle_insert_dimension_report.md"
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from flow_cad.params import ChassisParams  # noqa: E402
+from flow_cad.registry import INSERT_VARIANTS  # noqa: E402
+
+STEP_DIR = PROJECT_ROOT / "b3" / "exports" / "step" / "inserts"
+REPORT_FILE = PROJECT_ROOT / "b3" / "reports" / "axle_insert_dimension_report.md"
 
 
 @dataclass(frozen=True)
@@ -61,39 +65,16 @@ class MeasuredPocket:
     measured_depth_x: float
 
 
-def _literal(value):
-    return ast.literal_eval(value)
-
-
 def read_params() -> ReliefParams:
-    tree = ast.parse(CAD_FILE.read_text(encoding="utf-8"))
-    params: dict[str, float] = {}
-    variants: dict[str, tuple[float, float]] | None = None
-
-    for node in tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == "ChassisParams":
-            for item in node.body:
-                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-                    if item.target.id.startswith("axle_tab_washer_relief_") or item.target.id == "insert_thickness":
-                        params[item.target.id] = float(_literal(item.value))
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "INSERT_VARIANTS":
-                    variants = {
-                        str(k): (float(v[0]), float(v[1]))
-                        for k, v in _literal(node.value).items()
-                    }
-
-    if variants is None:
-        raise RuntimeError("Could not find INSERT_VARIANTS in CAD file")
+    params = ChassisParams()
 
     return ReliefParams(
-        width_y=params["axle_tab_washer_relief_width"],
-        height_z=params["axle_tab_washer_relief_height"],
-        depth_x=params["axle_tab_washer_relief_depth"],
-        clearance=params["axle_tab_washer_relief_radial_clearance"],
-        insert_thickness=params["insert_thickness"],
-        variants=variants,
+        width_y=params.axle_tab_washer_relief_width,
+        height_z=params.axle_tab_washer_relief_height,
+        depth_x=params.axle_tab_washer_relief_depth,
+        clearance=params.axle_tab_washer_relief_radial_clearance,
+        insert_thickness=params.insert_thickness,
+        variants=INSERT_VARIANTS,
     )
 
 
@@ -106,7 +87,7 @@ def _lengths(bb):
 
 
 def measure_variant(params: ReliefParams, variant: str, diameter: float, flat_to_flat: float) -> MeasuredPocket:
-    step_file = STEP_DIR / f"erb_axle_insert_{variant}.step"
+    step_file = STEP_DIR / f"b3_axle_insert_{variant}.step"
     shape = Part.read(str(step_file))
     bbox = shape.BoundBox
     outer_x = bbox.XMax

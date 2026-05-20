@@ -25,7 +25,6 @@ QWEN's document correctly identifies the main pain points: monolithic CAD source
 - There are already meaningful validation scripts:
   - `scripts/check_assembly_interference.py`
   - `scripts/check_mounting_features.py`
-  - `scripts/check_upper_hook_geometry.py`
   - `scripts/report_axle_insert_dimensions.py`
 - Existing reports show the current assembly has zero reported solid overlaps and multiple packaging checks pass.
 - STEP files stay in `exports/step/`, which is the correct handoff surface for Bambu Studio.
@@ -62,7 +61,6 @@ Keep the current generator in place initially, but add this operating layer:
 ├── pyproject.toml               # pytest + tooling config
 ├── cad/
 │   ├── erb_lower_chassis.py     # Current production generator
-│   ├── erb_top_dome.py
 │   └── ...
 ├── scripts/
 │   ├── validate_all.py          # One validation entrypoint
@@ -139,7 +137,6 @@ Create `scripts/validate_all.py` or a `Makefile` target that runs the project ch
 python cad/erb_lower_chassis.py
 python scripts/check_mounting_features.py
 python scripts/check_assembly_interference.py --no-overlap-steps
-python scripts/check_upper_hook_geometry.py
 ```
 
 FreeCAD-only checks should be optional because they are environment-specific. The key is that Codex and the user both have one command to trust before print handoff on either machine.

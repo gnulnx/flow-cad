@@ -60,39 +60,6 @@ def get_assembly_occurrences(params: ChassisParams, parts: dict[str, object], in
             (params.center_box_outer_width / 2.0, 0.0, params.axle_center_height_from_bottom),
             (0.0, 0.0, 180.0),
         ),
-        (
-            "upper_wide_center_adapter_deck",
-            "upper_wide_center_adapter_deck",
-            (0.0, 0.0, params.upper_adapter_deck_z),
-        ),
-        (
-            "upper_wide_center_compute_bay",
-            "upper_wide_center_compute_bay",
-            (0.0, 0.0, params.upper_module_bottom_z),
-        ),
-        (
-            "upper_wide_left_overwheel_pod",
-            "upper_wide_left_overwheel_pod",
-            (
-                -(params.upper_module_center_width + (params.upper_module_overall_width - params.upper_module_center_width) / 2.0) / 2.0,
-                0.0,
-                params.upper_adapter_deck_z + params.upper_adapter_deck_thickness,
-            ),
-        ),
-        (
-            "upper_wide_right_overwheel_pod",
-            "upper_wide_right_overwheel_pod",
-            (
-                (params.upper_module_center_width + (params.upper_module_overall_width - params.upper_module_center_width) / 2.0) / 2.0,
-                0.0,
-                params.upper_adapter_deck_z + params.upper_adapter_deck_thickness,
-            ),
-        ),
-        (
-            "upper_perception_pod",
-            "upper_perception_pod",
-            (0.0, -34.0, params.perception_pod_base_z),
-        ),
     ]
 
     if include_references:
