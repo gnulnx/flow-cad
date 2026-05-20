@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ChassisParams:
+    project_id: str = "b3"
     center_box_outer_width: float = 240.0
     box_depth: float = 256.0
     box_height: float = 240.0

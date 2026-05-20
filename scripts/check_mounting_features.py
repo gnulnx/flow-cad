@@ -13,11 +13,11 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from erb_cad.params import ChassisParams
-from erb_cad.main import INSERT_VARIANTS
-from erb_cad.core.utils import (
+from flow_cad.params import ChassisParams
+from flow_cad.main import INSERT_VARIANTS
+from flow_cad.core.utils import (
     axle_tab_washer_relief_center_x as _relief_x,
     axle_tab_washer_relief_center_y as _relief_y,
     front_rear_panel_retention_y_positions as _ret_y,
@@ -836,12 +836,12 @@ def main() -> int:
     }
     report["failed"] = [check for check in report["checks"] if check["status"] == "fail"]
 
-    report_path = PROJECT_ROOT / "b3" / "reports" / "stage1_mounting_feature_report.json"
+    report_path = PROJECT_ROOT / P.project_id / "reports" / "stage1_mounting_feature_report.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
-    text_path = PROJECT_ROOT / "b3" / "reports" / "stage1_mounting_feature_report.txt"
-    lines = ["B3 Stage 1 mounting feature report", "====================================", ""]
+    text_path = PROJECT_ROOT / P.project_id / "reports" / "stage1_mounting_feature_report.txt"
+    lines = [f"{P.project_id.upper()} Stage 1 mounting feature report", "====================================", ""]
     for check in report["checks"]:
         prefix = "FAIL" if check["status"] == "fail" else "OK"
         lines.append(f"{prefix}: {check['message']}")

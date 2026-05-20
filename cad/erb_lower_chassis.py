@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.environ.setdefault("XDG_CACHE_HOME", "/tmp/erb-balance-bot-cad-cache")
 Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
@@ -40,7 +40,7 @@ from build123d import (  # noqa: E402
 )
 
 from erb_top_dome import make_sensor_mockup_dome  # noqa: E402
-from erb_cad.step_io import normalize_step_file  # noqa: E402
+from flow_cad.step_io import normalize_step_file  # noqa: E402
 from params import ChassisParams # Import the extracted parameters
 
 

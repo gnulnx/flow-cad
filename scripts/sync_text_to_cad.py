@@ -11,12 +11,14 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from erb_cad.paths import require_existing, resolve_tool_config  # noqa: E402
+from flow_cad.paths import require_existing, resolve_tool_config  # noqa: E402
+from flow_cad.params import ChassisParams  # noqa: E402
 from scripts.create_exports_bundle import create_bundle  # noqa: E402
 
 
+PARAMS = ChassisParams()
 TOOL_CONFIG = resolve_tool_config(PROJECT_ROOT)
 TEXT_TO_CAD_ROOT = TOOL_CONFIG.text_to_cad_root
 TEXT_TO_CAD_PYTHON = TOOL_CONFIG.text_to_cad_python
@@ -65,10 +67,10 @@ def remove_step_sidecars(directory: Path, filename: str) -> None:
 
 
 def copy_steps_to_viewer() -> tuple[Path, Path]:
-    source_dir = PROJECT_ROOT / "b3" / "exports" / "step"
+    source_dir = PROJECT_ROOT / PARAMS.project_id / "exports" / "step"
     dest_dir = TEXT_TO_CAD_ROOT / VIEWER_REL_DIR
     assembly_dest_dir = TEXT_TO_CAD_ROOT / ASSEMBLY_VIEWER_REL_DIR
-    require_path(source_dir, "B3 STEP source directory")
+    require_path(source_dir, f"{PARAMS.project_id.upper()} STEP source directory")
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     assembly_dest_dir.mkdir(parents=True, exist_ok=True)

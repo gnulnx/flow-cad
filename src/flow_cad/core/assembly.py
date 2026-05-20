@@ -8,8 +8,8 @@ class Exporter:
     def __init__(self, project_root: Path, params: ChassisParams):
         self.project_root = project_root
         self.params = params
-        self.step_dir = project_root / "b3" / "exports" / "step"
-        self.report_dir = project_root / "b3" / "reports"
+        self.step_dir = project_root / params.project_id / "exports" / "step"
+        self.report_dir = project_root / params.project_id / "reports"
         self.step_dir.mkdir(parents=True, exist_ok=True)
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
@@ -117,4 +117,4 @@ def get_assembly_occurrences(params: ChassisParams, parts: dict[str, object], in
 
 def make_assembly(params: ChassisParams, parts: dict[str, object], include_references: bool = True):
     children = [occ["shape"] for occ in get_assembly_occurrences(params, parts, include_references)]
-    return Compound(children=children, label="b3_lower_chassis_assembly")
+    return Compound(children=children, label=f"{params.project_id}_lower_chassis_assembly")

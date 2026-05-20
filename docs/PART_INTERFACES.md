@@ -1,6 +1,6 @@
 # Part Interface Registry
 
-This file records the active mechanical mating contracts that agents must check before changing CAD geometry. The authoritative source of truth is the `erb_cad/` package (entry point `erb_cad/main.py`). Use this registry to identify the mating pair, coordinate frame, critical dimensions, and validation path before editing source.
+This file records the active mechanical mating contracts that agents must check before changing CAD geometry. The authoritative source of truth is the `src/flow_cad/` package (entry point `src/flow_cad/main.py`). Use this registry to identify the mating pair, coordinate frame, critical dimensions, and validation path before editing source.
 
 Global coordinate convention:
 
@@ -30,14 +30,14 @@ Purpose: removable rear cable bumpout slides onto the fixed rear-panel receiver.
 Fixed part:
 
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_body.step`
-- Source: `make_rear_panel_detachable_body()` in `erb_cad/parts/panels.py`
+- Source: `make_rear_panel_detachable_body()` in `src/flow_cad/parts/panels.py`
 - Nominal bbox: `198.5 W x 41.6 D x 240.0 H mm`
 
 Moving part:
 
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout.step`
 - TPU test variant: `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout_TPU.step`
-- Source: `make_rear_panel_detachable_bumpout_shell()` in `erb_cad/parts/panels.py`
+- Source: `make_rear_panel_detachable_bumpout_shell()` in `src/flow_cad/parts/panels.py`
 - Nominal bbox: `132.0 W x 23.7 D x 192.0 H mm`
 
 Interface contract:
@@ -68,16 +68,16 @@ Fixed parts:
 
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step`
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
-- Source: `make_side_plate()` in `erb_cad/parts/chassis.py`
+- Source: `make_side_plate()` in `src/flow_cad/parts/chassis.py`
 - Nominal bbox each: `52.0 W x 256.0 D x 240.0 H mm`
 
 Moving parts:
 
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_front_panel.step`
-- Source: `make_end_panel()` in `erb_cad/parts/panels.py`
+- Source: `make_end_panel()` in `src/flow_cad/parts/panels.py`
 - Nominal bbox: `200.0 W x 36.0 D x 240.0 H mm`
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel.step`
-- Source: `make_rear_panel_bumpout()` in `erb_cad/parts/panels.py`
+- Source: `make_rear_panel_bumpout()` in `src/flow_cad/parts/panels.py`
 - Nominal bbox: `200.0 W x 58.0 D x 240.0 H mm`
 - Alternate rear detachable body: `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_body.step`
 
@@ -107,12 +107,12 @@ Fixed parts:
 
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step`
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
-- Source: `make_side_plate()` in `erb_cad/parts/chassis.py`
+- Source: `make_side_plate()` in `src/flow_cad/parts/chassis.py`
 
 Moving part:
 
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_tray.step`
-- Source: `make_bottom_tray()` in `erb_cad/parts/chassis.py`
+- Source: `make_bottom_tray()` in `src/flow_cad/parts/chassis.py`
 - Nominal bbox: `180.0 W x 204.0 D x 71.0 H mm`
 
 Interface contract:
@@ -139,14 +139,14 @@ Fixed parts:
 
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step`
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
-- Source: `make_side_plate()` in `erb_cad/parts/chassis.py`
+- Source: `make_side_plate()` in `src/flow_cad/parts/chassis.py`
 
 Moving parts:
 
 - STEP: `b3/exports/step/lower_chassis/b3_equipment_shelf.step`
 - STEP: `b3/exports/step/lower_chassis/b3_equipment_shelf_service_fit.step`
 - STEP: `b3/exports/step/lower_chassis/b3_equipment_shelf_service_fit_four_way.step`
-- Source: `make_equipment_shelf()` in `erb_cad/parts/shelves.py`
+- Source: `make_equipment_shelf()` in `src/flow_cad/parts/shelves.py`
 - Service-fit nominal bbox: `170.0 W x 188.0 D x 6.0 H mm`
 
 Interface contract:
@@ -174,14 +174,14 @@ Fixed parts:
 
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step`
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
-- Source: `make_side_plate()` in `erb_cad/parts/chassis.py`
+- Source: `make_side_plate()` in `src/flow_cad/parts/chassis.py`
 
 Moving parts:
 
 - STEP: `b3/exports/step/inserts/b3_axle_insert_tight.step`
 - STEP: `b3/exports/step/inserts/b3_axle_insert_medium.step`
 - STEP: `b3/exports/step/inserts/b3_axle_insert_loose.step`
-- Source: `make_axle_insert()` in `erb_cad/parts/inserts.py`
+- Source: `make_axle_insert()` in `src/flow_cad/parts/inserts.py`
 - Medium nominal bbox: `36.0 W x 140.0 D x 116.0 H mm`
 
 Interface contract:
@@ -209,12 +209,12 @@ Fixed parts:
 
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step`
 - STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
-- Source: `make_side_plate()` in `erb_cad/parts/chassis.py`
+- Source: `make_side_plate()` in `src/flow_cad/parts/chassis.py`
 
 Moving part:
 
 - STEP: `b3/exports/step/upper_module/b3_upper_wide_center_adapter_deck.step`
-- Source: `make_upper_wide_center_adapter_deck()` in `erb_cad/parts/upper_module.py`
+- Source: `make_upper_wide_center_adapter_deck()` in `src/flow_cad/parts/upper_module.py`
 - Nominal bbox: `240.0 W x 256.0 D x 8.0 H mm`
 
 Interface contract:

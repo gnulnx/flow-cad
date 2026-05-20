@@ -4,7 +4,7 @@ from .main import cli as cad_cli
 
 @click.group()
 def flow():
-    """Flow: The Erb Robot development toolkit."""
+    """Flow CAD development toolkit."""
     pass
 
 # Nest the CAD CLI under flow

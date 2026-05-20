@@ -27,7 +27,7 @@ By standardizing these workflows, local models (like Gemma) do not need to guess
 * **Step-by-Step Procedure**:
   1. **Research**: Query the registry for the target components. Locate the matching mating parameters in `PART_INTERFACES.md`.
   2. **Retrieve Baseline**: Call the database (or interface registry) to find the existing clearance value (e.g. `P.panel_dovetail_clearance`).
-  3. **Modify**: Update `erb_cad/params.py` (or project parameters) with the new clearance target. Never hardcode coordinates inside part code.
+  3. **Modify**: Update `src/flow_cad/params.py` (or project parameters) with the new clearance target. Never hardcode coordinates inside part code.
   4. **Compile**: Execute `flow cad build` to compile the new geometry.
   5. **Intersect Verify**: Call the localized collision checking tool (`check_component_interference`) on the seated part pair. Verify that overlapping volume is precisely `0.0 mm^3`.
   6. **Document**: Update the clearances in `PART_INTERFACES.md` and log the update.

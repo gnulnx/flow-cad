@@ -9,10 +9,10 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from erb_cad.params import ChassisParams
-from erb_cad.parts.upper_module import (
+from flow_cad.params import ChassisParams
+from flow_cad.parts.upper_module import (
     make_upper_wide_center_adapter_deck,
     make_upper_wide_overwheel_pod,
 )
@@ -85,13 +85,13 @@ def main() -> None:
         "center_deck_screw_hole_x_edge_margin_mm": x_hole_margin_center,
         "side_wings": results,
     }
-    reports_dir = PROJECT_ROOT / "b3" / "reports"
+    reports_dir = PROJECT_ROOT / p.project_id / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     (reports_dir / "stage1_upper_hook_geometry_report.json").write_text(json.dumps(report, indent=2) + "\n")
     (reports_dir / "stage1_upper_hook_geometry_report.txt").write_text(
         "\n".join(
             [
-                "B3 upper adapter-deck stack geometry report",
+                f"{p.project_id.upper()} upper adapter-deck stack geometry report",
                 "============================================",
                 "",
                 f"Center adapter deck: {p.upper_module_center_width:.1f} x {p.box_depth:.1f} x {t:.1f} mm at Z {p.upper_adapter_deck_z:.1f}",

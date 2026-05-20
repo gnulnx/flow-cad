@@ -15,17 +15,20 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-REPORT_DIR = PROJECT_ROOT / "b3" / "reports"
-OVERLAP_STEP_DIR = REPORT_DIR / "interference_step"
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 os.environ.setdefault("XDG_CACHE_HOME", "/tmp/erb-balance-bot-cad-cache")
 Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 from build123d import export_step  # noqa: E402
 
-from erb_cad.params import ChassisParams
-from erb_cad.main import build_parts
-from erb_cad.core.assembly import get_assembly_occurrences
+from flow_cad.params import ChassisParams
+from flow_cad.main import build_parts
+from flow_cad.core.assembly import get_assembly_occurrences
+
+params = ChassisParams()
+REPORT_DIR = PROJECT_ROOT / params.project_id / "reports"
+OVERLAP_STEP_DIR = REPORT_DIR / "interference_step"
 
 
 def bbox_dict(shape) -> dict[str, list[float]]:

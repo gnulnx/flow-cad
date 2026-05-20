@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import sys
 import rich_click as click
 from pathlib import Path
 
-# Add project root to path
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-from erb_cad.params import ChassisParams
-from erb_cad.core.assembly import make_assembly, Exporter, bbox_dims
-from erb_cad.core.report import write_report
-from erb_cad.core.bundler import create_bundle
-from erb_cad.parts.chassis import make_side_plate, make_bottom_tray, make_top_lid
-from erb_cad.parts.panels import (
+from flow_cad.params import ChassisParams
+from flow_cad.core.assembly import make_assembly, Exporter, bbox_dims
+from flow_cad.core.report import write_report
+from flow_cad.core.bundler import create_bundle
+from flow_cad.parts.chassis import make_side_plate, make_bottom_tray, make_top_lid
+from flow_cad.parts.panels import (
     make_end_panel, 
     make_rear_panel_bumpout, 
     make_rear_panel_body_for_bumpout, 
@@ -23,9 +20,9 @@ from erb_cad.parts.panels import (
     make_rear_panel_detachable_bumpout_shell,
     make_rear_panel_detachable_bumpout_shell_tpu
 )
-from erb_cad.parts.shelves import make_equipment_shelf, make_shelf_spacer_block
-from erb_cad.parts.inserts import make_axle_insert
-from erb_cad.parts.upper_module import (
+from flow_cad.parts.shelves import make_equipment_shelf, make_shelf_spacer_block
+from flow_cad.parts.inserts import make_axle_insert
+from flow_cad.parts.upper_module import (
     make_upper_wide_center_adapter_deck,
     make_upper_wide_center_compute_bay,
     make_upper_wide_overwheel_pod,
@@ -33,7 +30,7 @@ from erb_cad.parts.upper_module import (
     make_upper_wide_side_crossmember,
     make_upper_perception_pod
 )
-from erb_cad.parts.reference import (
+from flow_cad.parts.reference import (
     make_reference_wheel_pair,
     make_reference_axle_pair,
     make_reference_wheel_axle_pair
@@ -154,7 +151,7 @@ def assert_printable(name: str, shape) -> None:
 
 @click.group()
 def cli():
-    """Erb CAD Package CLI."""
+    """Flow CAD package CLI."""
     pass
 
 @cli.command()

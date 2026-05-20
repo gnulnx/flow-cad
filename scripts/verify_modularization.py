@@ -4,28 +4,28 @@ from pathlib import Path
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # Force XDG cache for build123d
 os.environ["XDG_CACHE_HOME"] = "/tmp/erb-balance-bot-cad-cache"
 
 try:
-    from erb_cad.params import ChassisParams
-    from erb_cad.parts.shelves import make_equipment_shelf as make_shelf_new
-    from erb_cad.parts.chassis import make_side_plate as make_side_plate_new
-    from erb_cad.parts.panels import (
+    from flow_cad.params import ChassisParams
+    from flow_cad.parts.shelves import make_equipment_shelf as make_shelf_new
+    from flow_cad.parts.chassis import make_side_plate as make_side_plate_new
+    from flow_cad.parts.panels import (
         make_end_panel as make_end_panel_new,
         make_rear_panel_body_for_bumpout as make_rear_panel_body_new,
         make_rear_panel_bumpout_shell as make_rear_panel_bumpout_shell_new,
         make_rear_panel_detachable_body as make_rear_panel_detachable_body_new,
         make_rear_panel_detachable_bumpout_shell as make_rear_panel_detachable_bumpout_shell_new
     )
-    from erb_cad.parts.chassis import (
+    from flow_cad.parts.chassis import (
         make_bottom_tray as make_bottom_tray_new,
         make_top_lid as make_top_lid_new
     )
-    from erb_cad.parts.inserts import make_axle_insert as make_axle_insert_new
-    from erb_cad.parts.upper_module import (
+    from flow_cad.parts.inserts import make_axle_insert as make_axle_insert_new
+    from flow_cad.parts.upper_module import (
         make_upper_wide_center_adapter_deck as make_adapter_deck_new,
         make_upper_wide_center_compute_bay as make_compute_bay_new,
         make_upper_wide_overwheel_pod as make_overwheel_pod_new,

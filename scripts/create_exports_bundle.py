@@ -11,7 +11,13 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPORTS_DIR = PROJECT_ROOT / "b3" / "exports"
+import sys
+
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+from flow_cad.params import ChassisParams
+
+P = ChassisParams()
+EXPORTS_DIR = PROJECT_ROOT / P.project_id / "exports"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "handoff"
 
 
@@ -36,7 +42,7 @@ def create_bundle(output_dir: Path, name: str | None = None) -> Path:
         raise FileNotFoundError(f"exports directory not found: {EXPORTS_DIR}")
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    bundle_name = name or f"b3-exports-{timestamp}.tar.gz"
+    bundle_name = name or f"{P.project_id}-exports-{timestamp}.tar.gz"
     if not bundle_name.endswith(".tar.gz"):
         bundle_name = f"{bundle_name}.tar.gz"
 

@@ -10,12 +10,12 @@ The repo is authoritative. The workstation is normally the heavy CAD generation 
 
 ## Source Of Truth
 
-- Primary active generator: `erb_cad/main.py` (Entry point for the `flow cad` command)
-- Package root: `erb_cad/` (Modular part and core definitions)
+- Primary active generator: `src/flow_cad/main.py` (Entry point for the `flow cad` command)
+- Package root: `src/flow_cad/` (Modular part and core definitions)
 - Legacy monolith: `cad/erb_lower_chassis.py` (Historical reference only)
-- Parameters: `erb_cad/params.py` (Source of truth for all dimensions)
-- Active mating-interface registry: `PART_INTERFACES.md`
-- Active print handoff manifest: `PRINT_MANIFEST.md`
+- Parameters: `src/flow_cad/params.py` (Source of truth for all dimensions)
+- Active mating-interface registry: `docs/PART_INTERFACES.md`
+- Active print handoff manifest: `docs/PRINT_MANIFEST.md`
 - Generated STEP outputs: `b3/exports/step/`
 - Generated Hand-off bundle: `handoff/exports.tar.gz`
 - Validation reports: `b3/reports/`
@@ -24,10 +24,10 @@ Do not treat text-to-cad mirrors, FreeCAD exports, or Bambu Studio files as the 
 
 ## Architecture
  
-- **`erb_cad/core/`**: Primitives, assembly coordination, and exporter logic.
-- **`erb_cad/parts/`**: Modular part generators (e.g., `chassis.py`, `panels.py`, `shelves.py`).
-- **`erb_cad/params.py`**: Centralized `ChassisParams` class. Dimensions are injected into generators via this object.
-- **`erb_cad/cli.py`**: Entry point for the `flow` command-line tool.
+- **`src/flow_cad/core/`**: Primitives, assembly coordination, and exporter logic.
+- **`src/flow_cad/parts/`**: Modular part generators (e.g., `chassis.py`, `panels.py`, `shelves.py`).
+- **`src/flow_cad/params.py`**: Centralized `ChassisParams` class. Dimensions are injected into generators via this object.
+- **`src/flow_cad/cli.py`**: Entry point for the `flow` command-line tool.
 - **`scripts/`**: One-off validation and maintenance scripts.
 - **`tests/`**: Unit tests for geometry and parameters.
  
@@ -114,7 +114,7 @@ If a command cannot be run because dependencies are missing, say so explicitly a
 
 For any change involving fit, latch, slide, hook, dovetail, T-slot, receiver, rail, tongue, groove, screw alignment, or collision clearance, treat the mating interface as the unit of work.
 
-Read `PART_INTERFACES.md` before editing any mating-interface geometry. If the interface is listed there, use its fixed/moving part contract, directions, clearances, and validation notes. If the interface is not listed, add or update a concise entry when the task creates a new durable mating contract.
+Read `docs/PART_INTERFACES.md` before editing any mating-interface geometry. If the interface is listed there, use its fixed/moving part contract, directions, clearances, and validation notes. If the interface is not listed, add or update a concise entry when the task creates a new durable mating contract.
 
 Before editing source:
 
@@ -153,7 +153,7 @@ Before reporting a mating-geometry change as complete:
 
 Bambu Studio should receive intentional print artifacts, not the whole working tree.
 
-Read `PRINT_MANIFEST.md` before changing the intended print set, preparing a handoff, or deciding whether a STEP file is printable, reference-only, or inspection-only. Update it whenever the current print handoff intent changes.
+Read `docs/PRINT_MANIFEST.md` before changing the intended print set, preparing a handoff, or deciding whether a STEP file is printable, reference-only, or inspection-only. Update it whenever the current print handoff intent changes.
 
 - Any part exceeding 256mm in any dimension (256mm x 256mm x 256mm) is an automatic failure (P2S envelope limit).
 - STEP files for slicing live under `b3/exports/step/`.
@@ -184,9 +184,9 @@ Do not rely on historical narrative docs as project state. Inspect current sourc
 For most tasks:
 
 1. Inspect current source and reports first.
-2. Read `PART_INTERFACES.md` when the task touches mating geometry, fit, clearance, or hardware alignment.
-3. Read `PRINT_MANIFEST.md` when the task touches print handoff, Bambu Studio artifacts, printable/reference classification, or bundle contents.
-4. Read `CODEX_SUGGESTIONS.md` when the task concerns workflow, project structure, tests, validation, or agent/tooling improvements.
+2. Read `docs/PART_INTERFACES.md` when the task touches mating geometry, fit, clearance, or hardware alignment.
+3. Read `docs/PRINT_MANIFEST.md` when the task touches print handoff, Bambu Studio artifacts, printable/reference classification, or bundle contents.
+4. Read `docs/CODEX_SUGGESTIONS.md` when the task concerns workflow, project structure, tests, validation, or agent/tooling improvements.
 5. Preserve concise updates. Avoid creating long running narratives unless the user explicitly asks for one.
 
 ## Change Style
@@ -197,8 +197,8 @@ For most tasks:
 - Add tests/validators around existing behavior before extracting modules.
 - Run `python -m pytest` for every code change.
 - Preserve generated STEP handoff behavior unless the user asks to change it.
-- Keep `PART_INTERFACES.md` and `PRINT_MANIFEST.md` current when changing durable mating contracts or print handoff intent.
-- Never hardcode a coordinate in the `erb_cad/` generators; it must be derived from the `params: ChassisParams` object passed to the function.
+- Keep `docs/PART_INTERFACES.md` and `docs/PRINT_MANIFEST.md` current when changing durable mating contracts or print handoff intent.
+- Never hardcode a coordinate in the `src/flow_cad/` generators; it must be derived from the `params: ChassisParams` object passed to the function.
 
 ## Git Hygiene
 

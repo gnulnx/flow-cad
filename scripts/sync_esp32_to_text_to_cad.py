@@ -11,9 +11,9 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from erb_cad.paths import require_existing, resolve_tool_config  # noqa: E402
+from flow_cad.paths import require_existing, resolve_tool_config  # noqa: E402
 
 
 TOOL_CONFIG = resolve_tool_config(PROJECT_ROOT)

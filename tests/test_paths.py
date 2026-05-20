@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from erb_cad.paths import (
+from flow_cad.paths import (
     discover_freecad_cmd,
     parse_env_file,
     read_local_config,
