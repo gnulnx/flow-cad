@@ -2,7 +2,7 @@
 
 This file lists the current STEP handoff intent for Bambu Studio and related print planning. It is not generated source. Update it when the intended print set changes.
 
-Source of truth for geometry remains `cad/erb_lower_chassis.py`. Generated STEP files live under `exports/step/`.
+Source of truth for geometry is the `erb_cad/` package (entry point `erb_cad/main.py`). Generated STEP files live under `exports/step/`.
 
 ## Active Lower Chassis Print Set
 

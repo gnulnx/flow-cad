@@ -10,15 +10,27 @@ The repo is authoritative. The workstation is normally the heavy CAD generation 
 
 ## Source Of Truth
 
-- Primary active generator: `cad/erb_lower_chassis.py`
-- Current improvement proposal: `CODEX_SUGGESTIONS.md`
+- Primary active generator: `erb_cad/main.py` (Entry point for the `flow cad` command)
+- Package root: `erb_cad/` (Modular part and core definitions)
+- Legacy monolith: `cad/erb_lower_chassis.py` (Historical reference only)
+- Parameters: `erb_cad/params.py` (Source of truth for all dimensions)
 - Active mating-interface registry: `PART_INTERFACES.md`
 - Active print handoff manifest: `PRINT_MANIFEST.md`
 - Generated STEP outputs: `exports/step/`
+- Generated Hand-off bundle: `handoff/exports.tar.gz`
 - Validation reports: `reports/`
 
 Do not treat text-to-cad mirrors, FreeCAD exports, or Bambu Studio files as the source of truth unless the user explicitly says a manual slicer/FreeCAD change must be brought back into source.
 
+## Architecture
+ 
+- **`erb_cad/core/`**: Primitives, assembly coordination, and exporter logic.
+- **`erb_cad/parts/`**: Modular part generators (e.g., `chassis.py`, `panels.py`, `shelves.py`).
+- **`erb_cad/params.py`**: Centralized `ChassisParams` class. Dimensions are injected into generators via this object.
+- **`erb_cad/cli.py`**: Entry point for the `flow` command-line tool.
+- **`scripts/`**: One-off validation and maintenance scripts.
+- **`tests/`**: Unit tests for geometry and parameters.
+ 
 ## Path Rules
 
 Keep the repo portable across workstation and laptop.
@@ -34,11 +46,13 @@ Keep the repo portable across workstation and laptop.
 
 ## Standard Commands
 
-Generate the active chassis STEP files:
-
+Generate the active chassis STEP files and handoff bundle:
+ 
 ```bash
-python cad/erb_lower_chassis.py
+flow cad build
 ```
+
+The `build` command automatically creates `handoff/exports.tar.gz`.
 
 Run assembly interference validation:
 
@@ -184,7 +198,7 @@ For most tasks:
 - Run `python -m pytest` for every code change.
 - Preserve generated STEP handoff behavior unless the user asks to change it.
 - Keep `PART_INTERFACES.md` and `PRINT_MANIFEST.md` current when changing durable mating contracts or print handoff intent.
-- Never hardcode a coordinate in `cad/erb_lower_chassis.py` if it relates to a mating interface; it must be derived from the `P` (Parameters) object.
+- Never hardcode a coordinate in the `erb_cad/` generators; it must be derived from the `params: ChassisParams` object passed to the function.
 
 ## Git Hygiene
 

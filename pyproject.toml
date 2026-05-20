@@ -9,7 +9,11 @@ description = "Parametric CAD and validation helpers for the Erb balance bot cha
 requires-python = ">=3.11"
 dependencies = [
     "build123d",
+    "rich-click",
 ]
+
+[project.scripts]
+flow = "erb_cad.cli:flow"
 
 [project.optional-dependencies]
 test = ["pytest"]

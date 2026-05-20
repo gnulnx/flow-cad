@@ -33,11 +33,13 @@ Run the unit tests after setup and after every code change:
 python -m pytest
 ```
 
-## Generate STEP Files
+Generate the active chassis STEP files and create a handoff bundle:
 
 ```bash
-python cad/erb_lower_chassis.py
+flow cad build
 ```
+
+The handoff bundle is created at `handoff/exports.tar.gz`.
 
 Generated files are written to:
 
