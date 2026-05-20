@@ -45,16 +45,6 @@ Equipment shelves:
 - `b3/exports/step/lower_chassis/b3_equipment_shelf_service_fit_four_way.step`
 - Optional legacy support: `b3/exports/step/lower_chassis/b3_shelf_spacer_block_55mm.step`
 
-Upper module / adapter pieces:
-
-- `b3/exports/step/upper_module/b3_upper_wide_center_adapter_deck.step`
-- `b3/exports/step/upper_module/b3_upper_wide_center_compute_bay.step`
-- `b3/exports/step/upper_module/b3_upper_wide_left_overwheel_pod.step`
-- `b3/exports/step/upper_module/b3_upper_wide_right_overwheel_pod.step`
-- `b3/exports/step/upper_module/b3_upper_wide_center_crossmember.step`
-- `b3/exports/step/upper_module/b3_upper_wide_side_crossmember.step`
-- `b3/exports/step/upper_module/b3_upper_perception_pod.step`
-
 ## Inspection Or Reference Only
 
 Do not send these as ordinary printable Bambu parts unless explicitly doing visual fit or reference work:
@@ -63,9 +53,6 @@ Do not send these as ordinary printable Bambu parts unless explicitly doing visu
 - `b3/exports/step/reference/b3_reference_wheel_pair.step`
 - `b3/exports/step/reference/b3_reference_axle_pair.step`
 - `b3/exports/step/reference/b3_reference_wheel_axle_pair.step`
-- `b3/exports/step/upper_module/b3_top_dome_plain.step`
-- `b3/exports/step/upper_module/b3_top_dome_sensor_mockup.step`
-- `b3/exports/step/upper_module/b3_top_dome_prototypes.step`
 
 Assembly STEP files are for inspection and CAD Explorer review. Reference wheel/axle files represent purchased or non-print reference geometry.
 
@@ -109,29 +96,26 @@ Axle insert group:
 - `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
 - selected axle insert STEP file
 
-Upper adapter group:
-
-- `b3/exports/step/upper_module/b3_upper_wide_center_adapter_deck.step`
-- selected upper module pieces
-- side plates for bolt-pattern verification
-
 ## Standard Handoff Checks
 
 Before calling a print bundle ready:
 
-1. Run `python cad/erb_lower_chassis.py`.
+1. Run `flow cad build`.
 2. Run `python -m pytest`.
 3. Run the validators listed in `AGENTS.md` and `PART_INTERFACES.md` for the changed parts.
-4. Confirm the intended STEP files exist in `b3/exports/step/`.
-5. Sync viewer assets with `python scripts/sync_text_to_cad.py` when using text-to-cad/CAD Explorer for review.
-6. Create a laptop/Bambu bundle with `python scripts/create_exports_bundle.py`.
-7. Copy the printed bundle path to the laptop, for example `scp handoff/erb-exports-YYYYMMDD-HHMMSS.tar.gz jfurr@laptop:/Users/jfurr/`.
-8. Record any slicer-specific assumptions in this file or a dated bundle note.
+   103|  4. Run `scripts/check_mounting_features.py`.
+   104|  5. Run `scripts/check_assembly_interference.py`.
+   105|  6. Run `src/flow_cad/scripts/validate_print_manifest.py --manifest docs/PRINT_MANIFEST.md` to verify print handoff intent matches registry.
+   106|  7. Copy the printed bundle path to the laptop, for example:
+   107|    ```bash
+   108|    scp handoff/exports.tar.gz jfurr@laptop:/Users/jfurr/
+   109|    ```
+   110|  8. Record any slicer-specific assumptions in this file or a dated bundle note.
 
 On the laptop, unpack the handoff archive from `/Users/jfurr`:
 
 ```bash
-tar -xzf erb-exports-YYYYMMDD-HHMMSS.tar.gz
+tar -xzf exports.tar.gz
 ```
 
 Then load the intended STEP files from the unpacked `b3/exports/step/` directory into Bambu Studio.

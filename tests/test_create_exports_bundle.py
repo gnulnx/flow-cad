@@ -1,7 +1,7 @@
 from pathlib import Path
 import tarfile
 
-from scripts.create_exports_bundle import create_bundle, should_include
+from flow_cad.core.bundler import create_bundle, should_include
 
 
 def test_create_exports_bundle_contains_exports_tree(tmp_path: Path, monkeypatch) -> None:
@@ -10,9 +10,7 @@ def test_create_exports_bundle_contains_exports_tree(tmp_path: Path, monkeypatch
     (exports_dir / "step").mkdir(parents=True)
     (exports_dir / "step" / "part.step").write_text("STEP\n", encoding="utf-8")
 
-    monkeypatch.setattr("scripts.create_exports_bundle.EXPORTS_DIR", exports_dir)
-
-    bundle = create_bundle(output_dir, "test-export")
+    bundle = create_bundle(exports_dir, output_dir, "test-export")
 
     assert bundle == output_dir / "test-export.tar.gz"
     with tarfile.open(bundle, "r:gz") as archive:
@@ -29,9 +27,7 @@ def test_create_exports_bundle_excludes_local_junk(tmp_path: Path, monkeypatch) 
     (exports_dir / "freecad" / "backup.FCBak").write_text("backup\n", encoding="utf-8")
     (exports_dir / "step" / "part.step").write_text("STEP\n", encoding="utf-8")
 
-    monkeypatch.setattr("scripts.create_exports_bundle.EXPORTS_DIR", exports_dir)
-
-    bundle = create_bundle(output_dir, "test-export")
+    bundle = create_bundle(exports_dir, output_dir, "test-export")
 
     with tarfile.open(bundle, "r:gz") as archive:
         names = archive.getnames()
@@ -47,11 +43,9 @@ def test_create_exports_bundle_replaces_existing_fixed_bundle(tmp_path: Path, mo
     (exports_dir / "step").mkdir(parents=True)
     (exports_dir / "step" / "part.step").write_text("old\n", encoding="utf-8")
 
-    monkeypatch.setattr("scripts.create_exports_bundle.EXPORTS_DIR", exports_dir)
-
-    bundle = create_bundle(output_dir, "exports.tar.gz")
+    bundle = create_bundle(exports_dir, output_dir, "exports.tar.gz")
     (exports_dir / "step" / "part.step").write_text("new\n", encoding="utf-8")
-    bundle = create_bundle(output_dir, "exports.tar.gz")
+    bundle = create_bundle(exports_dir, output_dir, "exports.tar.gz")
 
     assert bundle == output_dir / "exports.tar.gz"
     with tarfile.open(bundle, "r:gz") as archive:
@@ -63,3 +57,11 @@ def test_create_exports_bundle_replaces_existing_fixed_bundle(tmp_path: Path, mo
 def test_should_include_keeps_regular_export_paths() -> None:
     assert should_include(Path("exports/step/part.step"), Path("exports"))
     assert not should_include(Path("exports/step/.part.step/model.glb"), Path("exports"))
+
+
+def test_should_include_can_filter_stale_step_exports() -> None:
+    active_steps = {Path("step/lower_chassis/active.step")}
+
+    assert should_include(Path("exports/step/lower_chassis/active.step"), Path("exports"), active_steps)
+    assert not should_include(Path("exports/step/lower_chassis/stale.step"), Path("exports"), active_steps)
+    assert should_include(Path("exports/freecad/model.FCStd"), Path("exports"), active_steps)

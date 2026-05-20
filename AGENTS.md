@@ -12,13 +12,15 @@ The repo is authoritative. The workstation is normally the heavy CAD generation 
 
 - Primary active generator: `src/flow_cad/main.py` (Entry point for the `flow cad` command)
 - Package root: `src/flow_cad/` (Modular part and core definitions)
-- Legacy monolith: `cad/erb_lower_chassis.py` (Historical reference only)
 - Parameters: `src/flow_cad/params.py` (Source of truth for all dimensions)
+- Source part registry: `src/flow_cad/registry.py` (Source of truth for intended parts, export filenames, module ids, roles, and print intent)
+- Active cache schema: `src/flow_cad/core/cache.py`
 - Active mating-interface registry: `docs/PART_INTERFACES.md`
 - Active print handoff manifest: `docs/PRINT_MANIFEST.md`
 - Generated STEP outputs: `b3/exports/step/`
 - Generated Hand-off bundle: `handoff/exports.tar.gz`
 - Validation reports: `b3/reports/`
+- Generated active cache: `b3/registry.db` (ignored build artifact; query surface only, not design truth)
 
 Do not treat text-to-cad mirrors, FreeCAD exports, or Bambu Studio files as the source of truth unless the user explicitly says a manual slicer/FreeCAD change must be brought back into source.
 
@@ -26,6 +28,7 @@ Do not treat text-to-cad mirrors, FreeCAD exports, or Bambu Studio files as the 
  
 - **`src/flow_cad/core/`**: Primitives, assembly coordination, and exporter logic.
 - **`src/flow_cad/parts/`**: Modular part generators (e.g., `chassis.py`, `panels.py`, `shelves.py`).
+- **`src/flow_cad/registry.py`**: Code-first registry of active generated parts and their export metadata.
 - **`src/flow_cad/params.py`**: Centralized `ChassisParams` class. Dimensions are injected into generators via this object.
 - **`src/flow_cad/cli.py`**: Entry point for the `flow` command-line tool.
 - **`scripts/`**: One-off validation and maintenance scripts.
@@ -54,6 +57,15 @@ flow cad build
 
 The `build` command automatically creates `handoff/exports.tar.gz`.
 
+`flow cad build` also updates `b3/registry.db` by default. Use `flow cad build --no-cache` only when intentionally skipping the generated active-cache update.
+
+Query the generated active cache:
+
+```bash
+flow registry list
+flow registry show <component_id>
+```
+
 Run assembly interference validation:
 
 ```bash
@@ -64,12 +76,6 @@ Run mounting feature validation:
 
 ```bash
 python scripts/check_mounting_features.py
-```
-
-Run upper adapter-deck stack validation:
-
-```bash
-python scripts/check_upper_hook_geometry.py
 ```
 
 Mirror STEP files to text-to-cad viewer:
@@ -102,10 +108,10 @@ python -m pytest
 
 Before claiming a printable CAD change is ready, run the relevant checks:
 
-- Always run the generator for changes to `cad/erb_lower_chassis.py`.
+- Run `python -m pytest`.
 - Run `scripts/check_mounting_features.py` for tray, shelf, panel, axle insert, or hardware-hole changes.
 - Run `scripts/check_assembly_interference.py` for any assembly placement or envelope change.
-- Run `scripts/check_upper_hook_geometry.py` for upper adapter-deck or upper blockout changes.
+- Run `src/flow_cad/scripts/validate_print_manifest.py --manifest docs/PRINT_MANIFEST.md` to verify print handoff intent matches registry
 - Run `scripts/report_axle_insert_dimensions.py` for axle washer-tab relief or insert geometry changes when FreeCAD is available.
 
 If a command cannot be run because dependencies are missing, say so explicitly and include the command that should be run on the configured machine.
@@ -170,12 +176,15 @@ Do not hand-edit generated CAD artifacts:
 - `b3/exports/step/**/*.step`
 - `b3/exports/freecad/*.FCStd`
 - `b3/exports/freecad/**/*.FCStd`
+- `b3/registry.db`
 - generated report files under `b3/reports/`, unless the task is explicitly documentation/report maintenance
 - text-to-cad viewer sidecars such as hidden `.step` asset folders
 
 Instead, edit the Python source or validation script that produces the artifact, regenerate, and then report what changed.
 
 Generated STEP files are tracked, but export timestamps are intentionally normalized after generation so unchanged geometry does not churn every commit. If a STEP file still diffs after regeneration, inspect the DATA-section geometry diff before assuming it is metadata-only.
+
+`b3/registry.db` is a generated active cache. It can be deleted and rebuilt with `flow cad build`. Do not treat cache rows as source of truth for geometry, dimensions, mating interfaces, or print handoff intent.
 
 ## Context Policy
 

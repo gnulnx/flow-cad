@@ -1,6 +1,9 @@
 import pytest
 from dataclasses import replace
-from cad.erb_lower_chassis import ChassisParams, P, panel_end_span_rib_depth
+from flow_cad.params import ChassisParams
+from flow_cad.parts.panels import panel_end_span_rib_depth
+
+P = ChassisParams()
 
 def test_params_valid_default():
     """Ensure the default parameters pass validation."""
@@ -39,8 +42,8 @@ def test_battery_fit_failure():
 def test_detachable_rear_lower_span_depth_contract():
     assert P.front_rear_panel_end_span_total_depth == 20.0
     assert P.rear_detachable_panel_lower_span_total_depth == 12.0
-    assert panel_end_span_rib_depth(P.front_rear_panel_end_span_total_depth) == 14.0
-    assert panel_end_span_rib_depth(P.rear_detachable_panel_lower_span_total_depth) == 6.0
+    assert panel_end_span_rib_depth(P, P.front_rear_panel_end_span_total_depth) == 14.0
+    assert panel_end_span_rib_depth(P, P.rear_detachable_panel_lower_span_total_depth) == 6.0
 
 
 def test_detachable_rear_tpu_head_contract():
