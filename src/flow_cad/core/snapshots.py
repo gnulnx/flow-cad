@@ -177,7 +177,7 @@ def export_part_snapshots(
             
             # 1. Background, rounded sheet border, and subtle grid alignment marks
             bg_xml = [
-                f'  <rect width="100%" height="100%" fill="#ffffff" />',
+                f'  <rect x="{vb_min_x}" y="{vb_min_y}" width="{vb_w}" height="{vb_h}" fill="#ffffff" />',
                 f'  <rect x="{vb_min_x + 0.5}" y="{vb_min_y + 0.5}" width="{vb_w - 1.0}" height="{vb_h - 1.0}" fill="none" stroke="#e2e8f0" stroke-width="0.5" rx="2" />'
             ]
             

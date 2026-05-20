@@ -13,6 +13,7 @@ class Exporter:
         self.snapshot_dir = project_root / params.project_id / "exports" / "snapshots"
         self.enable_snapshots = enable_snapshots
         self.snapshots_only = snapshots_only
+        self.snapshot_count = 0
         self.step_dir.mkdir(parents=True, exist_ok=True)
         self.report_dir.mkdir(parents=True, exist_ok=True)
         if self.enable_snapshots:
@@ -39,7 +40,8 @@ class Exporter:
                 snap_dest = self.snapshot_dir
             part_id = Path(filename).stem
             from .snapshots import export_part_snapshots
-            export_part_snapshots(shape, part_id, snap_dest, metadata={"Project": self.params.project_id})
+            snap_paths = export_part_snapshots(shape, part_id, snap_dest, metadata={"Project": self.params.project_id})
+            self.snapshot_count += len(snap_paths)
 
         return path
 
