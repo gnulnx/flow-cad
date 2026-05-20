@@ -53,7 +53,7 @@ Why this route:
 
 ---
 
-## Phase 2: Code-First Registry + SQLite Active Cache
+## Phase 2: Code-First Registry + SQLite Active Cache - DONE
 
 ### REG-2.1: Python Source Registry - DONE
 * **Goal**: Establish the canonical, code-first mapping of intended B3 parts.
@@ -138,7 +138,7 @@ Why this route:
   * Added `--cache/--no-cache` to allow explicit cache write control.
   * Added focused tests proving component cache rows include role, relative STEP path, bbox, volume, build id, and build metadata.
 
-### REG-2.5: CLI and Agent Query Surface
+### REG-2.5: CLI and Agent Query Surface - DONE
 * **Goal**: Expose lightweight compiled facts to developers, agents, and future MCP/web tooling.
 * **Requirements**:
   * Add `flow registry list` to show ids, modules, roles, STEP paths, volumes, and bbox values from the active cache.
@@ -149,6 +149,11 @@ Why this route:
   * Commands work after `flow cad build`.
   * Commands report a clear message when `b3/registry.db` is missing or stale.
   * Query output does not require importing or evaluating heavy CAD geometry.
+* **Completed**:
+  * Added top-level `flow registry list` and `flow registry show <component_id>` commands.
+  * Commands read only from the generated active cache and report a clear error if `b3/registry.db` is missing.
+  * Added cache query helpers for list/show/latest-build use.
+  * Added CLI tests for missing cache, list output, show output, and missing component handling.
 
 ---
 

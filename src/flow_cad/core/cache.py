@@ -105,6 +105,20 @@ def list_component_cache(db_path: Path) -> list[ComponentCache]:
         return list(session.exec(select(ComponentCache).order_by(ComponentCache.module_id, ComponentCache.id)))
 
 
+def get_component_cache(db_path: Path, component_id: str) -> ComponentCache | None:
+    engine = create_cache_engine(db_path)
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        return session.get(ComponentCache, component_id)
+
+
+def latest_build_metadata(db_path: Path) -> BuildMetadata | None:
+    engine = create_cache_engine(db_path)
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        return session.exec(select(BuildMetadata).order_by(BuildMetadata.compiled_at.desc()).limit(1)).first()
+
+
 def new_build_id() -> str:
     return uuid4().hex
 

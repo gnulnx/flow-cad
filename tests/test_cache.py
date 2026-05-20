@@ -9,7 +9,10 @@ from flow_cad.core.cache import (
     ComponentCache,
     ParameterSnapshot,
     create_cache_engine,
+    get_component_cache,
     init_cache,
+    latest_build_metadata,
+    list_component_cache,
     registry_db_path,
     write_active_cache,
     write_build_metadata,
@@ -118,3 +121,11 @@ def test_write_active_cache_upserts_current_component_snapshot(tmp_path) -> None
     assert metadata is not None
     assert metadata.git_commit == "def456"
     assert metadata.is_dirty is False
+
+    listed = list_component_cache(db_path)
+    assert [row.id for row in listed] == ["sample"]
+    assert get_component_cache(db_path, "sample") is not None
+    assert get_component_cache(db_path, "missing") is None
+    latest = latest_build_metadata(db_path)
+    assert latest is not None
+    assert latest.build_id == "build-2"
