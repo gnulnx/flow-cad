@@ -40,39 +40,39 @@ from erb_cad.parts.reference import (
 )
 
 PART_FILENAMES = {
-    "left_side_plate": "erb_lower_chassis_left_side_plate.step",
-    "right_side_plate": "erb_lower_chassis_right_side_plate.step",
-    "front_panel": "erb_lower_chassis_front_panel.step",
-    "rear_panel": "erb_lower_chassis_rear_panel.step",
-    "rear_panel_body": "erb_lower_chassis_rear_panel_body.step",
-    "rear_panel_bumpout": "erb_lower_chassis_rear_panel_bumpout.step",
-    "rear_panel_detachable": "erb_lower_chassis_rear_panel_detachable.step",
-    "rear_panel_detachable_body": "erb_lower_chassis_rear_panel_detachable_body.step",
-    "rear_panel_detachable_bumpout": "erb_lower_chassis_rear_panel_detachable_bumpout.step",
-    "rear_panel_detachable_bumpout_tpu": "erb_lower_chassis_rear_panel_detachable_bumpout_TPU.step",
-    "rear_panel_vented": "erb_lower_chassis_rear_panel_vented.step",
-    "bottom_tray": "erb_lower_chassis_bottom_tray.step",
-    "top_lid": "erb_lower_chassis_top_lid.step",
-    "equipment_shelf": "erb_equipment_shelf.step",
-    "equipment_shelf_side_cable": "erb_equipment_shelf_side_cable.step",
-    "equipment_shelf_side_cable_shallow": "erb_equipment_shelf_side_cable_shallow.step",
-    "equipment_shelf_four_way_cable_shallow": "erb_equipment_shelf_four_way_cable_shallow.step",
-    "equipment_shelf_service_fit": "erb_equipment_shelf_service_fit.step",
-    "equipment_shelf_service_fit_four_way": "erb_equipment_shelf_service_fit_four_way.step",
-    "shelf_spacer_block_55mm": "erb_shelf_spacer_block_55mm.step",
-    "upper_wide_center_adapter_deck": "erb_upper_wide_center_adapter_deck.step",
-    "upper_wide_center_compute_bay": "erb_upper_wide_center_compute_bay.step",
-    "upper_wide_left_overwheel_pod": "erb_upper_wide_left_overwheel_pod.step",
-    "upper_wide_right_overwheel_pod": "erb_upper_wide_right_overwheel_pod.step",
-    "upper_wide_center_crossmember": "erb_upper_wide_center_crossmember.step",
-    "upper_wide_side_crossmember": "erb_upper_wide_side_crossmember.step",
-    "upper_perception_pod": "erb_upper_perception_pod.step",
+    "left_side_plate": "b3_lower_chassis_left_side_plate.step",
+    "right_side_plate": "b3_lower_chassis_right_side_plate.step",
+    "front_panel": "b3_lower_chassis_front_panel.step",
+    "rear_panel": "b3_lower_chassis_rear_panel.step",
+    "rear_panel_body": "b3_lower_chassis_rear_panel_body.step",
+    "rear_panel_bumpout": "b3_lower_chassis_rear_panel_bumpout.step",
+    "rear_panel_detachable": "b3_lower_chassis_rear_panel_detachable.step",
+    "rear_panel_detachable_body": "b3_lower_chassis_rear_panel_detachable_body.step",
+    "rear_panel_detachable_bumpout": "b3_lower_chassis_rear_panel_detachable_bumpout.step",
+    "rear_panel_detachable_bumpout_tpu": "b3_lower_chassis_rear_panel_detachable_bumpout_TPU.step",
+    "rear_panel_vented": "b3_lower_chassis_rear_panel_vented.step",
+    "bottom_tray": "b3_lower_chassis_bottom_tray.step",
+    "top_lid": "b3_lower_chassis_top_lid.step",
+    "equipment_shelf": "b3_equipment_shelf.step",
+    "equipment_shelf_side_cable": "b3_equipment_shelf_side_cable.step",
+    "equipment_shelf_side_cable_shallow": "b3_equipment_shelf_side_cable_shallow.step",
+    "equipment_shelf_four_way_cable_shallow": "b3_equipment_shelf_four_way_cable_shallow.step",
+    "equipment_shelf_service_fit": "b3_equipment_shelf_service_fit.step",
+    "equipment_shelf_service_fit_four_way": "b3_equipment_shelf_service_fit_four_way.step",
+    "shelf_spacer_block_55mm": "b3_shelf_spacer_block_55mm.step",
+    "upper_wide_center_adapter_deck": "b3_upper_wide_center_adapter_deck.step",
+    "upper_wide_center_compute_bay": "b3_upper_wide_center_compute_bay.step",
+    "upper_wide_left_overwheel_pod": "b3_upper_wide_left_overwheel_pod.step",
+    "upper_wide_right_overwheel_pod": "b3_upper_wide_right_overwheel_pod.step",
+    "upper_wide_center_crossmember": "b3_upper_wide_center_crossmember.step",
+    "upper_wide_side_crossmember": "b3_upper_wide_side_crossmember.step",
+    "upper_perception_pod": "b3_upper_perception_pod.step",
 }
 
 REFERENCE_FILENAMES = {
-    "reference_wheel_pair": "erb_reference_wheel_pair.step",
-    "reference_axle_pair": "erb_reference_axle_pair.step",
-    "reference_wheel_axle_pair": "erb_reference_wheel_axle_pair.step",
+    "reference_wheel_pair": "b3_reference_wheel_pair.step",
+    "reference_axle_pair": "b3_reference_axle_pair.step",
+    "reference_wheel_axle_pair": "b3_reference_wheel_axle_pair.step",
 }
 
 INSERT_VARIANTS = {
@@ -179,13 +179,13 @@ def build(bundle):
         exported.append(exporter.export(parts[name], filename, module_id=module_id))
         
     for variant in INSERT_VARIANTS:
-        exported.append(exporter.export(parts[f"axle_insert_{variant}"], f"erb_axle_insert_{variant}.step", module_id="inserts"))
+        exported.append(exporter.export(parts[f"axle_insert_{variant}"], f"b3_axle_insert_{variant}.step", module_id="inserts"))
         
     for name, filename in REFERENCE_FILENAMES.items():
         exported.append(exporter.export(parts[name], filename, module_id="reference"))
         
     parts["assembly"] = make_assembly(params, parts)
-    exported.append(exporter.export(parts["assembly"], "erb_lower_chassis_assembly.step", module_id="lower_chassis"))
+    exported.append(exporter.export(parts["assembly"], "b3_lower_chassis_assembly.step", module_id="lower_chassis"))
     
     report_path = write_report(params, parts, exported, exporter.report_dir, PROJECT_ROOT)
     

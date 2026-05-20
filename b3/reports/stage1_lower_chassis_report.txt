@@ -1,0 +1,42 @@
+Erb Stage 1 lower chassis CAD report (MODULAR)
+==============================================
+
+Final outer dimensions:
+- Center structural box: 240.0 W x 256.0 D x 240.0 H mm
+- Printable chassis assembly bbox: 460.0 W x 278.0 D x 410.0 H mm
+
+Exported STEP files:
+- b3/exports/step/inserts/b3_axle_insert_loose.step
+- b3/exports/step/inserts/b3_axle_insert_medium.step
+- b3/exports/step/inserts/b3_axle_insert_tight.step
+- b3/exports/step/lower_chassis/b3_equipment_shelf.step
+- b3/exports/step/lower_chassis/b3_equipment_shelf_four_way_cable_shallow.step
+- b3/exports/step/lower_chassis/b3_equipment_shelf_service_fit.step
+- b3/exports/step/lower_chassis/b3_equipment_shelf_service_fit_four_way.step
+- b3/exports/step/lower_chassis/b3_equipment_shelf_side_cable.step
+- b3/exports/step/lower_chassis/b3_equipment_shelf_side_cable_shallow.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_assembly.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_bottom_tray.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_front_panel.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_body.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_bumpout.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_body.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout_TPU.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_vented.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_top_lid.step
+- b3/exports/step/reference/b3_reference_axle_pair.step
+- b3/exports/step/reference/b3_reference_wheel_axle_pair.step
+- b3/exports/step/reference/b3_reference_wheel_pair.step
+- b3/exports/step/lower_chassis/b3_shelf_spacer_block_55mm.step
+- b3/exports/step/upper_module/b3_upper_perception_pod.step
+- b3/exports/step/upper_module/b3_upper_wide_center_adapter_deck.step
+- b3/exports/step/upper_module/b3_upper_wide_center_compute_bay.step
+- b3/exports/step/upper_module/b3_upper_wide_center_crossmember.step
+- b3/exports/step/upper_module/b3_upper_wide_left_overwheel_pod.step
+- b3/exports/step/upper_module/b3_upper_wide_right_overwheel_pod.step
+- b3/exports/step/upper_module/b3_upper_wide_side_crossmember.step

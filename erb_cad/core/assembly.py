@@ -117,4 +117,4 @@ def get_assembly_occurrences(params: ChassisParams, parts: dict[str, object], in
 
 def make_assembly(params: ChassisParams, parts: dict[str, object], include_references: bool = True):
     children = [occ["shape"] for occ in get_assembly_occurrences(params, parts, include_references)]
-    return Compound(children=children, label="erb_lower_chassis_assembly")
+    return Compound(children=children, label="b3_lower_chassis_assembly")
