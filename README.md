@@ -43,8 +43,8 @@ The handoff bundle is created at `handoff/exports.tar.gz`.
 
 Generated files are written to:
 
-- `exports/step/`
-- `reports/stage1_lower_chassis_report.txt`
+- `b3/exports/step/`
+- `b3/reports/`
 
 ## View In Text-To-CAD
 
@@ -64,11 +64,11 @@ npm run dev:ensure
 Open:
 
 ```text
-http://127.0.0.1:4178/?dir=models/erb_balance_bot/stage1_lower_chassis&file=erb_lower_chassis_assembly.step
-http://127.0.0.1:4178/?dir=models/erb_balance_bot&file=erb_lower_chassis_assembly.step
+http://127.0.0.1:4178/?dir=models/b3_balance_bot/stage1_lower_chassis&file=b3_lower_chassis_assembly.step
+http://127.0.0.1:4178/?dir=models/b3_balance_bot&file=b3_lower_chassis_assembly.step
 ```
 
-The Bambu Studio STEP files remain in this project under `exports/step/`. The text-to-cad copy is a viewer mirror.
+The Bambu Studio STEP files remain in this project under `b3/exports/step/`. The text-to-cad copy is a viewer mirror.
 
 ## Check Part Interference
 
@@ -80,9 +80,9 @@ python scripts/check_assembly_interference.py
 
 It writes:
 
-- `reports/stage1_interference_report.txt`
-- `reports/stage1_interference_report.json`
-- `reports/interference_step/*.step` for each detected overlap volume
+- `b3/reports/stage1_interference_report.txt`
+- `b3/reports/stage1_interference_report.json`
+- `b3/reports/interference_step/*.step` for each detected overlap volume
 
 The checker exits non-zero when it finds solid overlaps above the configured threshold.
 
@@ -98,8 +98,8 @@ Set `FREECAD_CMD=/path/to/freecadcmd` if FreeCAD is not discoverable on `PATH`.
 
 The FreeCAD documents are written to:
 
-- `exports/freecad/erb_lower_chassis_assembly.FCStd`
-- `exports/freecad/erb_lower_chassis_print_layout.FCStd`
+- `b3/exports/freecad/b3_lower_chassis_assembly.FCStd`
+- `b3/exports/freecad/b3_lower_chassis_print_layout.FCStd`
 
 ## Local Tool Configuration
 

@@ -15,8 +15,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CAD_SOURCE = PROJECT_ROOT / "cad" / "erb_lower_chassis.py"
-REPORT_DIR = PROJECT_ROOT / "reports"
+REPORT_DIR = PROJECT_ROOT / "b3" / "reports"
 OVERLAP_STEP_DIR = REPORT_DIR / "interference_step"
 
 os.environ.setdefault("XDG_CACHE_HOME", "/tmp/erb-balance-bot-cad-cache")
@@ -24,15 +23,9 @@ Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 from build123d import export_step  # noqa: E402
 
-
-def load_cad_module():
-    spec = importlib.util.spec_from_file_location("erb_lower_chassis", CAD_SOURCE)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not import CAD source: {CAD_SOURCE}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+from erb_cad.params import ChassisParams
+from erb_cad.main import build_parts
+from erb_cad.core.assembly import get_assembly_occurrences
 
 
 def bbox_dict(shape) -> dict[str, list[float]]:
@@ -74,7 +67,7 @@ def safe_name(value: str) -> str:
 
 def write_text_report(path: Path, report: dict) -> None:
     lines = [
-        "Erb Stage 1 assembly interference report",
+        "B3 Stage 1 assembly interference report",
         "========================================",
         "",
         f"Pair count checked: {report['pair_count']}",
@@ -108,9 +101,9 @@ def write_text_report(path: Path, report: dict) -> None:
 
 
 def check_interference(min_volume: float, bbox_tolerance: float, export_overlaps: bool) -> dict:
-    cad = load_cad_module()
-    parts = cad.build_parts()
-    occurrences = cad.assembly_occurrences(parts)
+    params = ChassisParams()
+    parts = build_parts(params)
+    occurrences = get_assembly_occurrences(params, parts, include_references=False)
     collisions = []
     candidate_count = 0
 

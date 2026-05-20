@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mirror Erb STEP files into text-to-cad and build viewer sidecars."""
+"""Mirror B3 STEP files into text-to-cad and build viewer sidecars."""
 
 from __future__ import annotations
 
@@ -20,40 +20,10 @@ from scripts.create_exports_bundle import create_bundle  # noqa: E402
 TOOL_CONFIG = resolve_tool_config(PROJECT_ROOT)
 TEXT_TO_CAD_ROOT = TOOL_CONFIG.text_to_cad_root
 TEXT_TO_CAD_PYTHON = TOOL_CONFIG.text_to_cad_python
-VIEWER_REL_DIR = Path("models/erb_balance_bot/stage1_lower_chassis")
-ASSEMBLY_VIEWER_REL_DIR = Path("models/erb_balance_bot")
+VIEWER_REL_DIR = Path("models/b3_balance_bot/stage1_lower_chassis")
+ASSEMBLY_VIEWER_REL_DIR = Path("models/b3_balance_bot")
 
-STEP_FILENAMES = [
-    "erb_lower_chassis_left_side_plate.step",
-    "erb_lower_chassis_right_side_plate.step",
-    "erb_lower_chassis_front_panel.step",
-    "erb_lower_chassis_rear_panel.step",
-    "erb_lower_chassis_rear_panel_body.step",
-    "erb_lower_chassis_rear_panel_bumpout.step",
-    "erb_lower_chassis_rear_panel_detachable.step",
-    "erb_lower_chassis_rear_panel_detachable_body.step",
-    "erb_lower_chassis_rear_panel_detachable_bumpout.step",
-    "erb_lower_chassis_rear_panel_detachable_bumpout_TPU.step",
-    "erb_lower_chassis_rear_panel_vented.step",
-    "erb_lower_chassis_bottom_tray.step",
-    "erb_lower_chassis_top_lid.step",
-    "erb_axle_insert_tight.step",
-    "erb_axle_insert_medium.step",
-    "erb_axle_insert_loose.step",
-    "erb_equipment_shelf.step",
-    "erb_equipment_shelf_side_cable.step",
-    "erb_equipment_shelf_side_cable_shallow.step",
-    "erb_equipment_shelf_four_way_cable_shallow.step",
-    "erb_equipment_shelf_service_fit.step",
-    "erb_equipment_shelf_service_fit_four_way.step",
-    "erb_shelf_spacer_block_55mm.step",
-    "erb_reference_wheel_pair.step",
-    "erb_reference_axle_pair.step",
-    "erb_reference_wheel_axle_pair.step",
-    "erb_lower_chassis_assembly.step",
-]
-
-ASSEMBLY_FILENAME = "erb_lower_chassis_assembly.step"
+ASSEMBLY_FILENAME = "b3_lower_chassis_assembly.step"
 EXPORTS_BUNDLE_FILENAME = "exports.tar.gz"
 
 
@@ -84,13 +54,8 @@ def sidecar_source_name(path: Path) -> str | None:
 
 
 def generate_project_steps() -> None:
-    require_existing(TEXT_TO_CAD_PYTHON, "text-to-cad Python", env_var="TEXT_TO_CAD_PYTHON")
-    generators = [
-        PROJECT_ROOT / "cad" / "erb_lower_chassis.py",
-    ]
-    for generator in generators:
-        require_path(generator, f"Erb CAD generator {generator.name}")
-        run([TEXT_TO_CAD_PYTHON, generator], cwd=PROJECT_ROOT)
+    # Run the standard CAD build pipeline
+    run(["flow", "cad", "build"], cwd=PROJECT_ROOT)
 
 
 def remove_step_sidecars(directory: Path, filename: str) -> None:
@@ -100,28 +65,34 @@ def remove_step_sidecars(directory: Path, filename: str) -> None:
 
 
 def copy_steps_to_viewer() -> tuple[Path, Path]:
-    source_dir = PROJECT_ROOT / "exports" / "step"
+    source_dir = PROJECT_ROOT / "b3" / "exports" / "step"
     dest_dir = TEXT_TO_CAD_ROOT / VIEWER_REL_DIR
     assembly_dest_dir = TEXT_TO_CAD_ROOT / ASSEMBLY_VIEWER_REL_DIR
-    require_path(source_dir, "Erb STEP source directory")
+    require_path(source_dir, "B3 STEP source directory")
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     assembly_dest_dir.mkdir(parents=True, exist_ok=True)
-    active_files = set(STEP_FILENAMES)
-    for path in dest_dir.glob("erb_*.step"):
-        if path.name not in active_files:
+
+    # Find all generated STEP files recursively
+    step_paths = list(source_dir.rglob("*.step"))
+    active_filenames = {p.name for p in step_paths}
+
+    for path in dest_dir.glob("*.step"):
+        if path.name not in active_filenames:
             path.unlink()
-    for sidecar in dest_dir.glob(".erb_*"):
-        if sidecar_source_name(sidecar) not in active_files:
+    for sidecar in dest_dir.glob(".*"):
+        src_name = sidecar_source_name(sidecar)
+        if src_name and src_name not in active_filenames:
             remove_path(sidecar)
 
-    for filename in STEP_FILENAMES:
-        source = source_dir / filename
-        require_path(source, f"STEP source {filename}")
+    for src_path in step_paths:
+        filename = src_path.name
+        if filename == ASSEMBLY_FILENAME:
+            continue
         remove_step_sidecars(dest_dir, filename)
-        shutil.copy2(source, dest_dir / filename)
+        shutil.copy2(src_path, dest_dir / filename)
 
-    assembly_source = source_dir / ASSEMBLY_FILENAME
+    assembly_source = source_dir / "lower_chassis" / ASSEMBLY_FILENAME
     remove_step_sidecars(assembly_dest_dir, ASSEMBLY_FILENAME)
     shutil.copy2(assembly_source, assembly_dest_dir / ASSEMBLY_FILENAME)
 
@@ -132,12 +103,8 @@ def generate_viewer_assets(dest_dir: Path) -> None:
     step_cli = TEXT_TO_CAD_ROOT / "skills" / "cad" / "scripts" / "step"
     require_path(step_cli, "text-to-cad STEP generator")
 
-    for filename in STEP_FILENAMES:
-        target = dest_dir / filename
-        if filename == ASSEMBLY_FILENAME:
-            run([TEXT_TO_CAD_PYTHON, step_cli, "--kind", "assembly", target], cwd=TEXT_TO_CAD_ROOT)
-        else:
-            run([TEXT_TO_CAD_PYTHON, step_cli, "--kind", "part", target], cwd=TEXT_TO_CAD_ROOT)
+    for path in dest_dir.glob("*.step"):
+        run([TEXT_TO_CAD_PYTHON, step_cli, "--kind", "part", path], cwd=TEXT_TO_CAD_ROOT)
 
 
 def generate_top_level_assembly_asset(assembly_dest_dir: Path) -> None:
@@ -175,8 +142,8 @@ def main() -> int:
 
     viewer_url = (
         "http://127.0.0.1:4178/"
-        "?dir=models/erb_balance_bot"
-        "&file=erb_lower_chassis_assembly.step"
+        "?dir=models/b3_balance_bot"
+        "&file=b3_lower_chassis_assembly.step"
     )
     print()
     print(f"Mirrored STEP files to: {dest_dir}")

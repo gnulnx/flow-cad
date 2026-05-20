@@ -13,17 +13,31 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "cad"))
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from erb_lower_chassis import (  # noqa: E402
-    INSERT_VARIANTS,
-    P,
-    SIDE_SCREW_Z_LEVELS,
-    axle_tab_washer_relief_center_x,
-    axle_tab_washer_relief_center_y,
-    front_rear_panel_retention_y_positions,
-    front_rear_panel_slot_y_positions,
+from erb_cad.params import ChassisParams
+from erb_cad.main import INSERT_VARIANTS
+from erb_cad.core.utils import (
+    axle_tab_washer_relief_center_x as _relief_x,
+    axle_tab_washer_relief_center_y as _relief_y,
+    front_rear_panel_retention_y_positions as _ret_y,
+    front_rear_panel_slot_y_positions as _slot_y,
 )
+
+P = ChassisParams()
+SIDE_SCREW_Z_LEVELS = (220.0,)
+
+def axle_tab_washer_relief_center_x() -> float:
+    return _relief_x(P)
+
+def axle_tab_washer_relief_center_y(diameter: float) -> float:
+    return _relief_y(P, diameter)
+
+def front_rear_panel_retention_y_positions() -> tuple[float, float]:
+    return _ret_y(P)
+
+def front_rear_panel_slot_y_positions() -> tuple[float, float]:
+    return _slot_y(P)
 
 
 def fail(message: str, details: dict | None = None) -> dict:
@@ -822,12 +836,12 @@ def main() -> int:
     }
     report["failed"] = [check for check in report["checks"] if check["status"] == "fail"]
 
-    report_path = PROJECT_ROOT / "reports" / "stage1_mounting_feature_report.json"
+    report_path = PROJECT_ROOT / "b3" / "reports" / "stage1_mounting_feature_report.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
-    text_path = PROJECT_ROOT / "reports" / "stage1_mounting_feature_report.txt"
-    lines = ["Erb Stage 1 mounting feature report", "====================================", ""]
+    text_path = PROJECT_ROOT / "b3" / "reports" / "stage1_mounting_feature_report.txt"
+    lines = ["B3 Stage 1 mounting feature report", "====================================", ""]
     for check in report["checks"]:
         prefix = "FAIL" if check["status"] == "fail" else "OK"
         lines.append(f"{prefix}: {check['message']}")

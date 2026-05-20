@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPORTS_DIR = PROJECT_ROOT / "exports"
+EXPORTS_DIR = PROJECT_ROOT / "b3" / "exports"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "handoff"
 
 
@@ -36,7 +36,7 @@ def create_bundle(output_dir: Path, name: str | None = None) -> Path:
         raise FileNotFoundError(f"exports directory not found: {EXPORTS_DIR}")
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    bundle_name = name or f"erb-exports-{timestamp}.tar.gz"
+    bundle_name = name or f"b3-exports-{timestamp}.tar.gz"
     if not bundle_name.endswith(".tar.gz"):
         bundle_name = f"{bundle_name}.tar.gz"
 

@@ -16,9 +16,9 @@ The repo is authoritative. The workstation is normally the heavy CAD generation 
 - Parameters: `erb_cad/params.py` (Source of truth for all dimensions)
 - Active mating-interface registry: `PART_INTERFACES.md`
 - Active print handoff manifest: `PRINT_MANIFEST.md`
-- Generated STEP outputs: `exports/step/`
+- Generated STEP outputs: `b3/exports/step/`
 - Generated Hand-off bundle: `handoff/exports.tar.gz`
-- Validation reports: `reports/`
+- Validation reports: `b3/reports/`
 
 Do not treat text-to-cad mirrors, FreeCAD exports, or Bambu Studio files as the source of truth unless the user explicitly says a manual slicer/FreeCAD change must be brought back into source.
 
@@ -133,8 +133,8 @@ For paired printable parts, inspect and validate the pair directly. Do not rely 
 
 Example rear detachable panel contract:
 
-- Fixed part: `exports/step/erb_lower_chassis_rear_panel_detachable_body.step`
-- Moving part: `exports/step/erb_lower_chassis_rear_panel_detachable_bumpout.step`
+- Fixed part: `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_body.step`
+- Moving part: `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout.step`
 - Source functions: `make_rear_panel_detachable_body()` and `make_rear_panel_detachable_bumpout_shell()`
 - Slide/install direction: Z
 - Capture direction: X
@@ -156,21 +156,21 @@ Bambu Studio should receive intentional print artifacts, not the whole working t
 Read `PRINT_MANIFEST.md` before changing the intended print set, preparing a handoff, or deciding whether a STEP file is printable, reference-only, or inspection-only. Update it whenever the current print handoff intent changes.
 
 - Any part exceeding 256mm in any dimension (256mm x 256mm x 256mm) is an automatic failure (P2S envelope limit).
-- STEP files for slicing live under `exports/step/`.
+- STEP files for slicing live under `b3/exports/step/`.
 - Reference wheel/axle files are not printable parts.
 - Assembly STEP files are for inspection, not direct printing, unless the user explicitly says otherwise.
 - `.3mf` files are slicer/project artifacts. Treat them as handoff snapshots, not generated source.
 - Prefer a dated print bundle and a short manifest for laptop transfer.
-- Use `python scripts/create_exports_bundle.py` to create a local `handoff/*.tar.gz` bundle of the current `exports/` tree. The script prints an `scp` command for copying it to `jfurr@laptop:/Users/jfurr/`.
+- Use `python scripts/create_exports_bundle.py` to create a local `handoff/*.tar.gz` bundle of the current `b3/exports/` tree. The script prints an `scp` command for copying it to `jfurr@laptop:/Users/jfurr/`.
 
 ## Files Not To Edit Directly
 
 Do not hand-edit generated CAD artifacts:
 
-- `exports/step/*.step`
-- `exports/freecad/*.FCStd`
-- `exports/freecad/**/*.FCStd`
-- generated report files under `reports/`, unless the task is explicitly documentation/report maintenance
+- `b3/exports/step/**/*.step`
+- `b3/exports/freecad/*.FCStd`
+- `b3/exports/freecad/**/*.FCStd`
+- generated report files under `b3/reports/`, unless the task is explicitly documentation/report maintenance
 - text-to-cad viewer sidecars such as hidden `.step` asset folders
 
 Instead, edit the Python source or validation script that produces the artifact, regenerate, and then report what changed.

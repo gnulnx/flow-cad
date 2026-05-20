@@ -9,9 +9,13 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "cad"))
+sys.path.insert(0, str(PROJECT_ROOT))
 
-import erb_lower_chassis as cad  # noqa: E402
+from erb_cad.params import ChassisParams
+from erb_cad.parts.upper_module import (
+    make_upper_wide_center_adapter_deck,
+    make_upper_wide_overwheel_pod,
+)
 
 
 def fail(message: str) -> None:
@@ -24,7 +28,7 @@ def bbox_size(shape) -> tuple[float, float, float]:
 
 
 def main() -> None:
-    p = cad.P
+    p = ChassisParams()
     t = p.upper_adapter_deck_thickness
     side_width = (p.upper_module_overall_width - p.upper_module_center_width) / 2.0
     side_wing_expected_width = side_width + 18.0
@@ -41,7 +45,7 @@ def main() -> None:
     if x_hole_margin_center < 10.0:
         fail(f"center deck screw holes are too close to the side edge: {x_hole_margin_center:.3f} mm")
 
-    center_deck = cad.make_upper_wide_center_adapter_deck()
+    center_deck = make_upper_wide_center_adapter_deck(p)
     center_size = bbox_size(center_deck)
     if abs(center_size[0] - p.upper_module_center_width) > 0.2:
         fail(f"center adapter width changed: {center_size[0]:.3f} mm")
@@ -52,7 +56,7 @@ def main() -> None:
 
     results: list[dict[str, float | str | list[float]]] = []
     for side, name in ((-1, "left"), (1, "right")):
-        wing = cad.make_upper_wide_overwheel_pod(side)
+        wing = make_upper_wide_overwheel_pod(p, side)
         bb = wing.bounding_box()
         size = bbox_size(wing)
         if abs(size[0] - side_wing_expected_width) > 0.2:
@@ -81,13 +85,13 @@ def main() -> None:
         "center_deck_screw_hole_x_edge_margin_mm": x_hole_margin_center,
         "side_wings": results,
     }
-    reports_dir = PROJECT_ROOT / "reports"
+    reports_dir = PROJECT_ROOT / "b3" / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     (reports_dir / "stage1_upper_hook_geometry_report.json").write_text(json.dumps(report, indent=2) + "\n")
     (reports_dir / "stage1_upper_hook_geometry_report.txt").write_text(
         "\n".join(
             [
-                "Erb upper adapter-deck stack geometry report",
+                "B3 upper adapter-deck stack geometry report",
                 "============================================",
                 "",
                 f"Center adapter deck: {p.upper_module_center_width:.1f} x {p.box_depth:.1f} x {t:.1f} mm at Z {p.upper_adapter_deck_z:.1f}",

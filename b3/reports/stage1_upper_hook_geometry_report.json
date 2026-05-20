@@ -1,0 +1,48 @@
+{
+  "status": "passed",
+  "adapter_deck_z_mm": 240.0,
+  "adapter_deck_thickness_mm": 8.0,
+  "side_wing_layer_z_mm": 248.0,
+  "upper_compute_bay_z_mm": 256.0,
+  "side_wing_width_mm": 128.0,
+  "screw_hole_y_edge_margin_mm": 23.75,
+  "center_deck_screw_hole_x_edge_margin_mm": 15.75,
+  "side_wings": [
+    {
+      "side": "left",
+      "bbox_min": [
+        -55.0,
+        -128.0,
+        -0.0
+      ],
+      "bbox_max": [
+        73.0,
+        128.0,
+        8.0
+      ],
+      "size": [
+        128.0,
+        256.0,
+        8.0
+      ]
+    },
+    {
+      "side": "right",
+      "bbox_min": [
+        -73.0,
+        -128.0,
+        -0.0
+      ],
+      "bbox_max": [
+        55.0,
+        128.0,
+        8.0
+      ],
+      "size": [
+        128.0,
+        256.0,
+        8.0
+      ]
+    }
+  ]
+}
