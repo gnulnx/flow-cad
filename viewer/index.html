@@ -392,11 +392,19 @@
         async function loadFile(file) {
             showLoading(true, 'Reading file...');
             
+            const extension = file.name.split('.').pop().toLowerCase();
+            
+            // Validate file type first
+            if (!['stl', 'obj', 'gltf', 'glb'].includes(extension)) {
+                alert('Unsupported file format. Please use STL, OBJ, or GLTF/GLB.');
+                showLoading(false);
+                return;
+            }
+            
             const reader = new FileReader();
             
             reader.onload = async (event) => {
                 const data = event.target.result;
-                const extension = file.name.split('.').pop().toLowerCase();
                 
                 try {
                     showLoading(true, `Parsing ${extension.toUpperCase()}...`);
@@ -407,19 +415,18 @@
                 }
             };
 
-            if (extension === 'stl') {
-                reader.readAsArrayBuffer(data);
-            } else if (extension === 'obj') {
-                reader.readAsText(data);
-            } else if (extension === 'gltf' || extension === 'glb') {
-                reader.readAsArrayBuffer(data);
-            } else {
-                alert('Unsupported file format. Please use STL, OBJ, or GLTF/GLB.');
+            reader.onerror = () => {
+                console.error('Error reading file');
+                alert('Failed to read the file. Please try again.');
                 showLoading(false);
-                return;
-            }
+            };
 
-            reader.readAsArrayBuffer(file);
+            // Read file based on type
+            if (extension === 'obj') {
+                reader.readAsText(file);
+            } else {
+                reader.readAsArrayBuffer(file);
+            }
         }
 
         async function loadModel(data, extension, filename) {
@@ -515,15 +522,24 @@
             const size = box.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
             
-            const fov = state.camera.fov * (Math.PI / 180);
-            let cameraZ = Math.abs(maxDim / 2 * Math.tan(fov * 2));
-            cameraZ *= 2.5; // Zoom out a bit
+            // Calculate proper camera distance to fit object in view
+            // Formula: distance = halfDiagonal / tan(fov/2)
+            const fovRad = state.camera.fov * (Math.PI / 180);
+            const aspect = state.camera.aspect;
             
+            // Account for aspect ratio - use the larger screen dimension
+            const screenFOV = aspect > 1 ? fovRad : fovRad / aspect;
+            const distance = maxDim / (2 * Math.tan(screenFOV / 2));
+            
+            // Add padding so object doesn't fill entire screen
+            const paddedDistance = distance * 1.5;
+            
+            // Position camera at isometric-like angle looking at center
             state.controls.target.copy(center);
             state.camera.position.set(
-                center.x + cameraZ,
-                center.y + cameraZ * 0.7,
-                center.z + cameraZ
+                center.x + paddedDistance,
+                center.y + paddedDistance * 0.7,
+                center.z + paddedDistance
             );
             state.camera.lookAt(center);
             state.controls.update();
