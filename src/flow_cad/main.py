@@ -89,6 +89,7 @@ def build(bundle, cache, snapshots, snapshots_only):
     
     if not snapshots_only:
         click.echo(click.style(f"Exported {len(exported)} STEP files to {exporter.step_dir}", fg="green"))
+        click.echo(click.style(f"Exported {len(exported)} STL files to {exporter.stl_dir}", fg="green"))
     if exporter.enable_snapshots:
         click.echo(click.style(f"Generated {exporter.snapshot_count} visual SVG snapshots to {exporter.snapshot_dir}", fg="green"))
     click.echo(click.style(f"Wrote report to {report_path}", fg="green"))

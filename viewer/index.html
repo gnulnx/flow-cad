@@ -224,15 +224,14 @@
                 <button class="btn btn-primary">
                     📁 Open File
                 </button>
-                <input type="file" id="file-input" accept=".stl,.obj,.gltf,.glb,.step,.stp">
+                <input type="file" id="file-input" accept=".stl,.obj,.gltf,.glb">
             </div>
 
             <button class="btn btn-secondary" id="reset-view-btn">🔄 Reset View</button>
             
             <span style="margin-left: auto; color: #6b7280; font-size: 13px;">
-                Supports: STL, OBJ, GLTF/GLB, STEP*
+                Supports: STL, OBJ, GLTF/GLB
             </span>
-            <span id="step-note" style="margin-left: 4px; color: #9ca3af; font-size: 11px; vertical-align: super;">*</span>
         </div>
 
         <!-- Canvas Container -->
@@ -246,8 +245,6 @@
             <p><strong>Pan:</strong> Right-click + drag or Middle-click + drag</p>
             <p><strong>Zoom:</strong> Scroll wheel</p>
             <p style="margin-top: 12px;"><em>Upload a 3D model file to begin.</em></p>
-            <hr style="border-color: #0f3460; margin: 12px 0;"> 
-            <p style="font-size: 11px; color: #718096;"><strong>*STEP files:</strong> Require converter server running. See README.</p>
         </div>
 
         <!-- Status Bar -->
@@ -287,7 +284,6 @@
         // Configuration
         // ============================================
         const CONFIG = {
-            stepConverterUrl: 'http://localhost:8765/convert',
             maxFileSize: 50 * 1024 * 1024, // 50MB
         };
 
@@ -409,9 +405,9 @@
             
             const extension = file.name.split('.').pop().toLowerCase();
             
-            // Handle STEP files specially - need to convert via server
-            if (extension === 'step' || extension === 'stp') {
-                await loadStepFile(file);
+            // Validate file type first
+            if (!['stl', 'obj', 'gltf', 'glb'].includes(extension)) {
+                alert('Unsupported file format. Please use STL, OBJ, or GLTF/GLB.');
                 return;
             }
             
@@ -437,54 +433,6 @@
                 reader.readAsText(file);
             } else if (extension === 'gltf' || extension === 'glb') {
                 reader.readAsArrayBuffer(file);
-            } else {
-                alert('Unsupported file format. Please use STL, OBJ, GLTF/GLB, or STEP.');
-                showLoading(false);
-                return;
-            }
-        }
-
-        // ============================================
-        // STEP File Loading (via converter server)
-        // ============================================
-        async function loadStepFile(file) {
-            showLoading(true, 'Connecting to converter...');
-            
-            try {
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                showLoading(true, 'Converting STEP to STL...');
-                
-                const response = await fetch(CONFIG.stepConverterUrl, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (!response.ok) {
-                    let errorMsg = `Conversion failed (${response.status})`;
-                    try {
-                        const errorData = await response.json();
-                        errorMsg = errorData.detail || errorMsg;
-                    } catch {}
-                    throw new Error(errorMsg);
-                }
-                
-                showLoading(true, 'Loading converted model...');
-                const stlData = await response.arrayBuffer();
-                
-                // Now load the STL data using existing loader
-                await loadModel(stlData, 'stl', file.name.replace(/\.(step|stp)$/i, '.stl'));
-                
-            } catch (error) {
-                console.error('Error loading STEP file:', error);
-                let msg = `Failed to load STEP file: ${error.message}`;
-                if (error.message.includes('Failed to fetch') || error.message.includes('network')) {
-                    msg += '\n\nMake sure the converter server is running:';
-                    msg += '\n  python viewer/step_converter.py';
-                }
-                alert(msg);
-                showLoading(false);
             }
         }
 
@@ -581,15 +529,24 @@
             const size = box.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
             
-            const fov = state.camera.fov * (Math.PI / 180);
-            let cameraZ = Math.abs(maxDim / 2 * Math.tan(fov * 2));
-            cameraZ *= 2.5; // Zoom out a bit
+            // Calculate proper camera distance to fit object in view
+            // Formula: distance = halfDiagonal / tan(fov/2)
+            const fovRad = state.camera.fov * (Math.PI / 180);
+            const aspect = state.camera.aspect;
             
+            // Account for aspect ratio - use the larger screen dimension
+            const screenFOV = aspect > 1 ? fovRad : fovRad / aspect;
+            const distance = maxDim / (2 * Math.tan(screenFOV / 2));
+            
+            // Add padding so object doesn't fill entire screen
+            const paddedDistance = distance * 1.5;
+            
+            // Position camera at isometric-like angle looking at center
             state.controls.target.copy(center);
             state.camera.position.set(
-                center.x + cameraZ,
-                center.y + cameraZ * 0.7,
-                center.z + cameraZ
+                center.x + paddedDistance,
+                center.y + paddedDistance * 0.7,
+                center.z + paddedDistance
             );
             state.camera.lookAt(center);
             state.controls.update();

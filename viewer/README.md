@@ -4,12 +4,54 @@ A browser-based 3D model viewer built with Three.js for validating CAD parts bef
 
 ## Features
 
-- **File Loading**: Supports STL, OBJ, GLTF/GLB, and STEP file formats
-- **STEP Support**: CAD STEP files (.step/.stp) converted via lightweight backend server
+- **File Loading**: Supports STL, OBJ, GLTF/GLB file formats natively in browser
+- **No Server Required**: Drag-and-drop STL files directly into the browser — zero setup
 - **Interactive Navigation**: OrbitControls for rotate, pan, and zoom
 - **Auto-centering**: Models are automatically centered and scaled to fit the view
 - **Status Information**: Displays model name, triangle count, and bounding box dimensions
 - **Responsive Design**: Adapts to different screen sizes
+
+## Quick Start (No Server Needed)
+
+### 1. Build your CAD parts (generates both STEP and STL):
+
+```bash
+cd ~/flow-cad
+flow cad build
+```
+
+This creates:
+- `b3/exports/step/` — Parametric STEP files (for FreeCAD, archival)
+- `b3/exports/stl/` — Mesh STL files (for quick viewing, 3D printing)
+
+### 2. Open the viewer in your browser:
+
+```bash
+# Linux
+xdg-open ~/flow-cad/viewer/index.html
+
+# Or just double-click viewer/index.html in your file manager
+```
+
+### 3. Drag-and-drop any `.stl` file from `b3/exports/stl/` into the browser!
+
+**That's it.** No server, no installation, no configuration.
+
+---
+
+## Why STL Instead of STEP?
+
+**STEP files are complex CAD formats** with parametric surfaces, assemblies, and manufacturing metadata. They cannot be parsed natively in browsers without heavy WASM libraries or a backend converter server.
+
+**STL files are simple mesh formats** that browsers can load instantly via Three.js. The geometry fidelity is more than sufficient for:
+- Visual inspection before printing
+- Checking fit/clearance between parts  
+- Verifying orientation and scale
+- Measuring dimensions (visually)
+
+The STL export happens automatically during `flow cad build` — you get the best of both worlds:
+- **STEP** for archival, parametric editing in FreeCAD
+- **STL** for instant browser-based visual validation
 
 ## Usage
 
@@ -23,9 +65,11 @@ A browser-based 3D model viewer built with Three.js for validating CAD parts bef
    # Or simply double-click the file in your file manager
    ```
 
-### Using a Local HTTP Server (Recommended for best compatibility)
+2. Click "Open File" or drag-and-drop any `.stl`, `.obj`, or `.gltf`/`.glb` file.
 
-Some browsers restrict certain features when opening files directly. For best results, serve the files via HTTP:
+### Using a Local HTTP Server (Optional, for best compatibility)
+
+Some browsers restrict certain features when opening files directly via `file://`. For best results:
 
 ```bash
 # Using Python's built-in server
@@ -33,11 +77,6 @@ python -m http.server 8080 --directory viewer
 
 # Then open in browser:
 # http://localhost:8080
-```
-
-Or with Node.js:
-```bash
-npx serve viewer
 ```
 
 ## Keyboard Shortcuts
@@ -57,34 +96,15 @@ npx serve viewer
 
 ## Supported File Formats
 
-- **STL** (`.stl`) - Standard for 3D printing, binary and ASCII supported
-- **OBJ** (`.obj`) - Wavefront object format with geometry data
-- **GLTF/GLB** (`.gltf`, `.glb`) - Modern web-friendly 3D format
-- **STEP** (`.step`, `.stp`) - CAD exchange format (requires converter server)
+- **STL** (`.stl`) — Standard for 3D printing, binary format, instant browser loading ⭐
+- **OBJ** (`.obj`) — Wavefront object format with geometry data
+- **GLTF/GLB** (`.gltf`, `.glb`) — Modern web-friendly 3D format
 
-### STEP File Support
-
-STEP files require the converter server to be running. Start it before opening the viewer:
-
-```bash
-# Start the STEP converter server
-python viewer/step_converter.py
-```
-
-The server runs on `http://localhost:8765` by default and converts STEP files to STL format on-the-fly using cadquery.
-
-**Custom port/host:**
-```bash
-python viewer/step_converter.py --host 0.0.0.0 --port 8080
-```
-
-If you get a "Failed to fetch" error when loading a STEP file, make sure the converter server is running.
+> **Note:** STEP files are exported alongside STL during `flow cad build` for archival and FreeCAD editing, but the browser viewer uses STL files for instant, serverless viewing.
 
 ## Architecture
 
-This viewer follows a hybrid approach:
-
-### Client-Side (index.html)
+This viewer is intentionally simple — a single HTML file that loads 3D models directly in the browser.
 
 ```
 ┌─────────────────────────────────────┐
@@ -102,8 +122,7 @@ This viewer follows a hybrid approach:
 │  │   Loaders (via CDN)           │  │
 │  │   ├── STLLoader               │  │
 │  │   ├── OBJLoader               │  │
-│  │   ├── GLTFLoader              │  │
-│  │   └── STEP Handler → Server   │  │
+│  │   └── GLTFLoader              │  │
 │  └───────────────────────────────┘  │
 │                                     │
 │  ┌───────────────────────────────┐  │
@@ -116,48 +135,24 @@ This viewer follows a hybrid approach:
 └─────────────────────────────────────┘
 ```
 
-### Server-Side (step_converter.py)
-
-```
-┌─────────────────────────────────────┐
-│      step_converter.py              │
-│                                     │
-│  ┌───────────────────────────────┐  │
-│  │   FastAPI Server              │  │
-│  │   POST /convert               │  │
-│  └───────────────────────────────┘  │
-│                                     │
-│  ┌───────────────────────────────┐  │
-│  │   cadquery (OCCT)             │  │
-│  │   ├── STEP Importer           │  │
-│  │   └── STL Exporter            │  │
-│  └───────────────────────────────┘  │
-└─────────────────────────────────────┘
-```
-
-**Data Flow for STEP Files:**
-1. User selects `.step` file in browser
-2. Browser sends file to `http://localhost:8765/convert`
-3. Server uses cadquery to parse STEP and export as STL
-4. STL data returned to browser
-5. Three.js STLLoader displays the model
+**No backend server required.** All file processing happens client-side via the browser's FileReader API.
 
 ## Technical Notes
 
 - Uses Three.js v0.160.0 loaded from unpkg CDN
-- No build step required - pure HTML/CSS/JavaScript
-- All file processing happens client-side via FileReader API (except STEP)
-- **STEP files require the converter server** (`step_converter.py`) to be running
-- Converter uses cadquery with OpenCascade for accurate STEP parsing
+- No build step required — pure HTML/CSS/JavaScript
+- All file processing happens client-side via FileReader API
+- **No server needed** — just open `index.html` and drag-drop STL files
+- STL files are automatically generated alongside STEP during `flow cad build`
 
-## Future Enhancements (See Brainstorm Document)
+## Future Enhancements
 
 Potential features for future tickets:
 - Measurement tools (vertex-to-vertex, edge measurements)
 - Model comparison side-by-side
 - Export annotated screenshots
-- Mesh repair/simplification options
-- Support for larger files via Web Workers
+- Mesh simplification options for large files
+- Support for loading multiple parts simultaneously
 
 ## License
 

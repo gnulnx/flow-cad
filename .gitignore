@@ -45,6 +45,7 @@ htmlcov/
 *.log
 .env.local
 .env.*.local
+*.stl
 
 # Local handoff bundles
 handoff/
