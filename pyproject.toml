@@ -11,6 +11,8 @@ dependencies = [
     "build123d",
     "rich-click",
     "sqlmodel",
+    # Local BLC orchestrator (for multi-agent workflows)
+    "blc @ file:///home/gnulnx/BaseLayerCouncil",
 ]
 
 [project.scripts]
