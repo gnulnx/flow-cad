@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Part Viewer - Flow CAD</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            overflow: hidden;
+            background-color: #1a1a2e;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Header / Toolbar */
+        #toolbar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 56px;
+            background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
+            border-bottom: 1px solid #0f3460;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 16px;
+            z-index: 100;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        #toolbar h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e94560;
+            margin-right: auto;
+        }
+
+        /* File Input Styling */
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 500;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #e94560 0%, #c73e54 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #ff6b6b 0%, #e94560 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(233, 69, 96, 0.4);
+        }
+
+        .btn-secondary {
+            background: #0f3460;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #1a4a7a;
+            transform: translateY(-1px);
+        }
+
+        /* Status Bar */
+        #status-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 32px;
+            background: rgba(22, 33, 62, 0.95);
+            border-top: 1px solid #0f3460;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            font-size: 12px;
+            color: #a0aec0;
+            z-index: 100;
+        }
+
+        #status-bar span {
+            margin-right: 24px;
+        }
+
+        /* Loading Overlay */
+        #loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(26, 26, 46, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 16px;
+            z-index: 200;
+        }
+
+        #loading-overlay.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(233, 69, 96, 0.2);
+            border-top-color: #e94560;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #loading-text {
+            color: #e94560;
+            font-size: 14px;
+        }
+
+        /* Info Panel */
+        #info-panel {
+            position: absolute;
+            top: 72px;
+            right: 16px;
+            background: rgba(22, 33, 62, 0.95);
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 16px;
+            max-width: 300px;
+            font-size: 13px;
+            color: #a0aec0;
+            z-index: 50;
+        }
+
+        #info-panel h3 {
+            color: #e94560;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        #info-panel p {
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        #info-panel .close-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: #a0aec0;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        #info-panel .close-btn:hover {
+            color: #e94560;
+        }
+
+        /* Keyboard shortcuts hint */
+        .shortcut {
+            display: inline-block;
+            padding: 2px 6px;
+            background: rgba(15, 52, 96, 0.5);
+            border-radius: 4px;
+            font-size: 11px;
+            margin-left: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <!-- Toolbar -->
+        <div id="toolbar">
+            <h1>🔧 Flow CAD 3D Viewer</h1>
+            
+            <div class="file-input-wrapper">
+                <button class="btn btn-primary">
+                    📁 Open File
+                </button>
+                <input type="file" id="file-input" accept=".stl,.obj,.gltf,.glb">
+            </div>
+
+            <button class="btn btn-secondary" id="reset-view-btn">🔄 Reset View</button>
+            
+            <span style="margin-left: auto; color: #6b7280; font-size: 13px;">
+                Supports: STL, OBJ, GLTF/GLB
+            </span>
+        </div>
+
+        <!-- Canvas Container -->
+        <div id="canvas-container"></div>
+
+        <!-- Info Panel -->
+        <div id="info-panel">
+            <button class="close-btn" id="info-close">×</button>
+            <h3>Controls</h3>
+            <p><strong>Rotate:</strong> Left-click + drag</p>
+            <p><strong>Pan:</strong> Right-click + drag or Middle-click + drag</p>
+            <p><strong>Zoom:</strong> Scroll wheel</p>
+            <p style="margin-top: 12px;"><em>Upload a 3D model file to begin.</em></p>
+        </div>
+
+        <!-- Status Bar -->
+        <div id="status-bar">
+            <span id="model-name">No model loaded</span>
+            <span id="model-tris">Triangles: --</span>
+            <span id="model-bounds">Bounds: --</span>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay">
+            <div class="spinner"></div>
+            <div id="loading-text">Loading model...</div>
+        </div>
+    </div>
+
+    <!-- Three.js from CDN -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <!-- Main Application -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { BufferGeometryUtils } from 'three/addons/utils/BufferGeometryUtils.js';
+
+        // ============================================
+        // Application State
+        // ============================================
+        const state = {
+            scene: null,
+            camera: null,
+            renderer: null,
+            controls: null,
+            currentModel: null,
+            helpers: { grid: null, axes: null }
+        };
+
+        // ============================================
+        // Initialize Scene
+        // ============================================
+        function init() {
+            const container = document.getElementById('canvas-container');
+            
+            // Scene
+            state.scene = new THREE.Scene();
+            state.scene.background = new THREE.Color(0x1a1a2e);
+            state.scene.fog = new THREE.Fog(0x1a1a2e, 50, 500);
+
+            // Camera
+            state.camera = new THREE.PerspectiveCamera(
+                60,
+                container.clientWidth / container.clientHeight,
+                0.1,
+                10000
+            );
+            state.camera.position.set(20, 20, 20);
+            state.camera.lookAt(0, 0, 0);
+
+            // Renderer
+            state.renderer = new THREE.WebGLRenderer({ antialias: true });
+            state.renderer.setSize(container.clientWidth, container.clientHeight);
+            state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            state.renderer.shadowMap.enabled = true;
+            state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            state.renderer.outputColorSpace = THREE.SRGBColorSpace;
+            container.appendChild(state.renderer.domElement);
+
+            // Controls
+            state.controls = new OrbitControls(
+                state.camera,
+                state.renderer.domElement
+            );
+            state.controls.enableDamping = true;
+            state.controls.dampingFactor = 0.05;
+            state.controls.screenSpacePanning = true;
+            state.controls.minDistance = 1;
+            state.controls.maxDistance = 1000;
+
+            // Lighting
+            setupLighting();
+
+            // Helpers
+            setupHelpers();
+
+            // Event Listeners
+            setupEventListeners();
+
+            // Animation Loop
+            animate();
+        }
+
+        // ============================================
+        // Lighting Setup
+        // ============================================
+        function setupLighting() {
+            // Ambient light for base illumination
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            state.scene.add(ambientLight);
+
+            // Main directional light (simulating sun/key light)
+            const mainLight = new THREE.DirectionalLight(0xffffff, 1);
+            mainLight.position.set(50, 100, 50);
+            mainLight.castShadow = true;
+            mainLight.shadow.mapSize.width = 2048;
+            mainLight.shadow.mapSize.height = 2048;
+            state.scene.add(mainLight);
+
+            // Fill light from opposite side
+            const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+            fillLight.position.set(-50, 50, -50);
+            state.scene.add(fillLight);
+
+            // Top light for better visibility
+            const topLight = new THREE.DirectionalLight(0xffffff, 0.2);
+            topLight.position.set(0, 100, 0);
+            state.scene.add(topLight);
+        }
+
+        // ============================================
+        // Scene Helpers (Grid and Axes)
+        // ============================================
+        function setupHelpers() {
+            // Grid helper
+            state.helpers.grid = new THREE.GridHelper(100, 20, 0x4a5568, 0x2d3748);
+            state.scene.add(state.helpers.grid);
+
+            // Axes helper (R=Red=X, G=Green=Y, B=Blue=Z)
+            state.helpers.axes = new THREE.AxesHelper(5);
+            state.scene.add(state.helpers.axes);
+        }
+
+        // ============================================
+        // File Loading
+        // ============================================
+        async function loadFile(file) {
+            showLoading(true, 'Reading file...');
+            
+            const reader = new FileReader();
+            
+            reader.onload = async (event) => {
+                const data = event.target.result;
+                const extension = file.name.split('.').pop().toLowerCase();
+                
+                try {
+                    showLoading(true, `Parsing ${extension.toUpperCase()}...`);
+                    await loadModel(data, extension, file.name);
+                } catch (error) {
+                    console.error('Error loading model:', error);
+                    alert(`Failed to load model: ${error.message}`);
+                }
+            };
+
+            if (extension === 'stl') {
+                reader.readAsArrayBuffer(data);
+            } else if (extension === 'obj') {
+                reader.readAsText(data);
+            } else if (extension === 'gltf' || extension === 'glb') {
+                reader.readAsArrayBuffer(data);
+            } else {
+                alert('Unsupported file format. Please use STL, OBJ, or GLTF/GLB.');
+                showLoading(false);
+                return;
+            }
+
+            reader.readAsArrayBuffer(file);
+        }
+
+        async function loadModel(data, extension, filename) {
+            let geometry = null;
+
+            switch (extension) {
+                case 'stl':
+                    const stlLoader = new STLLoader();
+                    geometry = stlLoader.parse(data);
+                    break;
+
+                case 'obj':
+                    const objLoader = new OBJLoader();
+                    const obj = objLoader.parse(data);
+                    // Convert object to group if needed, or use first mesh
+                    geometry = obj.geometry || convertObjectToGeometry(obj);
+                    break;
+
+                case 'gltf':
+                case 'glb':
+                    const gltfLoader = new GLTFLoader();
+                    const gltf = await gltfLoader.parse(data, '');
+                    // Use the scene or first mesh
+                    geometry = convertObjectToGeometry(gltf.scene);
+                    break;
+            }
+
+            if (!geometry) {
+                throw new Error('Could not extract geometry from file');
+            }
+
+            // Center and scale the model
+            geometry.center();
+            const boundingBox = new THREE.Box3().setFromGeometry(geometry);
+            const size = boundingBox.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            // Scale to fit nicely in view
+            const targetSize = 10;
+            if (maxDim > 0) {
+                const scale = targetSize / maxDim;
+                geometry.scale(scale, scale, scale);
+            }
+
+            // Create mesh with nice material
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x63b3ed,
+                metalness: 0.1,
+                roughness: 0.8,
+                flatShading: extension === 'stl',
+                side: THREE.DoubleSide
+            });
+
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            // Remove previous model if exists
+            if (state.currentModel) {
+                state.scene.remove(state.currentModel);
+                state.currentModel.geometry?.dispose();
+                state.currentModel.material?.dispose();
+            }
+
+            state.currentModel = mesh;
+            state.scene.add(mesh);
+
+            // Update status bar
+            updateStatusBar(filename, geometry);
+
+            // Adjust camera to frame the model
+            fitCameraToObject(mesh);
+
+            showLoading(false);
+        }
+
+        function convertObjectToGeometry(object) {
+            const geometries = [];
+            object.traverse((child) => {
+                if (child.isMesh && child.geometry) {
+                    geometries.push(child.geometry.clone());
+                }
+            });
+            
+            if (geometries.length === 0) return null;
+            if (geometries.length === 1) return geometries[0];
+            
+            // Merge multiple geometries
+            return BufferGeometryUtils.mergeGeometries(geometries);
+        }
+
+        function fitCameraToObject(object) {
+            const box = new THREE.Box3().setFromObject(object);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            const fov = state.camera.fov * (Math.PI / 180);
+            let cameraZ = Math.abs(maxDim / 2 * Math.tan(fov * 2));
+            cameraZ *= 2.5; // Zoom out a bit
+            
+            state.controls.target.copy(center);
+            state.camera.position.set(
+                center.x + cameraZ,
+                center.y + cameraZ * 0.7,
+                center.z + cameraZ
+            );
+            state.camera.lookAt(center);
+            state.controls.update();
+        }
+
+        function updateStatusBar(filename, geometry) {
+            document.getElementById('model-name').textContent = filename;
+            
+            const count = geometry.index ? 
+                geometry.index.count / 3 : 
+                geometry.attributes.position.count / 3;
+            document.getElementById('model-tris').textContent = `Triangles: ${count.toLocaleString()}`;
+
+            const boundingBox = new THREE.Box3().setFromGeometry(geometry);
+            const size = boundingBox.getSize(new THREE.Vector3());
+            document.getElementById('model-bounds').textContent = 
+                `Bounds: ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)}`;
+        }
+
+        // ============================================
+        // UI Functions
+        // ============================================
+        function showLoading(show, text = 'Loading...') {
+            const overlay = document.getElementById('loading-overlay');
+            const loadingText = document.getElementById('loading-text');
+            
+            if (show) {
+                loadingText.textContent = text;
+                overlay.classList.add('active');
+            } else {
+                overlay.classList.remove('active');
+            }
+        }
+
+        function resetView() {
+            state.camera.position.set(20, 20, 20);
+            state.controls.target.set(0, 0, 0);
+            state.controls.update();
+        }
+
+        // ============================================
+        // Event Listeners
+        // ============================================
+        function setupEventListeners() {
+            // File input
+            document.getElementById('file-input').addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    loadFile(e.target.files[0]);
+                }
+            });
+
+            // Reset view button
+            document.getElementById('reset-view-btn').addEventListener('click', resetView);
+
+            // Info panel close
+            document.getElementById('info-close').addEventListener('click', () => {
+                document.getElementById('info-panel').style.display = 'none';
+            });
+
+            // Window resize
+            window.addEventListener('resize', () => {
+                const container = document.getElementById('canvas-container');
+                state.camera.aspect = container.clientWidth / container.clientHeight;
+                state.camera.updateProjectionMatrix();
+                state.renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+
+            // Keyboard shortcuts
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'r' || e.key === 'R') {
+                    resetView();
+                }
+                if (e.key === '?' ) {
+                    document.getElementById('info-panel').style.display = 
+                        document.getElementById('info-panel').style.display === 'none' ? 'block' : 'none';
+                }
+            });
+        }
+
+        // ============================================
+        // Animation Loop
+        // ============================================
+        function animate() {
+            requestAnimationFrame(animate);
+            state.controls.update();
+            state.renderer.render(state.scene, state.camera);
+        }
+
+        // ============================================
+        // Start Application
+        // ============================================
+        init();
+    </script>
+</body>
+</html>
