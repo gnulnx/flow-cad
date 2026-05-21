@@ -4,7 +4,8 @@ A browser-based 3D model viewer built with Three.js for validating CAD parts bef
 
 ## Features
 
-- **File Loading**: Supports STL, OBJ, and GLTF/GLB file formats
+- **File Loading**: Supports STL, OBJ, GLTF/GLB, and STEP file formats
+- **STEP Support**: CAD STEP files (.step/.stp) converted via lightweight backend server
 - **Interactive Navigation**: OrbitControls for rotate, pan, and zoom
 - **Auto-centering**: Models are automatically centered and scaled to fit the view
 - **Status Information**: Displays model name, triangle count, and bounding box dimensions
@@ -59,10 +60,31 @@ npx serve viewer
 - **STL** (`.stl`) - Standard for 3D printing, binary and ASCII supported
 - **OBJ** (`.obj`) - Wavefront object format with geometry data
 - **GLTF/GLB** (`.gltf`, `.glb`) - Modern web-friendly 3D format
+- **STEP** (`.step`, `.stp`) - CAD exchange format (requires converter server)
+
+### STEP File Support
+
+STEP files require the converter server to be running. Start it before opening the viewer:
+
+```bash
+# Start the STEP converter server
+python viewer/step_converter.py
+```
+
+The server runs on `http://localhost:8765` by default and converts STEP files to STL format on-the-fly using cadquery.
+
+**Custom port/host:**
+```bash
+python viewer/step_converter.py --host 0.0.0.0 --port 8080
+```
+
+If you get a "Failed to fetch" error when loading a STEP file, make sure the converter server is running.
 
 ## Architecture
 
-This viewer follows the "Browser-Based Single Page App" approach:
+This viewer follows a hybrid approach:
+
+### Client-Side (index.html)
 
 ```
 ┌─────────────────────────────────────┐
@@ -80,7 +102,8 @@ This viewer follows the "Browser-Based Single Page App" approach:
 │  │   Loaders (via CDN)           │  │
 │  │   ├── STLLoader               │  │
 │  │   ├── OBJLoader               │  │
-│  │   └── GLTFLoader              │  │
+│  │   ├── GLTFLoader              │  │
+│  │   └── STEP Handler → Server   │  │
 │  └───────────────────────────────┘  │
 │                                     │
 │  ┌───────────────────────────────┐  │
@@ -93,12 +116,39 @@ This viewer follows the "Browser-Based Single Page App" approach:
 └─────────────────────────────────────┘
 ```
 
+### Server-Side (step_converter.py)
+
+```
+┌─────────────────────────────────────┐
+│      step_converter.py              │
+│                                     │
+│  ┌───────────────────────────────┐  │
+│  │   FastAPI Server              │  │
+│  │   POST /convert               │  │
+│  └───────────────────────────────┘  │
+│                                     │
+│  ┌───────────────────────────────┐  │
+│  │   cadquery (OCCT)             │  │
+│  │   ├── STEP Importer           │  │
+│  │   └── STL Exporter            │  │
+│  └───────────────────────────────┘  │
+└─────────────────────────────────────┘
+```
+
+**Data Flow for STEP Files:**
+1. User selects `.step` file in browser
+2. Browser sends file to `http://localhost:8765/convert`
+3. Server uses cadquery to parse STEP and export as STL
+4. STL data returned to browser
+5. Three.js STLLoader displays the model
+
 ## Technical Notes
 
 - Uses Three.js v0.160.0 loaded from unpkg CDN
 - No build step required - pure HTML/CSS/JavaScript
-- All file processing happens client-side via FileReader API
-- No server-side dependencies needed
+- All file processing happens client-side via FileReader API (except STEP)
+- **STEP files require the converter server** (`step_converter.py`) to be running
+- Converter uses cadquery with OpenCascade for accurate STEP parsing
 
 ## Future Enhancements (See Brainstorm Document)
 
