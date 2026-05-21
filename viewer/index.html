@@ -224,14 +224,15 @@
                 <button class="btn btn-primary">
                     📁 Open File
                 </button>
-                <input type="file" id="file-input" accept=".stl,.obj,.gltf,.glb">
+                <input type="file" id="file-input" accept=".stl,.obj,.gltf,.glb,.step,.stp">
             </div>
 
             <button class="btn btn-secondary" id="reset-view-btn">🔄 Reset View</button>
             
             <span style="margin-left: auto; color: #6b7280; font-size: 13px;">
-                Supports: STL, OBJ, GLTF/GLB
+                Supports: STL, OBJ, GLTF/GLB, STEP*
             </span>
+            <span id="step-note" style="margin-left: 4px; color: #9ca3af; font-size: 11px; vertical-align: super;">*</span>
         </div>
 
         <!-- Canvas Container -->
@@ -245,6 +246,8 @@
             <p><strong>Pan:</strong> Right-click + drag or Middle-click + drag</p>
             <p><strong>Zoom:</strong> Scroll wheel</p>
             <p style="margin-top: 12px;"><em>Upload a 3D model file to begin.</em></p>
+            <hr style="border-color: #0f3460; margin: 12px 0;"> 
+            <p style="font-size: 11px; color: #718096;"><strong>*STEP files:</strong> Require converter server running. See README.</p>
         </div>
 
         <!-- Status Bar -->
@@ -279,6 +282,14 @@
         import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { BufferGeometryUtils } from 'three/addons/utils/BufferGeometryUtils.js';
+
+        // ============================================
+        // Configuration
+        // ============================================
+        const CONFIG = {
+            stepConverterUrl: 'http://localhost:8765/convert',
+            maxFileSize: 50 * 1024 * 1024, // 50MB
+        };
 
         // ============================================
         // Application State
@@ -390,13 +401,26 @@
         // File Loading
         // ============================================
         async function loadFile(file) {
+            // Check file size
+            if (file.size > CONFIG.maxFileSize) {
+                alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is ${CONFIG.maxFileSize / 1024 / 1024}MB.`);
+                return;
+            }
+            
+            const extension = file.name.split('.').pop().toLowerCase();
+            
+            // Handle STEP files specially - need to convert via server
+            if (extension === 'step' || extension === 'stp') {
+                await loadStepFile(file);
+                return;
+            }
+            
             showLoading(true, 'Reading file...');
             
             const reader = new FileReader();
             
             reader.onload = async (event) => {
                 const data = event.target.result;
-                const extension = file.name.split('.').pop().toLowerCase();
                 
                 try {
                     showLoading(true, `Parsing ${extension.toUpperCase()}...`);
@@ -408,18 +432,60 @@
             };
 
             if (extension === 'stl') {
-                reader.readAsArrayBuffer(data);
+                reader.readAsArrayBuffer(file);
             } else if (extension === 'obj') {
-                reader.readAsText(data);
+                reader.readAsText(file);
             } else if (extension === 'gltf' || extension === 'glb') {
-                reader.readAsArrayBuffer(data);
+                reader.readAsArrayBuffer(file);
             } else {
-                alert('Unsupported file format. Please use STL, OBJ, or GLTF/GLB.');
+                alert('Unsupported file format. Please use STL, OBJ, GLTF/GLB, or STEP.');
                 showLoading(false);
                 return;
             }
+        }
 
-            reader.readAsArrayBuffer(file);
+        // ============================================
+        // STEP File Loading (via converter server)
+        // ============================================
+        async function loadStepFile(file) {
+            showLoading(true, 'Connecting to converter...');
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                showLoading(true, 'Converting STEP to STL...');
+                
+                const response = await fetch(CONFIG.stepConverterUrl, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    let errorMsg = `Conversion failed (${response.status})`;
+                    try {
+                        const errorData = await response.json();
+                        errorMsg = errorData.detail || errorMsg;
+                    } catch {}
+                    throw new Error(errorMsg);
+                }
+                
+                showLoading(true, 'Loading converted model...');
+                const stlData = await response.arrayBuffer();
+                
+                // Now load the STL data using existing loader
+                await loadModel(stlData, 'stl', file.name.replace(/\.(step|stp)$/i, '.stl'));
+                
+            } catch (error) {
+                console.error('Error loading STEP file:', error);
+                let msg = `Failed to load STEP file: ${error.message}`;
+                if (error.message.includes('Failed to fetch') || error.message.includes('network')) {
+                    msg += '\n\nMake sure the converter server is running:';
+                    msg += '\n  python viewer/step_converter.py';
+                }
+                alert(msg);
+                showLoading(false);
+            }
         }
 
         async function loadModel(data, extension, filename) {
