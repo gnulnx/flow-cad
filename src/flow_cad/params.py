@@ -182,6 +182,10 @@ class ChassisParams:
     rear_slide_upper_web_z_max: float = 40.0
     rear_slide_top_web_z_min: float = 207.0
     rear_slide_top_web_z_max: float = 216.0
+    rear_slide_outer_weld_width: float = 10.0
+    rear_slide_outer_weld_depth: float = 10.0
+    rear_slide_outer_weld_overlap: float = 3.25
+    rear_slide_outer_weld_z_extra: float = 1.5
     battery_measured_length: float = 155.0
     battery_measured_width: float = 50.0
     battery_measured_height: float = 50.0

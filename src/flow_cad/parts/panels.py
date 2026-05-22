@@ -214,55 +214,77 @@ def make_rear_panel_bumpout(params: ChassisParams):
 def make_rear_slide_receiver(params: ChassisParams, center_x: float):
     z_min = params.rear_slide_channel_z_min
     z_max = params.rear_slide_channel_z_max
-    h = z_max - z_min
-    zc = (z_min + z_max) / 2.0
     wall = params.rear_slide_channel_wall
     depth = params.rear_slide_channel_depth
     lip_depth = params.rear_slide_lip_depth
     head_slot = params.rear_slide_head_width + 2.0 * params.rear_slide_side_clearance
     neck_slot = params.rear_slide_neck_width + 2.0 * params.rear_slide_side_clearance
     total_w = head_slot + 2.0 * wall
-    side_wall_y_min = -0.25
-    side_wall_y_depth = depth - side_wall_y_min
-
-    backing_depth = 3.2
     backing_y_max = (
         params.rear_bumpout_detachable_base_gap
         - REAR_SLIDE_TONGUE_LEAD_IN
         - params.rear_slide_face_clearance
     )
-    receiver = box_at(
-        (total_w + 2.0, backing_depth, h + 16.0),
-        (center_x, backing_y_max - backing_depth / 2.0, zc),
-    )
-    receiver += box_at(
-        (wall, side_wall_y_depth, h),
-        (center_x - head_slot / 2.0 - wall / 2.0, (depth + side_wall_y_min) / 2.0, zc),
-    )
-    receiver += box_at(
-        (wall, side_wall_y_depth, h),
-        (center_x + head_slot / 2.0 + wall / 2.0, (depth + side_wall_y_min) / 2.0, zc),
-    )
-
-    lip_w = (head_slot - neck_slot) / 2.0
+    backing_y_min = -params.wall_thickness
+    receiver_z_min = z_min - params.rear_slide_stop_height
+    receiver_z_height = z_max - receiver_z_min
+    receiver_z_center = (receiver_z_min + z_max) / 2.0
+    top_embed_z_height = 8.0
+    top_embed_z_center = z_max + top_embed_z_height / 2.0
+    shell_clearance_y = params.rear_bumpout_detachable_base_gap
+    root_bridge_y_depth = shell_clearance_y - backing_y_max
+    slot_z_height = z_max - z_min + 2.0
+    slot_z_center = z_min + slot_z_height / 2.0
     lip_y_min = depth - lip_depth
-    lip_center_y = (lip_y_min + depth) / 2.0
-    receiver += box_at(
-        (lip_w, lip_depth, h),
-        (center_x - neck_slot / 2.0 - lip_w / 2.0, lip_center_y, zc),
+    outer_receiver_x = params.rear_slide_rail_x + head_slot / 2.0 + wall
+    weld_width = params.rear_slide_outer_weld_width
+    weld_depth = params.rear_slide_outer_weld_depth
+    weld_height = z_max - z_min + 2.0 * params.rear_slide_outer_weld_z_extra
+    weld_center_z = (z_min + z_max) / 2.0
+    weld_y_max = params.rear_bumpout_detachable_base_gap + params.rear_slide_face_clearance / 2.0
+    weld_center_y = weld_y_max - weld_depth / 2.0
+
+    receiver = box_at(
+        (total_w + 2.0, depth - backing_y_min, receiver_z_height),
+        (center_x, (backing_y_min + depth) / 2.0, receiver_z_center),
     )
     receiver += box_at(
-        (lip_w, lip_depth, h),
-        (center_x + neck_slot / 2.0 + lip_w / 2.0, lip_center_y, zc),
+        (total_w + 2.0, backing_y_max - backing_y_min, top_embed_z_height),
+        (center_x, (backing_y_min + backing_y_max) / 2.0, top_embed_z_center),
     )
     receiver += box_at(
-        (total_w + 2.0, depth - side_wall_y_min, params.rear_slide_stop_height),
+        (wall, root_bridge_y_depth, top_embed_z_height),
         (
-            center_x,
-            (depth + side_wall_y_min) / 2.0,
-            z_min - params.rear_slide_stop_height / 2.0,
+            center_x - head_slot / 2.0 - wall / 2.0,
+            (backing_y_max + shell_clearance_y) / 2.0,
+            top_embed_z_center,
         ),
     )
+    receiver += box_at(
+        (wall, root_bridge_y_depth, top_embed_z_height),
+        (
+            center_x + head_slot / 2.0 + wall / 2.0,
+            (backing_y_max + shell_clearance_y) / 2.0,
+            top_embed_z_center,
+        ),
+    )
+    receiver -= box_at(
+        (head_slot, lip_y_min - backing_y_max, slot_z_height),
+        (center_x, (backing_y_max + lip_y_min) / 2.0, slot_z_center),
+    )
+    receiver -= box_at(
+        (neck_slot, depth - lip_y_min + 2.0, slot_z_height),
+        (center_x, (lip_y_min + depth + 2.0) / 2.0, slot_z_center),
+    )
+    for side in (-1, 1):
+        if center_x * side > 0.0:
+            weld_center_x = side * (
+                outer_receiver_x + weld_width / 2.0 - params.rear_slide_outer_weld_overlap
+            )
+            receiver += box_at(
+                (weld_width, weld_depth, weld_height),
+                (weld_center_x, weld_center_y, weld_center_z),
+            )
     return safe_chamfer(receiver, 0.15)
 
 def make_rear_slide_support_webs(params: ChassisParams):

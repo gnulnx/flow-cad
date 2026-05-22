@@ -49,6 +49,8 @@ Interface contract:
 - Rail centers: X `+/- P.rear_slide_rail_x`.
 - Receiver side clearance: `P.rear_slide_side_clearance`.
 - Front/back capture clearance: `P.rear_slide_face_clearance`.
+- Fixed receiver rail roots must have continuous full-height backing to the panel wall and hidden side-wall bridges so the visible T-slot walls are tied into the body at the middle and top of the slide.
+- Fixed receiver outer walls also include source-generated weld blocks matching the FreeCAD Part boolean-fuse repair reference `JOHN_reap_panel_body.step`; these blocks must overlap the receiver wall but stay outside the bumpout shell envelope.
 - Required behavior: bumpout T heads must protrude in Y past the shell rim enough to enter the rear-panel receiver before the shell perimeter contacts the panel.
 - The retaining M4 screw prevents upward sliding only; it must not carry the main alignment load.
 - TPU test variant keeps the receiver, neck width, Y proud lead-in, and retaining slot unchanged, but reduces the T-head X capture width from `P.rear_slide_head_width` to `P.rear_slide_tpu_head_width` and the T-head Y capture depth from `P.rear_slide_head_depth` to `P.rear_slide_tpu_head_depth`.
@@ -58,6 +60,7 @@ Validation:
 - Generate: `flow cad build`
 - Pair check: directly intersect `make_rear_panel_detachable_body()` and `make_rear_panel_detachable_bumpout_shell()` in seated position; expected overlap is `0.0 mm^3`.
 - Feature check: T-head Y minimum must be proud of the shell rim by the intended lead-in, while the receiver backing leaves at least `P.rear_slide_face_clearance`. For TPU, also confirm the T-head X width is `P.rear_slide_tpu_head_width` and Y depth is `P.rear_slide_tpu_head_depth`.
+- Root check: probe the receiver side-wall root at mid-slide and top-slide height; both must contain material while the central T-head channel remains open.
 - Viewer files: inspect both individual STEP files and `erb_lower_chassis_rear_panel_detachable.step`.
 
 ## Side Plates To Front/Rear Panels

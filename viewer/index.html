@@ -303,12 +303,21 @@
         // Initialize Scene
         // ============================================
         function init() {
+            console.log('[init] Starting Three.js viewer...');
             const container = document.getElementById('canvas-container');
+            
+            if (!container) {
+                console.error('[init] Canvas container not found!');
+                return;
+            }
+            
+            console.log(`[init] Container size: ${container.clientWidth}x${container.clientHeight}`);
             
             // Scene
             state.scene = new THREE.Scene();
             state.scene.background = new THREE.Color(0x1a1a2e);
             state.scene.fog = new THREE.Fog(0x1a1a2e, 50, 500);
+            console.log('[init] Scene created');
 
             // Camera
             state.camera = new THREE.PerspectiveCamera(
@@ -319,6 +328,7 @@
             );
             state.camera.position.set(20, 20, 20);
             state.camera.lookAt(0, 0, 0);
+            console.log('[init] Camera created and positioned');
 
             // Renderer
             state.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -328,6 +338,7 @@
             state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             state.renderer.outputColorSpace = THREE.SRGBColorSpace;
             container.appendChild(state.renderer.domElement);
+            console.log('[init] Renderer created and appended to DOM');
 
             // Controls
             state.controls = new OrbitControls(
@@ -339,6 +350,7 @@
             state.controls.screenSpacePanning = true;
             state.controls.minDistance = 1;
             state.controls.maxDistance = 1000;
+            console.log('[init] OrbitControls created');
 
             // Lighting
             setupLighting();
@@ -351,6 +363,7 @@
 
             // Animation Loop
             animate();
+            console.log('[init] Viewer initialized successfully');
         }
 
         // ============================================
@@ -437,45 +450,57 @@
         }
 
         async function loadModel(data, extension, filename) {
+            console.log(`[loadModel] Loading ${filename} (${extension})`);
+            
             let geometry = null;
 
-            switch (extension) {
-                case 'stl':
-                    const stlLoader = new STLLoader();
-                    geometry = stlLoader.parse(data);
-                    break;
+            try {
+                switch (extension) {
+                    case 'stl':
+                        const stlLoader = new STLLoader();
+                        geometry = stlLoader.parse(data);
+                        console.log(`[loadModel] STL parsed successfully`);
+                        break;
 
-                case 'obj':
-                    const objLoader = new OBJLoader();
-                    const obj = objLoader.parse(data);
-                    // Convert object to group if needed, or use first mesh
-                    geometry = obj.geometry || convertObjectToGeometry(obj);
-                    break;
+                    case 'obj':
+                        const objLoader = new OBJLoader();
+                        const obj = objLoader.parse(data);
+                        geometry = obj.geometry || convertObjectToGeometry(obj);
+                        console.log(`[loadModel] OBJ parsed successfully`);
+                        break;
 
-                case 'gltf':
-                case 'glb':
-                    const gltfLoader = new GLTFLoader();
-                    const gltf = await gltfLoader.parse(data, '');
-                    // Use the scene or first mesh
-                    geometry = convertObjectToGeometry(gltf.scene);
-                    break;
+                    case 'gltf':
+                    case 'glb':
+                        const gltfLoader = new GLTFLoader();
+                        const gltf = await gltfLoader.parse(data, '');
+                        geometry = convertObjectToGeometry(gltf.scene);
+                        console.log(`[loadModel] GLTF parsed successfully`);
+                        break;
+                }
+            } catch (parseError) {
+                console.error('[loadModel] Parse error:', parseError);
+                throw new Error(`Failed to parse ${extension.toUpperCase()} file: ${parseError.message}`);
             }
 
             if (!geometry) {
                 throw new Error('Could not extract geometry from file');
             }
 
-            // Center and scale the model
-            geometry.center();
-            const boundingBox = new THREE.Box3().setFromGeometry(geometry);
-            const size = boundingBox.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
+            // Calculate bounding box BEFORE centering to get original size
+            const originalBox = new THREE.Box3().setFromGeometry(geometry);
+            const originalSize = originalBox.getSize(new THREE.Vector3());
+            const maxDim = Math.max(originalSize.x, originalSize.y, originalSize.z);
+            console.log(`[loadModel] Original dimensions: ${originalSize.x.toFixed(2)} x ${originalSize.y.toFixed(2)} x ${originalSize.z.toFixed(2)}`);
             
-            // Scale to fit nicely in view
+            // Center the geometry at origin
+            geometry.center();
+            
+            // Scale to fit nicely in view (target ~10 units)
             const targetSize = 10;
             if (maxDim > 0) {
                 const scale = targetSize / maxDim;
                 geometry.scale(scale, scale, scale);
+                console.log(`[loadModel] Scaled by factor: ${scale.toFixed(4)}`);
             }
 
             // Create mesh with nice material
@@ -489,6 +514,10 @@
 
             const mesh = new THREE.Mesh(geometry, material);
             
+            // Lift model slightly above grid for better visibility
+            mesh.position.y = targetSize / 2;
+            console.log(`[loadModel] Mesh positioned at y=${mesh.position.y}`);
+            
             // Remove previous model if exists
             if (state.currentModel) {
                 state.scene.remove(state.currentModel);
@@ -498,6 +527,7 @@
 
             state.currentModel = mesh;
             state.scene.add(mesh);
+            console.log(`[loadModel] Mesh added to scene. Scene has ${state.scene.children.length} children`);
 
             // Update status bar
             updateStatusBar(filename, geometry);
@@ -506,6 +536,7 @@
             fitCameraToObject(mesh);
 
             showLoading(false);
+            console.log(`[loadModel] Done loading ${filename}`);
         }
 
         function convertObjectToGeometry(object) {
@@ -529,25 +560,24 @@
             const size = box.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
             
-            // Calculate proper camera distance to fit object in view
-            // Formula: distance = halfDiagonal / tan(fov/2)
+            console.log(`[fitCameraToObject] Object center: (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})`);
+            console.log(`[fitCameraToObject] Object size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
+            
+            // Calculate camera distance to fit object in view with padding
             const fovRad = state.camera.fov * (Math.PI / 180);
-            const aspect = state.camera.aspect;
+            const padding = 1.3;
+            const distance = (maxDim * padding) / (2 * Math.tan(fovRad / 2));
             
-            // Account for aspect ratio - use the larger screen dimension
-            const screenFOV = aspect > 1 ? fovRad : fovRad / aspect;
-            const distance = maxDim / (2 * Math.tan(screenFOV / 2));
-            
-            // Add padding so object doesn't fill entire screen
-            const paddedDistance = distance * 1.5;
+            console.log(`[fitCameraToObject] Camera distance: ${distance.toFixed(2)}`);
             
             // Position camera at isometric-like angle looking at center
             state.controls.target.copy(center);
             state.camera.position.set(
-                center.x + paddedDistance,
-                center.y + paddedDistance * 0.7,
-                center.z + paddedDistance
+                center.x + distance,
+                center.y + distance * 0.5,
+                center.z + distance
             );
+            console.log(`[fitCameraToObject] Camera positioned at: (${state.camera.position.x.toFixed(2)}, ${state.camera.position.y.toFixed(2)}, ${state.camera.position.z.toFixed(2)})`);
             state.camera.lookAt(center);
             state.controls.update();
         }
