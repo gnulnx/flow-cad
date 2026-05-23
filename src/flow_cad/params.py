@@ -235,3 +235,9 @@ class ChassisParams:
     integrated_bridge_span_width: float = 180.0
     integrated_bridge_side_post_width: float = 0.0
     integrated_bridge_cable_slot_width: float = 24.0
+
+    # Simple mounting plate
+    simple_mounting_plate_width: float = 36.0
+    simple_mounting_plate_length: float = 135.0
+    simple_mounting_plate_thickness: float = 10.0
+    simple_mounting_plate_hole_offset: float = 10.0

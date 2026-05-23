@@ -281,3 +281,18 @@ def make_top_lid(params: ChassisParams):
         lid -= box_at((112.0, 9.0, 18.0), (0.0, y, t / 2.0))
 
     return safe_chamfer(lid, 0.6)
+
+def make_simple_mounting_plate(params: ChassisParams):
+    w = params.simple_mounting_plate_width
+    d = params.simple_mounting_plate_length
+    t = params.simple_mounting_plate_thickness
+    hole_offset = params.simple_mounting_plate_hole_offset
+    half_d = d / 2.0
+
+    plate = box_at((w, d, t), (0.0, 0.0, t / 2.0))
+
+    # M4 clearance holes positioned hole_offset from each end
+    for y in (-half_d + hole_offset, half_d - hole_offset):
+        plate -= cyl_z(params.m4_clearance_diameter / 2.0, t + 4.0, (0.0, y, t / 2.0))
+
+    return safe_chamfer(plate, 0.6)

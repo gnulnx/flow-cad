@@ -28,6 +28,7 @@ Exported STEP files:
 - b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout_TPU.step
 - b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_vented.step
 - b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_simple_mounting_plate.step
 - b3/exports/step/lower_chassis/b3_lower_chassis_top_lid.step
 - b3/exports/step/reference/b3_reference_axle_pair.step
 - b3/exports/step/reference/b3_reference_wheel_axle_pair.step

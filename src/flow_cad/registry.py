@@ -6,7 +6,12 @@ from enum import StrEnum
 from pathlib import Path
 
 from flow_cad.params import ChassisParams
-from flow_cad.parts.chassis import make_bottom_tray, make_side_plate, make_top_lid
+from flow_cad.parts.chassis import (
+    make_bottom_tray,
+    make_side_plate,
+    make_simple_mounting_plate,
+    make_top_lid,
+)
 from flow_cad.parts.inserts import make_axle_insert
 from flow_cad.parts.panels import (
     make_end_panel,
@@ -76,6 +81,7 @@ PART_DEFINITIONS: tuple[PartDefinition, ...] = (
     PartDefinition("rear_panel_vented", "lower_chassis", "b3_lower_chassis_rear_panel_vented.step", lambda p: make_end_panel(p, inward_y=-1, cable_panel=True)),
     PartDefinition("bottom_tray", "lower_chassis", "b3_lower_chassis_bottom_tray.step", make_bottom_tray),
     PartDefinition("top_lid", "lower_chassis", "b3_lower_chassis_top_lid.step", make_top_lid),
+    PartDefinition("simple_mounting_plate", "lower_chassis", "b3_lower_chassis_simple_mounting_plate.step", make_simple_mounting_plate),
     PartDefinition("equipment_shelf", "lower_chassis", "b3_equipment_shelf.step", make_equipment_shelf),
     PartDefinition("equipment_shelf_side_cable", "lower_chassis", "b3_equipment_shelf_side_cable.step", lambda p: make_equipment_shelf(p, side_cable_notches=True)),
     PartDefinition(

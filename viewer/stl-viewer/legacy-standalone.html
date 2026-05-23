@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Erb Balance Bot - 3D Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  #header {
+    padding: 12px 20px;
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  #header h1 { font-size: 16px; font-weight: 600; color: #e94560; }
+  #header .info { font-size: 12px; color: #888; }
+  #drop-zone {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    border: 2px dashed #0f3460;
+    margin: 16px;
+    border-radius: 8px;
+    transition: all 0.2s;
+  }
+  #drop-zone.drag-over { border-color: #e94560; background: rgba(233,69,96,0.05); }
+  #drop-zone.has-model { border: none; margin: 0; }
+  #drop-zone .placeholder { text-align: center; pointer-events: none; }
+  #drop-zone .placeholder .icon { font-size: 48px; margin-bottom: 12px; }
+  #drop-zone .placeholder p { color: #888; font-size: 14px; }
+  #canvas-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    visibility: hidden;
+    overflow: hidden;
+  }
+  #canvas-container canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  #drop-zone.has-model #canvas-container { visibility: visible; }
+  #drop-zone.has-model .placeholder { display: none; }
+  #controls {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    background: rgba(22,33,62,0.95);
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid #0f3460;
+    z-index: 10;
+  }
+  #controls button {
+    background: #0f3460;
+    color: #e0e0e0;
+    border: 1px solid #1a5276;
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    z-index: 10;
+  }
+  #controls button:hover { background: #1a5276; }
+  #controls button:active { background: #1a5276; }
+  #file-info {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(22,33,62,0.95);
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid #0f3460;
+    font-size: 12px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #drop-zone:hover #file-info { opacity: 1; }
+  #file-info .name { color: #e94560; font-weight: 600; }
+  #file-info .dims { color: #888; }
+  #file-info .scale { color: #4ecca3; }
+  #file-list {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(22,33,62,0.95);
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid #0f3460;
+    max-height: 60vh;
+    overflow-y: auto;
+    min-width: 250px;
+  }
+  #file-list h3 { font-size: 12px; color: #e94560; margin-bottom: 8px; }
+  #file-list ul { list-style: none; }
+  #file-list li {
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #file-list li:hover { background: rgba(233,69,96,0.15); }
+  #file-list li.active { background: rgba(233,69,96,0.25); color: #e94560; }
+  #file-list li .label { color: #888; }
+  input[type="file"] { display: none; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>ErB Balance Bot — 3D Viewer</h1>
+  <span class="info">Drag &amp; drop STL files, or click to browse</span>
+</div>
+
+<div id="drop-zone">
+  <div class="placeholder">
+    <div class="icon">📦</div>
+    <p>Drop STL files here<br>or click to browse</p>
+  </div>
+  <div id="canvas-container">
+    <canvas id="canvas"></canvas>
+  </div>
+  <div id="controls">
+    <button id="btn-reset">Reset View</button>
+    <button id="btn-wireframe">Wireframe</button>
+    <button id="btn-top">Top</button>
+    <button id="btn-front">Front</button>
+    <button id="btn-side">Side</button>
+    <button id="btn-fit">Fit to View</button>
+  </div>
+  <div id="file-info">
+    <div class="name" id="model-name"></div>
+    <div class="dims" id="model-dims"></div>
+    <div class="scale" id="model-scale"></div>
+  </div>
+  <div id="file-list">
+    <h3>Loaded Parts</h3>
+    <ul id="file-list-ul"></ul>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept=".stl" multiple>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
+
+// Expose for console debugging (moved after declarations)
+window.THREE = THREE;
+window.STLLoader = STLLoader;
+window.OrbitControls = OrbitControls;
+window.TransformControls = TransformControls;
+
+// Scene setup
+const canvas = document.getElementById('canvas');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#1a1a2e');
+scene.fog = new THREE.Fog('#1a1a2e', 500, 1000);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+camera.position.set(100, 80, 100);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+const transformControls = new TransformControls(camera, canvas);
+transformControls.addEventListener('dragging-changed', ({ value }) => {
+  controls.enabled = !value;
+});
+
+// Lights
+const ambientLight = new THREE.AmbientLight('#ffffff', 0.5);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight('#ffffff', 1.0);
+dirLight.position.set(50, 100, 50);
+scene.add(dirLight);
+
+const dirLight2 = new THREE.DirectionalLight('#e94560', 0.3);
+dirLight2.position.set(-50, 50, -50);
+scene.add(dirLight2);
+
+const hemiLight = new THREE.HemisphereLight('#4ecca3', '#16213e', 0.2);
+scene.add(hemiLight);
+
+// Grid
+const gridHelper = new THREE.GridHelper(200, 20, '#0f3460', '#0f3460');
+scene.add(gridHelper);
+
+// Axes helper
+const axesHelper = new THREE.AxesHelper(60);
+scene.add(axesHelper);
+
+// Model groups
+const models = [];
+let currentModel = null;
+let wireframeMode = false;
+
+// UI elements
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const modelName = document.getElementById('model-name');
+const modelDims = document.getElementById('model-dims');
+const modelScale = document.getElementById('model-scale');
+const fileListUl = document.getElementById('file-list-ul');
+const fileList = document.getElementById('file-list');
+
+// Drag & drop
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+  dropZone.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); });
+});
+
+dropZone.addEventListener('dragenter', () => dropZone.classList.add('drag-over'));
+dropZone.addEventListener('dragover', () => dropZone.classList.add('drag-over'));
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.dataTransfer.files.length) {
+    handleFiles(e.dataTransfer.files);
+    dropZone.classList.remove('drag-over');
+  }
+});
+
+dropZone.addEventListener('click', (e) => {
+  // Don't open file picker if clicking inside #controls or #file-info
+  if (e.target.closest('#controls') || e.target.closest('#file-info')) return;
+  fileInput.click();
+});
+fileInput.addEventListener('change', ({ target }) => {
+  if (target.files.length) {
+    handleFiles(target.files);
+    target.value = '';
+  }
+});
+
+function handleFiles(files) {
+  const loader = new STLLoader();
+  let loaded = 0;
+  Array.from(files).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const geometry = loader.parse(e.target.result);
+        const mesh = createMesh(geometry, file.name);
+        models.push(mesh);
+        scene.add(mesh);
+        addToListItem(file.name, mesh);
+        updateInfo(file.name);
+        loaded++;
+        console.log(`Loaded: ${file.name} (${loaded}/${files.length})`);
+        if (loaded === files.length) {
+          fitToView();
+        }
+      } catch (err) {
+        console.error(`Failed to load ${file.name}:`, err);
+        loaded++;
+        if (loaded === files.length) {
+          console.log(`Done loading ${files.length} files (some may have failed)`);
+        }
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+  console.log(`Starting to load ${files.length} files...`);
+}
+
+function createMesh(geometry, name) {
+  geometry.computeBoundingBox();
+  const bbox = geometry.boundingBox;
+  const size = bbox.getSize(new THREE.Vector3());
+  const center = bbox.getCenter(new THREE.Vector3());
+
+  const material = new THREE.MeshStandardMaterial({
+    color: '#4ecca3',
+    metalness: 0.3,
+    roughness: 0.6,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.copy(center.negate());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.name = name;
+
+  // Add bounding box helper
+  const edgesGeo = new THREE.EdgesGeometry(geometry);
+  const edgesMat = new THREE.LineBasicMaterial({ color: '#0f3460' });
+  const wireframe = new THREE.LineSegments(edgesGeo, edgesMat);
+  wireframe.position.copy(mesh.position);
+  wireframe.scale.copy(mesh.scale);
+  wireframe.name = name + '_wire';
+  scene.add(wireframe);
+
+  return { mesh, wireframe, name, size, center };
+}
+
+function addToListItem(name, modelData) {
+  const li = document.createElement('li');
+  li.textContent = name;
+  li.addEventListener('click', () => {
+    document.querySelectorAll('#file-list li').forEach(el => el.classList.remove('active'));
+    li.classList.add('active');
+    currentModel = modelData;
+    transformControls.attach(modelData.mesh);
+    updateInfo(name);
+  });
+  fileListUl.appendChild(li);
+}
+
+function updateInfo(name) {
+  modelName.textContent = name;
+  if (currentModel) {
+    const s = currentModel.size;
+    modelDims.textContent = `Size: ${s.x.toFixed(1)} × ${s.y.toFixed(1)} × ${s.z.toFixed(1)} mm`;
+  }
+}
+
+// Controls
+document.getElementById('btn-reset').addEventListener('click', () => {
+  camera.position.set(100, 80, 100);
+  controls.target.set(0, 0, 0);
+  controls.update();
+});
+
+document.getElementById('btn-wireframe').addEventListener('click', () => {
+  wireframeMode = !wireframeMode;
+  models.forEach(m => {
+    m.mesh.material.wireframe = wireframeMode;
+  });
+});
+
+document.getElementById('btn-top').addEventListener('click', () => {
+  camera.position.set(0, 150, 0);
+  controls.target.set(0, 0, 0);
+  controls.update();
+});
+
+document.getElementById('btn-front').addEventListener('click', () => {
+  camera.position.set(0, 0, 150);
+  controls.target.set(0, 0, 0);
+  controls.update();
+});
+
+document.getElementById('btn-side').addEventListener('click', () => {
+  camera.position.set(150, 0, 0);
+  controls.target.set(0, 0, 0);
+  controls.update();
+});
+
+document.getElementById('btn-fit').addEventListener('click', fitToView);
+
+function fitToView() {
+  const box = new THREE.Box3();
+  models.forEach(m => {
+    const worldBox = new THREE.Box3().setFromObject(m.mesh);
+    box.union(worldBox);
+  });
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const fov = camera.fov * (Math.PI / 180);
+  let cameraZ = (maxDim / 2) / Math.tan(fov / 2);
+  camera.position.set(cameraZ * 0.7, cameraZ * 0.6, cameraZ * 0.7);
+  controls.target.copy(center);
+  controls.update();
+}
+
+// Resize
+function onResize() {
+  const container = document.getElementById('canvas-container');
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  if (w > 0 && h > 0) {
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  }
+}
+
+// Resize observer for dynamic container changes
+const resizeObserver = new ResizeObserver(() => onResize());
+resizeObserver.observe(document.getElementById('canvas-container'));
+
+// Run resize after layout settles
+window.addEventListener('load', () => {
+  setTimeout(onResize, 100);
+});
+window.addEventListener('resize', onResize);
+
+// Animate
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'f') fitToView();
+  if (e.key === 'w') document.getElementById('btn-wireframe').click();
+  if (e.key === 'r') document.getElementById('btn-reset').click();
+  if (e.key === '1') document.getElementById('btn-top').click();
+  if (e.key === '2') document.getElementById('btn-front').click();
+  if (e.key === '3') document.getElementById('btn-side').click();
+});
+
+// Expose for console debugging
+window.scene = scene;
+window.camera = camera;
+window.renderer = renderer;
+window.models = models;
+window.handleFiles = handleFiles;
+window.fitToView = fitToView;
+window.controls = controls;
+</script>
+</body>
+</html>
