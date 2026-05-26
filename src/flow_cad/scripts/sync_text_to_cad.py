@@ -10,13 +10,13 @@ import sys
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from flow_cad.core.bundler import create_bundle  # noqa: E402
 from flow_cad.paths import require_existing, resolve_tool_config  # noqa: E402
 from flow_cad.params import ChassisParams  # noqa: E402
 from flow_cad.registry import ASSEMBLY_DEFINITION, expected_step_relative_paths, iter_part_definitions  # noqa: E402
-from scripts.create_exports_bundle import create_bundle  # noqa: E402
 
 
 PARAMS = ChassisParams()
@@ -119,10 +119,12 @@ def generate_top_level_assembly_asset(assembly_dest_dir: Path) -> None:
 
 
 def rebuild_root_exports_bundle() -> Path:
-    bundle_path = PROJECT_ROOT / EXPORTS_BUNDLE_FILENAME
-    if bundle_path.exists():
-        bundle_path.unlink()
-    return create_bundle(PROJECT_ROOT, EXPORTS_BUNDLE_FILENAME, ACTIVE_STEP_RELATIVE_PATHS)
+    return create_bundle(
+        PROJECT_ROOT / PARAMS.project_id / "exports",
+        PROJECT_ROOT,
+        EXPORTS_BUNDLE_FILENAME,
+        ACTIVE_STEP_RELATIVE_PATHS,
+    )
 
 
 def main() -> int:

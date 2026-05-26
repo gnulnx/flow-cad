@@ -13,6 +13,9 @@ from ..core.geometry import (
     safe_chamfer
 )
 from ..core.utils import (
+    bottom_cable_pad_centers,
+    center_spine_usb_access_y_centers,
+    center_spine_usb_access_z,
     front_rear_panel_slot_y_positions,
     front_rear_panel_retention_y_positions
 )
@@ -249,6 +252,39 @@ def make_bottom_tray(params: ChassisParams):
             (0.0, y, bridge_center_z),
         )
         tray += bridge
+
+    pad_z = (
+        params.integrated_bridge_underside_z
+        + params.integrated_bridge_thickness
+        + params.bottom_cable_pad_height / 2.0
+    )
+    for x, y in bottom_cable_pad_centers(params):
+        tray += box_at(
+            (
+                params.bottom_cable_pad_size,
+                params.bottom_cable_pad_size,
+                params.bottom_cable_pad_height,
+            ),
+            (x, y, pad_z),
+        )
+
+    pad_hole_z = (
+        params.integrated_bridge_underside_z
+        + (params.integrated_bridge_thickness + params.bottom_cable_pad_height) / 2.0
+    )
+    pad_hole_depth = params.integrated_bridge_thickness + params.bottom_cable_pad_height + 4.0
+    for x, y in bottom_cable_pad_centers(params):
+        tray -= cyl_z(params.m4_heatset_pilot_diameter / 2.0, pad_hole_depth, (x, y, pad_hole_z))
+
+    for y in center_spine_usb_access_y_centers(params):
+        tray -= box_at(
+            (
+                params.integrated_center_spine_usb_access_width,
+                params.integrated_center_spine_usb_access_depth,
+                params.integrated_center_spine_usb_access_height,
+            ),
+            (0.0, y, center_spine_usb_access_z(params)),
+        )
 
     # M5 heat-set pilot holes in side rails matching side plates.
     for x in (-w / 2.0 + side_rail_w / 2.0, w / 2.0 - side_rail_w / 2.0):

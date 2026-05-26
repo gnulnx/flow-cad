@@ -1,5 +1,6 @@
 from __future__ import annotations
 from ..core.geometry import box_at, cyl_z, horizontal_slot_z, safe_chamfer
+from ..core.utils import bottom_cable_pad_centers
 from ..params import ChassisParams
 
 def make_equipment_shelf(
@@ -13,6 +14,7 @@ def make_equipment_shelf(
     width: float | None = None,
     depth: float | None = None,
     mount_slot_length: float | None = None,
+    center_wiring_channels: bool = True,
 ):
     w = params.shelf_width if width is None else width
     d = params.shelf_depth if depth is None else depth
@@ -33,9 +35,10 @@ def make_equipment_shelf(
                     (x, y, t / 2.0),
                 )
 
-    # Open center wiring channels while leaving flat equipment space.
-    for x in (-36.0, 0.0, 36.0):
-        shelf -= box_at((10.0, 128.0, 20.0), (x, 0.0, t / 2.0))
+    if center_wiring_channels:
+        # Open center wiring channels while leaving flat equipment space.
+        for x in (-36.0, 0.0, 36.0):
+            shelf -= box_at((10.0, 128.0, 20.0), (x, 0.0, t / 2.0))
 
     if side_cable_notches:
         notch_depth = (
@@ -70,6 +73,17 @@ def make_equipment_shelf(
                 (notch_length, notch_depth, t + 4.0),
                 (0.0, side * (d / 2.0 - notch_depth / 2.0), t / 2.0),
             )
+
+    return safe_chamfer(shelf, 0.5)
+
+def make_bottom_cable_shelf(params: ChassisParams):
+    w = params.bottom_cable_shelf_width
+    d = params.bottom_cable_shelf_depth
+    t = params.bottom_cable_shelf_thickness
+    shelf = box_at((w, d, t), (0.0, 0.0, t / 2.0))
+
+    for x, y in bottom_cable_pad_centers(params):
+        shelf -= cyl_z(params.m4_clearance_diameter / 2.0, t + 4.0, (x, y, t / 2.0))
 
     return safe_chamfer(shelf, 0.5)
 

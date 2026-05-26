@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from flow_cad.params import ChassisParams
@@ -20,6 +20,11 @@ from flow_cad.main import INSERT_VARIANTS
 from flow_cad.core.utils import (
     axle_tab_washer_relief_center_x as _relief_x,
     axle_tab_washer_relief_center_y as _relief_y,
+    bottom_cable_pad_centers as _bottom_cable_pad_centers,
+    bottom_cable_shelf_z as _bottom_cable_shelf_z,
+    bottom_tray_bridge_y as _bottom_tray_bridge_y,
+    center_spine_usb_access_y_centers as _center_spine_usb_access_y_centers,
+    center_spine_usb_access_z as _center_spine_usb_access_z,
     front_rear_panel_retention_y_positions as _ret_y,
     front_rear_panel_slot_y_positions as _slot_y,
 )
@@ -38,6 +43,21 @@ def front_rear_panel_retention_y_positions() -> tuple[float, float]:
 
 def front_rear_panel_slot_y_positions() -> tuple[float, float]:
     return _slot_y(P)
+
+def bottom_tray_bridge_y() -> float:
+    return _bottom_tray_bridge_y(P)
+
+def bottom_cable_pad_centers() -> tuple[tuple[float, float], ...]:
+    return _bottom_cable_pad_centers(P)
+
+def bottom_cable_shelf_z() -> float:
+    return _bottom_cable_shelf_z(P)
+
+def center_spine_usb_access_y_centers() -> tuple[float, float]:
+    return _center_spine_usb_access_y_centers(P)
+
+def center_spine_usb_access_z() -> float:
+    return _center_spine_usb_access_z(P)
 
 
 def fail(message: str, details: dict | None = None) -> dict:
@@ -741,6 +761,235 @@ def check_integrated_battery_tray() -> list[dict]:
     return checks
 
 
+def check_bottom_cable_shelf_mounts() -> list[dict]:
+    checks: list[dict] = []
+    pad_half = P.bottom_cable_pad_size / 2.0
+    pad_hole_margin = pad_half - P.m4_heatset_pilot_diameter / 2.0
+    bridge_y = bottom_tray_bridge_y()
+    shelf_hole_margin_x = P.bottom_cable_shelf_width / 2.0 - P.bottom_cable_pad_x - P.m4_clearance_diameter / 2.0
+    shelf_hole_margin_y = P.bottom_cable_shelf_depth / 2.0 - bridge_y - P.m4_clearance_diameter / 2.0
+    bridge_half_depth = P.integrated_bridge_depth / 2.0
+    side_tower_inner_x = P.internal_width / 2.0 - P.bottom_tray_side_rail_width
+    shelf_z = bottom_cable_shelf_z()
+    shelf_top_z = shelf_z + P.bottom_cable_shelf_thickness
+    upper_shelf_clearance = P.shelf_z_levels[1] - shelf_top_z
+
+    if abs(P.bottom_cable_pad_height - 12.0) > 1e-6:
+        checks.append(
+            fail(
+                "bottom cable stand-off pads are not the requested 12 mm height",
+                {"pad_height_mm": P.bottom_cable_pad_height},
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "bottom cable stand-off pads are 12 mm high",
+                {"pad_height_mm": P.bottom_cable_pad_height, "shelf_bottom_z_mm": shelf_z},
+            )
+        )
+
+    pad_fit_failures = []
+    for x, y in bottom_cable_pad_centers():
+        bridge_y_error = abs(abs(y) - bridge_y)
+        y_margin = bridge_half_depth - pad_half - bridge_y_error
+        x_margin = side_tower_inner_x - abs(x) - pad_half
+        if y_margin < 0.0 or x_margin < 4.0:
+            pad_fit_failures.append(
+                {
+                    "center_x_mm": x,
+                    "center_y_mm": y,
+                    "bridge_y_margin_mm": y_margin,
+                    "side_tower_x_margin_mm": x_margin,
+                }
+            )
+
+    if pad_fit_failures:
+        checks.append(
+            fail(
+                "bottom cable stand-off pads do not sit cleanly on the bridge pads clear of side towers",
+                {"failures": pad_fit_failures},
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "bottom cable stand-off pads sit on bridge pads clear of side towers",
+                {
+                    "pad_centers_mm": [list(center) for center in bottom_cable_pad_centers()],
+                    "minimum_side_tower_x_margin_mm": side_tower_inner_x - P.bottom_cable_pad_x - pad_half,
+                    "bridge_depth_margin_mm": bridge_half_depth - pad_half,
+                },
+            )
+        )
+
+    if pad_hole_margin < 3.0:
+        checks.append(
+            fail(
+                "bottom cable pad M4 pilot has too little edge margin",
+                {"hole_edge_margin_mm": pad_hole_margin, "minimum_margin_mm": 3.0},
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "bottom cable pad M4 pilots have edge margin",
+                {"hole_edge_margin_mm": pad_hole_margin},
+            )
+        )
+
+    if shelf_hole_margin_x < 6.0 or shelf_hole_margin_y < 6.0:
+        checks.append(
+            fail(
+                "bottom cable shelf M4 clearance holes have too little edge margin",
+                {
+                    "m4_clearance_diameter_mm": P.m4_clearance_diameter,
+                    "hole_edge_margin_x_mm": shelf_hole_margin_x,
+                    "hole_edge_margin_y_mm": shelf_hole_margin_y,
+                    "minimum_margin_mm": 6.0,
+                },
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "bottom cable shelf uses round M4 clearance holes with edge margin",
+                {
+                    "m4_clearance_diameter_mm": P.m4_clearance_diameter,
+                    "hole_edge_margin_x_mm": shelf_hole_margin_x,
+                    "hole_edge_margin_y_mm": shelf_hole_margin_y,
+                },
+            )
+        )
+
+    if upper_shelf_clearance < 20.0:
+        checks.append(
+            fail(
+                "bottom cable shelf is too close to the upper equipment shelf envelope",
+                {"upper_shelf_clearance_mm": upper_shelf_clearance, "minimum_clearance_mm": 20.0},
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "bottom cable shelf clears the upper equipment shelf envelope",
+                {"upper_shelf_clearance_mm": upper_shelf_clearance},
+            )
+        )
+    return checks
+
+
+def check_center_spine_usb_access() -> list[dict]:
+    checks: list[dict] = []
+    cut_x = P.integrated_center_spine_usb_access_width
+    cut_y = P.integrated_center_spine_usb_access_depth
+    cut_z = P.integrated_center_spine_usb_access_height
+    cut_center_z = center_spine_usb_access_z()
+    cut_z_min = cut_center_z - cut_z / 2.0
+    cut_z_max = cut_center_z + cut_z / 2.0
+    spine_inner_width = (
+        P.integrated_center_spine_outer_width
+        - 2.0 * P.integrated_center_spine_wall_thickness
+    )
+    tray_half_depth = P.bottom_tray_depth / 2.0
+    inward_reach = cut_y - P.integrated_center_spine_usb_access_edge_overlap
+    top_pad_z_min = P.integrated_center_spine_height - P.integrated_imu_pad_thickness
+    bridge_z_min = P.integrated_bridge_underside_z
+    pad_clearance_x = P.bottom_cable_pad_x - P.bottom_cable_pad_size / 2.0 - cut_x / 2.0
+
+    if cut_x < 16.0 or cut_x > spine_inner_width:
+        checks.append(
+            fail(
+                "center spine USB access width does not fit inside the spine channel",
+                {"cut_width_mm": cut_x, "spine_inner_width_mm": spine_inner_width},
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "center spine USB access width fits inside the spine channel",
+                {"cut_width_mm": cut_x, "spine_inner_width_mm": spine_inner_width},
+            )
+        )
+
+    if cut_z_min > top_pad_z_min or cut_z_max < P.integrated_center_spine_height:
+        checks.append(
+            fail(
+                "center spine USB access slot misses the ESP32/IMU riser top zone",
+                {
+                    "slot_z_min_mm": cut_z_min,
+                    "slot_z_max_mm": cut_z_max,
+                    "riser_top_zone_min_mm": top_pad_z_min,
+                    "riser_top_mm": P.integrated_center_spine_height,
+                },
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "center spine USB access slot crosses the ESP32/IMU riser top zone",
+                {"slot_z_min_mm": cut_z_min, "slot_z_max_mm": cut_z_max},
+            )
+        )
+
+    if cut_z_max >= bridge_z_min:
+        checks.append(
+            fail(
+                "center spine USB access slot reaches the over-battery bridge",
+                {"slot_z_max_mm": cut_z_max, "bridge_underside_z_mm": bridge_z_min},
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "center spine USB access slot stays below the over-battery bridge",
+                {"slot_z_max_mm": cut_z_max, "bridge_underside_z_mm": bridge_z_min},
+            )
+        )
+
+    opening_failures = []
+    for y in center_spine_usb_access_y_centers():
+        y_min = y - cut_y / 2.0
+        y_max = y + cut_y / 2.0
+        opens_to_edge = y_min <= -tray_half_depth if y < 0.0 else y_max >= tray_half_depth
+        if not opens_to_edge:
+            opening_failures.append({"center_y_mm": y, "y_min_mm": y_min, "y_max_mm": y_max})
+
+    if opening_failures:
+        checks.append(
+            fail(
+                "center spine USB access slots do not open through the tray end",
+                {"failures": opening_failures},
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "center spine USB access slots open through both tray ends",
+                {
+                    "slot_centers_y_mm": list(center_spine_usb_access_y_centers()),
+                    "inward_reach_mm": inward_reach,
+                },
+            )
+        )
+
+    if pad_clearance_x < 20.0:
+        checks.append(
+            fail(
+                "center spine USB access slot is too close to bottom cable shelf pads",
+                {"pad_clearance_x_mm": pad_clearance_x, "minimum_clearance_mm": 20.0},
+            )
+        )
+    else:
+        checks.append(
+            ok(
+                "center spine USB access slot stays clear of bottom cable shelf pads",
+                {"pad_clearance_x_mm": pad_clearance_x},
+            )
+        )
+    return checks
+
+
 def check_axle_tab_washer_relief() -> list[dict]:
     checks: list[dict] = []
     min_tab_length = 12.0
@@ -832,6 +1081,8 @@ def main() -> int:
         + check_bottom_tray_mounts()
         + check_bottom_tray_side_plate_alignment()
         + check_integrated_battery_tray()
+        + check_bottom_cable_shelf_mounts()
+        + check_center_spine_usb_access()
         + check_axle_tab_washer_relief(),
     }
     report["failed"] = [check for check in report["checks"] if check["status"] == "fail"]

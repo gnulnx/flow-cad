@@ -134,6 +134,42 @@ Validation:
 - Mounting check: `python scripts/check_mounting_features.py`
 - Assembly check: `python scripts/check_assembly_interference.py`
 
+## Bottom Cable Shelf To Bottom Tray Pads
+
+Purpose: dedicated bottom cable shelf mounts to four raised pads on the bottom tray, creating vertical wire-routing space above the central battery/wire area.
+
+Fixed part:
+
+- STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_tray.step`
+- Source: `make_bottom_tray()` in `src/flow_cad/parts/chassis.py`
+
+Moving part:
+
+- STEP: `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_cable_shelf.step`
+- Source: `make_bottom_cable_shelf()` in `src/flow_cad/parts/shelves.py`
+- Nominal bbox: `136.0 W x 188.0 D x 4.0 H mm`
+
+Interface contract:
+
+- Interface type: four raised stand-off pads with M4 screw retention.
+- Install direction: Z down onto the pads.
+- Width fit direction: X.
+- Depth fit direction: Y.
+- Pad centers derive from the bottom-tray bridge centerlines: X `+/- P.bottom_cable_pad_x`, Y `+/- bottom_tray_bridge_y(P)`.
+- Pads are `P.bottom_cable_pad_size` square and `P.bottom_cable_pad_height` tall.
+- Pad pilots use `P.m4_heatset_pilot_diameter`.
+- Shelf mounting holes use round `P.m4_clearance_diameter` through-holes; do not use large square/slot cuts here because the shelf must retain M4 screw heads or washers.
+- The shelf seats at `bottom_cable_shelf_z(P)`, on the 12 mm pads, and replaces the former lowest floating equipment shelf in the assembly preview.
+- The bottom tray center spine includes front/rear USB access notches centered on X `0.0`; they open through Y `+/-` tray ends, stay below the over-battery bridge, and must not intersect the four shelf pads.
+
+Validation:
+
+- Generate: `flow cad build`
+- Mounting check: `python src/flow_cad/scripts/check_mounting_features.py`
+- Assembly check: `python src/flow_cad/scripts/check_assembly_interference.py`
+- Pair check: place `make_bottom_cable_shelf()` at `bottom_cable_shelf_z(P)` and intersect it with `make_bottom_tray()`; expected overlap is `0.0 mm^3`.
+- Feature check: confirm pad tops are at the shelf bottom plane, that the four round shelf holes align to the four pad pilot centers, and that the USB notches remain open through both tray ends.
+
 ## Equipment Shelves To Side Ledges
 
 Purpose: equipment shelves sit on side-plate ledges and align to M4 mount holes.
@@ -161,6 +197,7 @@ Interface contract:
 - Shelf mount holes must stay aligned to `P.shelf_side_hole_x` and `P.shelf_side_hole_y`.
 - Side ledge levels are defined by `P.shelf_side_ledge_z_levels`.
 - Cable notches and side reliefs must not disconnect the shelf or leave unprintably thin bridges.
+- `b3_equipment_shelf_service_fit_four_way.step` keeps four perimeter wire/airflow cutouts but leaves the central device-mounting area solid, without the three center wiring channels used by the standard shelf.
 
 Validation:
 

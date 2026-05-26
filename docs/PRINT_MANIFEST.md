@@ -12,7 +12,9 @@ Core chassis parts:
 - `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_front_panel.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_tray.step`
+- `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_cable_shelf.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_top_lid.step`
+- `b3/exports/step/lower_chassis/b3_lower_chassis_simple_mounting_plate.step`
 
 Rear-panel options:
 
@@ -44,6 +46,11 @@ Equipment shelves:
 - `b3/exports/step/lower_chassis/b3_equipment_shelf_service_fit.step`
 - `b3/exports/step/lower_chassis/b3_equipment_shelf_service_fit_four_way.step`
 - Optional legacy support: `b3/exports/step/lower_chassis/b3_shelf_spacer_block_55mm.step`
+
+Fit test coupons:
+
+- Push-button threaded body fit test, 20 mm x 20 mm x 10 mm with 12.1 mm through-hole: `b3/exports/step/test_coupons/b3_push_button_hole_test_coupon_12p1mm.step`
+- Push-button recessed top-plate fit test, 40 mm x 40 mm x 10 mm with centered 20 mm x 20 mm area thinned to 5 mm and a 12.1 mm through-hole: `b3/exports/step/test_coupons/b3_push_button_recess_test_coupon_12p1mm.step`
 
 ## Inspection Or Reference Only
 
@@ -83,6 +90,7 @@ Bottom tray group:
 - `b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_tray.step`
+- `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_cable_shelf.step`
 
 Shelf and side-ledge group:
 

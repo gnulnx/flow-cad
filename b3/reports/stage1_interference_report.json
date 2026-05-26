@@ -1,6 +1,6 @@
 {
   "pair_count": 45,
-  "candidate_pair_count": 22,
+  "candidate_pair_count": 20,
   "collision_count": 0,
   "min_volume_mm3": 0.05,
   "bbox_tolerance_mm": 0.001,
@@ -126,38 +126,38 @@
         "max": [
           90.0,
           102.0,
-          71.0
+          83.0
         ],
         "size": [
           180.0,
           204.0,
-          71.0
+          83.0
         ]
       }
     },
     {
-      "name": "lower_equipment_shelf",
-      "part_key": "equipment_shelf_service_fit",
+      "name": "bottom_cable_shelf",
+      "part_key": "bottom_cable_shelf",
       "location": [
         0.0,
         0.0,
-        74.0
+        83.0
       ],
       "bbox": {
         "min": [
-          -85.0,
+          -68.0,
           -94.0,
-          73.99999999999999
+          83.0
         ],
         "max": [
-          85.0,
+          68.0,
           94.0,
-          80.0
+          87.0
         ],
         "size": [
-          170.0,
+          136.0,
           188.0,
-          6.000000000000014
+          4.0
         ]
       }
     },

@@ -12,6 +12,7 @@ from flow_cad.parts.chassis import (
     make_simple_mounting_plate,
     make_top_lid,
 )
+from flow_cad.parts.coupons import make_push_button_hole_test_coupon, make_push_button_recess_test_coupon
 from flow_cad.parts.inserts import make_axle_insert
 from flow_cad.parts.panels import (
     make_end_panel,
@@ -28,7 +29,7 @@ from flow_cad.parts.reference import (
     make_reference_wheel_axle_pair,
     make_reference_wheel_pair,
 )
-from flow_cad.parts.shelves import make_equipment_shelf, make_shelf_spacer_block
+from flow_cad.parts.shelves import make_bottom_cable_shelf, make_equipment_shelf, make_shelf_spacer_block
 
 
 class PartRole(StrEnum):
@@ -82,6 +83,7 @@ PART_DEFINITIONS: tuple[PartDefinition, ...] = (
     PartDefinition("bottom_tray", "lower_chassis", "b3_lower_chassis_bottom_tray.step", make_bottom_tray),
     PartDefinition("top_lid", "lower_chassis", "b3_lower_chassis_top_lid.step", make_top_lid),
     PartDefinition("simple_mounting_plate", "lower_chassis", "b3_lower_chassis_simple_mounting_plate.step", make_simple_mounting_plate),
+    PartDefinition("bottom_cable_shelf", "lower_chassis", "b3_lower_chassis_bottom_cable_shelf.step", make_bottom_cable_shelf),
     PartDefinition("equipment_shelf", "lower_chassis", "b3_equipment_shelf.step", make_equipment_shelf),
     PartDefinition("equipment_shelf_side_cable", "lower_chassis", "b3_equipment_shelf_side_cable.step", lambda p: make_equipment_shelf(p, side_cable_notches=True)),
     PartDefinition(
@@ -129,9 +131,12 @@ PART_DEFINITIONS: tuple[PartDefinition, ...] = (
             end_cable_notch_length=p.shelf_side_cable_notch_length,
             width=p.service_shelf_width,
             depth=p.service_shelf_depth,
+            center_wiring_channels=False,
         ),
     ),
     PartDefinition("shelf_spacer_block_55mm", "lower_chassis", "b3_shelf_spacer_block_55mm.step", make_shelf_spacer_block),
+    PartDefinition("push_button_hole_test_coupon_12p1mm", "test_coupons", "b3_push_button_hole_test_coupon_12p1mm.step", make_push_button_hole_test_coupon),
+    PartDefinition("push_button_recess_test_coupon_12p1mm", "test_coupons", "b3_push_button_recess_test_coupon_12p1mm.step", make_push_button_recess_test_coupon),
     *(
         PartDefinition(f"axle_insert_{variant}", "inserts", f"b3_axle_insert_{variant}.step", _insert_factory(diameter, flat_to_flat))
         for variant, (diameter, flat_to_flat) in INSERT_VARIANTS.items()

@@ -235,9 +235,26 @@ class ChassisParams:
     integrated_bridge_span_width: float = 180.0
     integrated_bridge_side_post_width: float = 0.0
     integrated_bridge_cable_slot_width: float = 24.0
+    integrated_center_spine_usb_access_width: float = 20.0
+    integrated_center_spine_usb_access_depth: float = 50.0
+    integrated_center_spine_usb_access_height: float = 12.0
+    integrated_center_spine_usb_access_edge_overlap: float = 12.0
+    bottom_cable_pad_size: float = 24.0
+    bottom_cable_pad_height: float = 12.0
+    bottom_cable_pad_x: float = 54.0
+    bottom_cable_shelf_width: float = 136.0
+    bottom_cable_shelf_depth: float = 188.0
+    bottom_cable_shelf_thickness: float = 4.0
 
     # Simple mounting plate
     simple_mounting_plate_width: float = 36.0
     simple_mounting_plate_length: float = 135.0
     simple_mounting_plate_thickness: float = 10.0
     simple_mounting_plate_hole_offset: float = 10.0
+    push_button_test_coupon_size: float = 20.0
+    push_button_test_coupon_thickness: float = 10.0
+    push_button_test_hole_diameter: float = 12.1
+    push_button_recess_test_coupon_size: float = 40.0
+    push_button_recess_test_pocket_size: float = 20.0
+    push_button_recess_test_coupon_thickness: float = 10.0
+    push_button_recess_test_mounting_thickness: float = 5.0

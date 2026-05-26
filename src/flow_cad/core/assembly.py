@@ -2,6 +2,7 @@ from __future__ import annotations
 from build123d import Location, Compound, export_step, export_stl
 from pathlib import Path
 from ..params import ChassisParams
+from .utils import bottom_cable_shelf_z
 from ..step_io import normalize_step_file
 
 class Exporter:
@@ -80,7 +81,7 @@ def get_assembly_occurrences(params: ChassisParams, parts: dict[str, object], in
         ("front_panel", "front_panel", (0.0, -params.box_depth / 2.0, 0.0)),
         ("rear_panel", "rear_panel", (0.0, params.box_depth / 2.0, 0.0)),
         ("bottom_tray", "bottom_tray", (0.0, 0.0, 0.0)),
-        ("lower_equipment_shelf", "equipment_shelf_service_fit", (0.0, 0.0, params.shelf_z_levels[0])),
+        ("bottom_cable_shelf", "bottom_cable_shelf", (0.0, 0.0, bottom_cable_shelf_z(params))),
         ("upper_equipment_shelf", "equipment_shelf_service_fit", (0.0, 0.0, params.shelf_z_levels[1])),
         ("third_equipment_shelf", "equipment_shelf_service_fit", (0.0, 0.0, THIRD_SHELF_Z)),
         (

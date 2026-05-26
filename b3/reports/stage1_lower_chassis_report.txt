@@ -16,6 +16,7 @@ Exported STEP files:
 - b3/exports/step/lower_chassis/b3_equipment_shelf_side_cable.step
 - b3/exports/step/lower_chassis/b3_equipment_shelf_side_cable_shallow.step
 - b3/exports/step/lower_chassis/b3_lower_chassis_assembly.step
+- b3/exports/step/lower_chassis/b3_lower_chassis_bottom_cable_shelf.step
 - b3/exports/step/lower_chassis/b3_lower_chassis_bottom_tray.step
 - b3/exports/step/lower_chassis/b3_lower_chassis_front_panel.step
 - b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step
@@ -30,6 +31,8 @@ Exported STEP files:
 - b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step
 - b3/exports/step/lower_chassis/b3_lower_chassis_simple_mounting_plate.step
 - b3/exports/step/lower_chassis/b3_lower_chassis_top_lid.step
+- b3/exports/step/test_coupons/b3_push_button_hole_test_coupon_12p1mm.step
+- b3/exports/step/test_coupons/b3_push_button_recess_test_coupon_12p1mm.step
 - b3/exports/step/reference/b3_reference_axle_pair.step
 - b3/exports/step/reference/b3_reference_wheel_axle_pair.step
 - b3/exports/step/reference/b3_reference_wheel_pair.step

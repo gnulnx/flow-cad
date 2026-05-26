@@ -83,6 +83,35 @@ OK: over-battery bridge underside clears pack height
   - battery_height_clearance_mm: 3.0
 OK: over-battery bridge top clears lower equipment shelf
   - bridge_to_shelf_clearance_mm: 3.0
+OK: bottom cable stand-off pads are 12 mm high
+  - pad_height_mm: 12.0
+  - shelf_bottom_z_mm: 83.0
+OK: bottom cable stand-off pads sit on bridge pads clear of side towers
+  - pad_centers_mm: [[-54.0, -83.5], [54.0, -83.5], [-54.0, 83.5], [54.0, 83.5]]
+  - minimum_side_tower_x_margin_mm: 6.0
+  - bridge_depth_margin_mm: 6.5
+OK: bottom cable pad M4 pilots have edge margin
+  - hole_edge_margin_mm: 9.5
+OK: bottom cable shelf uses round M4 clearance holes with edge margin
+  - m4_clearance_diameter_mm: 4.5
+  - hole_edge_margin_x_mm: 11.75
+  - hole_edge_margin_y_mm: 8.25
+OK: bottom cable shelf clears the upper equipment shelf envelope
+  - upper_shelf_clearance_mm: 35.0
+OK: center spine USB access width fits inside the spine channel
+  - cut_width_mm: 20.0
+  - spine_inner_width_mm: 28.0
+OK: center spine USB access slot crosses the ESP32/IMU riser top zone
+  - slot_z_min_mm: 44.0
+  - slot_z_max_mm: 56.0
+OK: center spine USB access slot stays below the over-battery bridge
+  - slot_z_max_mm: 56.0
+  - bridge_underside_z_mm: 63.0
+OK: center spine USB access slots open through both tray ends
+  - slot_centers_y_mm: [-89.0, 89.0]
+  - inward_reach_mm: 38.0
+OK: center spine USB access slot stays clear of bottom cable shelf pads
+  - pad_clearance_x_mm: 32.0
 OK: axle tab-washer relief is lateral to the axle profile with tab clearance
   - relief_width_y_mm: 12.0
   - relief_height_z_mm: 12.0
