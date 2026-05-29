@@ -13,6 +13,7 @@ from flow_cad.registry import PartDefinition, iter_part_definitions
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+REGISTRY_SOURCE_FILE = Path(inspect.getsourcefile(iter_part_definitions) or "").resolve()
 
 
 class ViewerError(RuntimeError):
@@ -48,6 +49,33 @@ def _relative_path(path: Path, project_root: Path) -> str:
 
 def _as_float_tuple(values: tuple[float, float, float]) -> list[float]:
     return [float(values[0]), float(values[1]), float(values[2])]
+
+
+def _source_file_for_callable(func: Callable[..., Any]) -> Path | None:
+    source_file = inspect.getsourcefile(func)
+    if source_file is None:
+        return None
+    return Path(source_file).resolve()
+
+
+def _resolve_source_callable(factory: Callable[..., Any]) -> Callable[..., Any]:
+    source_file = _source_file_for_callable(factory)
+    if getattr(factory, "__name__", "") != "<lambda>" and source_file != REGISTRY_SOURCE_FILE:
+        return factory
+
+    code = getattr(factory, "__code__", None)
+    globals_ = getattr(factory, "__globals__", {})
+    if code is None:
+        return factory
+
+    for name in code.co_names:
+        candidate = globals_.get(name)
+        if callable(candidate):
+            candidate_source_file = _source_file_for_callable(candidate)
+            if candidate_source_file is not None and candidate_source_file != REGISTRY_SOURCE_FILE:
+                return candidate
+
+    return factory
 
 
 def convert_step_to_stl(step_path: Path, stl_path: Path) -> Path:
@@ -132,29 +160,35 @@ class ViewerService:
 
     def source_context(self, component_id: str, *, context_lines: int = 16) -> dict[str, Any]:
         definition = self._definition(component_id)
-        factory = definition.factory
+        source_callable = _resolve_source_callable(definition.factory)
         try:
-            source_file = Path(inspect.getsourcefile(factory) or "").resolve()
-            lines, first_line = inspect.getsourcelines(factory)
+            source_file = Path(inspect.getsourcefile(source_callable) or "").resolve()
+            lines, first_line = inspect.getsourcelines(source_callable)
         except (OSError, TypeError) as exc:
             raise ArtifactNotFoundError(f"Source context not available for component: {component_id}") from exc
 
-        start_line = max(first_line - context_lines, 1)
-        end_line = first_line + len(lines) + context_lines - 1
-        all_lines = source_file.read_text().splitlines()
+        _ = context_lines
+        content = source_file.read_text()
+        all_lines = content.splitlines()
+        highlight_end_line = first_line + len(lines) - 1
         excerpt = "\n".join(
             f"{line_no:4d}: {line}"
-            for line_no, line in enumerate(all_lines[start_line - 1 : end_line], start=start_line)
+            for line_no, line in enumerate(all_lines, start=1)
         )
-        symbol = getattr(factory, "__name__", component_id)
+        symbol = getattr(source_callable, "__name__", component_id)
+        language = "python" if source_file.suffix == ".py" else source_file.suffix.removeprefix(".")
 
         return {
             "component_id": component_id,
             "symbol": symbol,
             "file_path": str(source_file),
             "relative_file_path": _relative_path(source_file, self.project_root),
-            "start_line": start_line,
-            "end_line": min(end_line, len(all_lines)),
+            "start_line": 1,
+            "end_line": len(all_lines),
+            "highlight_start_line": first_line,
+            "highlight_end_line": highlight_end_line,
+            "language": language,
+            "content": content,
             "excerpt": excerpt,
         }
 
@@ -234,8 +268,30 @@ class ViewerService:
         }
 
     def _viewer_only_placements(self) -> dict[str, list[dict[str, Any]]]:
-        wheel_box_outer_x = wheel_box_outer_size(self.params)[0]
+        wheel_box_outer_x, _wheel_box_outer_y, wheel_box_outer_z = wheel_box_outer_size(self.params)
+        wheel_box_lid_t = self.params.wheel_box_lid_thickness
         return {
+            "wheel_box_test_body": [
+                {
+                    "name": "wheel_box_test_body",
+                    "location": [0.0, 0.0, 0.0],
+                    "rotation": [0.0, 0.0, 0.0],
+                }
+            ],
+            "wheel_box_test_top_lid": [
+                {
+                    "name": "wheel_box_test_top_lid",
+                    "location": [0.0, 0.0, wheel_box_outer_z + wheel_box_lid_t],
+                    "rotation": [180.0, 0.0, 0.0],
+                }
+            ],
+            "wheel_box_test_bottom_lid": [
+                {
+                    "name": "wheel_box_test_bottom_lid",
+                    "location": [0.0, 0.0, -wheel_box_lid_t],
+                    "rotation": [0.0, 0.0, 0.0],
+                }
+            ],
             "wheel_box_tight_insert": [
                 {
                     "name": "wheel_box_tight_insert",

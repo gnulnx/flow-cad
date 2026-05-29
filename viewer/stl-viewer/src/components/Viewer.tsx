@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
-import { OrbitControls, Grid } from '@react-three/drei'
-import type { ModelData, ViewerOccurrence } from '../types'
+import { Canvas } from '@react-three/fiber'
+import { Grid } from '@react-three/drei'
+import ViewportControls from './ViewportControls'
+import type { ModelData, RotationMode, ViewerOccurrence } from '../types'
 import * as THREE from 'three'
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 
 interface ViewerProps {
   models: ModelData[]
   activeName: string | null
   onActiveNameChange: (name: string | null) => void
+  onModelActivate: (name: string, additive: boolean) => void
   fitRequest: number
+  frameSelectedRequest: number
+  rotationMode: RotationMode
 }
 
 function occurrenceRotation(occurrence: ViewerOccurrence): [number, number, number] {
@@ -20,14 +23,15 @@ function occurrenceRotation(occurrence: ViewerOccurrence): [number, number, numb
   ]
 }
 
-function occurrenceMatrix(occurrence: ViewerOccurrence) {
-  const position = new THREE.Vector3(...occurrence.location)
-  const rotation = occurrenceRotation(occurrence)
-  const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2]))
-  return new THREE.Matrix4().compose(position, quaternion, new THREE.Vector3(1, 1, 1))
-}
-
-function ModelComponent({ model, isActive, onClick }: { model: ModelData; isActive: boolean; onClick: (name: string) => void }) {
+function ModelComponent({
+  model,
+  isActive,
+  onClick,
+}: {
+  model: ModelData
+  isActive: boolean
+  onClick: (name: string, additive: boolean) => void
+}) {
   const edgeGeometry = useMemo(() => new THREE.EdgesGeometry(model.geometry, 20), [model.geometry])
 
   useEffect(() => {
@@ -41,8 +45,9 @@ function ModelComponent({ model, isActive, onClick }: { model: ModelData; isActi
           <mesh
             geometry={model.geometry}
             onClick={(event) => {
+              if (event.delta > 4) return
               event.stopPropagation()
-              onClick(model.partId)
+              onClick(model.partId, event.nativeEvent.ctrlKey || event.nativeEvent.metaKey)
             }}
           >
             <meshStandardMaterial
@@ -62,49 +67,7 @@ function ModelComponent({ model, isActive, onClick }: { model: ModelData; isActi
   )
 }
 
-function SceneContent({ models, activeName, onActiveNameChange, fitRequest }: ViewerProps) {
-  const { camera } = useThree()
-  const controlsRef = useRef<OrbitControlsImpl>(null)
-
-  useEffect(() => {
-    const perspectiveCamera = camera as THREE.PerspectiveCamera
-
-    if (models.length === 0) {
-      perspectiveCamera.position.set(140, 110, 140)
-      perspectiveCamera.near = 0.1
-      perspectiveCamera.far = 2000
-      perspectiveCamera.lookAt(0, 0, 0)
-      controlsRef.current?.target.set(0, 0, 0)
-      controlsRef.current?.update()
-      perspectiveCamera.updateProjectionMatrix()
-      return
-    }
-
-    const box = new THREE.Box3()
-    models.forEach((model) => {
-      model.geometry.computeBoundingBox()
-      if (model.geometry.boundingBox) {
-        model.occurrences.forEach((occurrence) => {
-          box.union(model.geometry.boundingBox!.clone().applyMatrix4(occurrenceMatrix(occurrence)))
-        })
-      }
-    })
-
-    const center = box.getCenter(new THREE.Vector3())
-    const size = box.getSize(new THREE.Vector3())
-    const maxDim = Math.max(size.x, size.y, size.z, 1)
-    const distance = (maxDim / (2 * Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov / 2)))) * 1.85
-    const viewDirection = new THREE.Vector3(1, 0.9, 1).normalize()
-
-    perspectiveCamera.position.copy(center).addScaledVector(viewDirection, distance)
-    perspectiveCamera.near = Math.max(distance / 1000, 0.01)
-    perspectiveCamera.far = distance * 1000
-    perspectiveCamera.lookAt(center)
-    camera.updateProjectionMatrix()
-    controlsRef.current?.target.copy(center)
-    controlsRef.current?.update()
-  }, [camera, fitRequest])
-
+function SceneContent({ models, activeName, onModelActivate, fitRequest, frameSelectedRequest, rotationMode }: ViewerProps) {
   return (
     <>
       <ambientLight intensity={0.55} />
@@ -121,17 +84,49 @@ function SceneContent({ models, activeName, onActiveNameChange, fitRequest }: Vi
       />
       <axesHelper args={[70]} />
       {models.map((model) => (
-        <ModelComponent key={model.partId} model={model} isActive={model.partId === activeName} onClick={onActiveNameChange} />
+        <ModelComponent key={model.partId} model={model} isActive={model.partId === activeName} onClick={onModelActivate} />
       ))}
-      <OrbitControls ref={controlsRef} enableDamping dampingFactor={0.08} makeDefault />
+      <ViewportControls
+        models={models}
+        activeName={activeName}
+        fitRequest={fitRequest}
+        frameSelectedRequest={frameSelectedRequest}
+        rotationMode={rotationMode}
+      />
     </>
   )
 }
 
 export default function Viewer(props: ViewerProps) {
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
+  const maxPointerDeltaRef = useRef(0)
+
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 0 }}>
-      <Canvas camera={{ position: [140, 110, 140], fov: 45 }} shadows style={{ width: '100%', height: '100%' }}>
+      <Canvas
+        camera={{ position: [140, 110, 140], fov: 45 }}
+        shadows
+        style={{ width: '100%', height: '100%' }}
+        onPointerDown={(event) => {
+          pointerDownRef.current = { x: event.clientX, y: event.clientY }
+          maxPointerDeltaRef.current = 0
+        }}
+        onPointerMove={(event) => {
+          if (!pointerDownRef.current) return
+          maxPointerDeltaRef.current = Math.max(
+            maxPointerDeltaRef.current,
+            Math.hypot(event.clientX - pointerDownRef.current.x, event.clientY - pointerDownRef.current.y),
+          )
+        }}
+        onPointerUp={() => {
+          pointerDownRef.current = null
+        }}
+        onPointerMissed={(event) => {
+          if (event.type === 'click' && maxPointerDeltaRef.current <= 4) {
+            props.onActiveNameChange(null)
+          }
+        }}
+      >
         <SceneContent {...props} />
       </Canvas>
       {props.models.length === 0 ? (

@@ -1,5 +1,7 @@
 import type { BufferGeometry, Vector3 } from 'three'
 
+export type RotationMode = 'turntable' | 'arcball' | 'free_orbit'
+
 export interface ViewerOccurrence {
   name: string
   location: [number, number, number]
@@ -30,6 +32,10 @@ export interface SourceContext {
   relative_file_path: string
   start_line: number
   end_line: number
+  highlight_start_line?: number
+  highlight_end_line?: number
+  language?: string
+  content?: string
   excerpt: string
 }
 

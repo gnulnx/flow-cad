@@ -57,6 +57,37 @@ def test_viewer_service_places_wheel_box_tight_insert_in_body_frame(tmp_path) ->
     ]
 
 
+def test_viewer_service_places_wheel_box_lids_in_body_frame(tmp_path) -> None:
+    _write_step(tmp_path, "wheel_box", "b3_wheel_box_test_body.step")
+    _write_step(tmp_path, "wheel_box", "b3_wheel_box_test_top_lid.step")
+    _write_step(tmp_path, "wheel_box", "b3_wheel_box_test_bottom_lid.step")
+
+    service = ViewerService(tmp_path)
+    parts = {part["id"]: part for part in service.list_parts()["parts"]}
+
+    assert parts["wheel_box_test_body"]["occurrences"] == [
+        {
+            "name": "wheel_box_test_body",
+            "location": [0.0, 0.0, 0.0],
+            "rotation": [0.0, 0.0, 0.0],
+        }
+    ]
+    assert parts["wheel_box_test_top_lid"]["occurrences"] == [
+        {
+            "name": "wheel_box_test_top_lid",
+            "location": [0.0, 0.0, 102.6],
+            "rotation": [180.0, 0.0, 0.0],
+        }
+    ]
+    assert parts["wheel_box_test_bottom_lid"]["occurrences"] == [
+        {
+            "name": "wheel_box_test_bottom_lid",
+            "location": [0.0, 0.0, -3.0],
+            "rotation": [0.0, 0.0, 0.0],
+        }
+    ]
+
+
 def test_viewer_service_serves_direct_stl_when_no_step_exists(tmp_path) -> None:
     stl_path = _write_stl(tmp_path)
 
@@ -89,8 +120,29 @@ def test_viewer_service_returns_source_context() -> None:
     context = ViewerService().source_context("left_side_plate")
 
     assert context["component_id"] == "left_side_plate"
-    assert context["relative_file_path"].endswith("registry.py")
-    assert "left_side_plate" in context["excerpt"]
+    assert context["symbol"] == "make_side_plate"
+    assert context["relative_file_path"] == "src/flow_cad/parts/chassis.py"
+    assert context["start_line"] == 1
+    assert context["end_line"] == len(context["content"].splitlines())
+    assert "def make_side_plate" in context["content"]
+    assert "def make_side_plate" in context["excerpt"]
+    assert context["highlight_start_line"] > context["start_line"]
+    assert context["highlight_end_line"] >= context["highlight_start_line"]
+
+
+def test_viewer_service_returns_full_wheel_box_source_context() -> None:
+    context = ViewerService().source_context("wheel_box_test_body")
+
+    assert context["component_id"] == "wheel_box_test_body"
+    assert context["symbol"] == "make_wheel_box_test_body"
+    assert context["relative_file_path"] == "src/flow_cad/parts/wheel_box/prototype.py"
+    assert context["language"] == "python"
+    assert context["start_line"] == 1
+    assert context["end_line"] == len(context["content"].splitlines())
+    assert "def make_wheel_box_test_body" in context["content"]
+    assert "def make_wheel_box_test_top_lid" in context["content"]
+    assert context["highlight_start_line"] > context["start_line"]
+    assert context["highlight_end_line"] >= context["highlight_start_line"]
 
 
 def test_viewer_app_registers_v1_routes(tmp_path) -> None:

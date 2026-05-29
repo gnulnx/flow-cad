@@ -6,7 +6,7 @@ import FileDropZone from './components/FileDropZone'
 import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import SourcePanel from './components/SourcePanel'
-import type { ModelData, SourceContext, ViewerOccurrence, ViewerPart } from './types'
+import type { ModelData, RotationMode, SourceContext, ViewerOccurrence, ViewerPart } from './types'
 
 const IDENTITY_OCCURRENCE: ViewerOccurrence = {
   name: 'identity',
@@ -43,8 +43,10 @@ export default function App() {
   const backendRevisionRef = useRef<number | null>(null)
   const [sourceCollapsed, setSourceCollapsed] = useState(false)
   const [partsCollapsed, setPartsCollapsed] = useState(false)
+  const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [isDragOver, setIsDragOver] = useState(false)
   const [fitRequest, setFitRequest] = useState(0)
+  const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
 
   const loadStlBuffer = useCallback((name: string, partId: string, occurrences: ViewerOccurrence[], content: ArrayBuffer) => {
     const geometry = new STLLoader().parse(content)
@@ -281,6 +283,10 @@ export default function App() {
     setFitRequest((value) => value + 1)
   }, [])
 
+  const handleFrameSelected = useCallback(() => {
+    setFrameSelectedRequest((value) => value + 1)
+  }, [])
+
   const handlePartActivate = useCallback((partId: string, additive: boolean) => {
     setSelectedIds((prev) => {
       if (!additive) return [partId]
@@ -293,6 +299,15 @@ export default function App() {
     setActiveName(partId)
   }, [])
 
+  const handleViewerModelActivate = useCallback((partId: string, additive: boolean) => {
+    if (additive) {
+      handlePartActivate(partId, true)
+      return
+    }
+
+    setActiveName(partId)
+  }, [handlePartActivate])
+
   const visibleModels = useMemo(
     () => models.filter((model) => selectedIds.includes(model.partId)),
     [models, selectedIds],
@@ -302,6 +317,7 @@ export default function App() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       <Toolbar
         onFitToView={handleFitToView}
+        onFrameSelected={handleFrameSelected}
         onReload={() => {
           reloadViewer().catch((err) => {
             console.error('Reload failed:', err)
@@ -309,6 +325,8 @@ export default function App() {
           })
         }}
         statusMessage={statusMessage}
+        rotationMode={rotationMode}
+        onRotationModeChange={setRotationMode}
       />
       <SourcePanel
         context={sourceContext}
@@ -335,7 +353,10 @@ export default function App() {
           models={visibleModels}
           activeName={activeName}
           onActiveNameChange={setActiveName}
+          onModelActivate={handleViewerModelActivate}
           fitRequest={fitRequest}
+          frameSelectedRequest={frameSelectedRequest}
+          rotationMode={rotationMode}
         />
       </FileDropZone>
     </div>
