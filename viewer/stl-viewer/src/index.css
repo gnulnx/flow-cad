@@ -251,6 +251,85 @@ body {
   font-size: 12px;
 }
 
+.measurement-html {
+  pointer-events: auto;
+}
+
+.measurement-label {
+  position: relative;
+  min-width: 128px;
+  padding: 7px 9px;
+  background: rgba(12, 18, 28, 0.92);
+  border: 1px solid rgba(219, 227, 238, 0.35);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: left;
+  user-select: none;
+}
+
+.measurement-label-active {
+  border-color: rgba(78, 204, 163, 0.85);
+}
+
+.measurement-kind {
+  padding-right: 14px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.measurement-distance {
+  margin-top: 2px;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.measurement-deltas {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1px;
+  margin-top: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.delta-x {
+  color: #f87171;
+}
+
+.delta-y {
+  color: #4ade80;
+}
+
+.delta-z {
+  color: #60a5fa;
+}
+
+.measurement-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 14px;
+  height: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.measurement-delete:hover {
+  color: #ffffff;
+}
+
 @media (max-width: 520px) {
   .viewer-toolbar {
     align-items: flex-start !important;
@@ -259,6 +338,18 @@ body {
   .viewer-toolbar-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .viewer-toolbar-actions button {
+    flex: 1 1 82px;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    white-space: normal;
+  }
+
+  .viewer-toolbar-menu {
+    width: 100%;
+    flex-wrap: wrap;
   }
 
   .source-panel {

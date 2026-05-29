@@ -7,6 +7,9 @@ interface ToolbarProps {
   statusMessage: string
   rotationMode: RotationMode
   onRotationModeChange: (mode: RotationMode) => void
+  tapeMode: boolean
+  onTapeModeChange: (enabled: boolean) => void
+  onClearMeasurements: () => void
 }
 
 const ROTATION_MODE_LABELS: Record<RotationMode, string> = {
@@ -22,7 +25,27 @@ export default function Toolbar({
   statusMessage,
   rotationMode,
   onRotationModeChange,
+  tapeMode,
+  onTapeModeChange,
+  onClearMeasurements,
 }: ToolbarProps) {
+  const buttonStyle = {
+    background: '#0f3460',
+    color: '#e0e0e0',
+    border: '1px solid #1a5276',
+    padding: '6px 14px',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    minWidth: 0,
+  }
+  const activeButtonStyle = {
+    ...buttonStyle,
+    background: '#17466d',
+    borderColor: '#4ecca3',
+    color: '#ffffff',
+  }
+
   return (
     <div className="viewer-toolbar" style={{
       padding: '10px 16px',
@@ -50,43 +73,20 @@ export default function Toolbar({
           </select>
         </label>
       </div>
-      <div className="viewer-toolbar-actions" style={{ display: 'flex', gap: '8px', flex: '0 0 auto' }}>
-        <button onClick={onReload} style={{
-          background: '#0f3460',
-          color: '#e0e0e0',
-          border: '1px solid #1a5276',
-          padding: '6px 14px',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '12px',
-        }}>Reload</button>
-        <button onClick={onFitToView} style={{
-          background: '#0f3460',
-          color: '#e0e0e0',
-          border: '1px solid #1a5276',
-          padding: '6px 14px',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '12px',
-        }}>Fit to View</button>
-        <button onClick={onFrameSelected} style={{
-          background: '#0f3460',
-          color: '#e0e0e0',
-          border: '1px solid #1a5276',
-          padding: '6px 14px',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '12px',
-        }}>Frame Selected</button>
-        <button style={{
-          background: '#0f3460',
-          color: '#e0e0e0',
-          border: '1px solid #1a5276',
-          padding: '6px 14px',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '12px',
-        }} onClick={() => {
+      <div className="viewer-toolbar-actions" style={{ display: 'flex', gap: '8px', flex: '1 1 100%', flexWrap: 'wrap', minWidth: 0 }}>
+        <button onClick={onReload} style={buttonStyle}>Reload</button>
+        <button onClick={onFitToView} style={buttonStyle}>Fit to View</button>
+        <button onClick={onFrameSelected} style={buttonStyle}>Frame Selected</button>
+        <button
+          aria-pressed={tapeMode}
+          title="Tape Tool"
+          onClick={() => onTapeModeChange(!tapeMode)}
+          style={tapeMode ? activeButtonStyle : buttonStyle}
+        >
+          Tape
+        </button>
+        <button onClick={onClearMeasurements} style={buttonStyle}>Clear Measurements</button>
+        <button style={buttonStyle} onClick={() => {
           const input = document.getElementById('file-input') as HTMLInputElement
           input.click()
         }}>Open File</button>

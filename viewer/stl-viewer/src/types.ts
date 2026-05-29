@@ -1,6 +1,7 @@
 import type { BufferGeometry, Vector3 } from 'three'
 
 export type RotationMode = 'turntable' | 'arcball' | 'free_orbit'
+export type SnapFeatureKind = 'vertex' | 'line_edge' | 'edge_midpoint' | 'circle_center' | 'face_point' | 'free_point'
 
 export interface ViewerOccurrence {
   name: string
@@ -20,9 +21,32 @@ export interface ViewerPart {
   direct_stl_path: string | null
   model_url: string
   source_url: string
+  snap_features_url?: string
   occurrences: ViewerOccurrence[]
   in_assembly: boolean
   default_visible: boolean
+}
+
+export interface SnapFeature {
+  id: string
+  kind: SnapFeatureKind
+  label: string
+  point?: [number, number, number]
+  start?: [number, number, number]
+  end?: [number, number, number]
+  edge_start?: [number, number, number]
+  edge_end?: [number, number, number]
+  ring_points?: [number, number, number][]
+  length?: number
+  radius?: number
+}
+
+export interface SnapFeaturePayload {
+  component_id: string
+  artifact_path: string | null
+  source_format: 'step' | 'stl' | null
+  features: SnapFeature[]
+  warnings: string[]
 }
 
 export interface SourceContext {
@@ -45,6 +69,7 @@ export interface ModelData {
   geometry: BufferGeometry
   color: string
   wireframeColor: string
+  snapFeatures: SnapFeature[]
   occurrences: ViewerOccurrence[]
   bounds: {
     min: Vector3

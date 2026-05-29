@@ -37,6 +37,7 @@ const partsPayload = {
       direct_stl_path: null,
       model_url: '/api/parts/wheel_box_test_body/model',
       source_url: '/api/parts/wheel_box_test_body/source',
+      snap_features_url: '/api/parts/wheel_box_test_body/snap-features',
       occurrences: [
         {
           name: 'wheel_box_test_body',
@@ -83,6 +84,9 @@ describe('App source loading', () => {
       const url = input.toString()
       if (url.endsWith('/api/parts')) return jsonResponse(partsPayload)
       if (url.endsWith('/api/parts/wheel_box_test_body/source')) return jsonResponse(sourcePayload)
+      if (url.endsWith('/api/parts/wheel_box_test_body/snap-features')) {
+        return jsonResponse({ component_id: 'wheel_box_test_body', artifact_path: null, source_format: 'step', features: [], warnings: [] })
+      }
       if (url.endsWith('/api/parts/wheel_box_test_body/model')) {
         return Promise.resolve(new Response(new ArrayBuffer(8), { status: 200 }))
       }

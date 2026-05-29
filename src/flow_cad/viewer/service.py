@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,6 +36,10 @@ class Artifact:
 
 
 Converter = Callable[[Path, Path], Path]
+
+
+def _vector_to_float_tuple(vector: Any) -> tuple[float, float, float]:
+    return (float(vector.X), float(vector.Y), float(vector.Z))
 
 
 def _relative_path(path: Path, project_root: Path) -> str:
@@ -101,6 +106,127 @@ def convert_step_to_stl(step_path: Path, stl_path: Path) -> Path:
     return stl_path
 
 
+def extract_step_snap_features(step_path: Path) -> dict[str, Any]:
+    """Extract lightweight snap targets from STEP topology for the browser viewer."""
+    try:
+        from build123d import import_step
+    except Exception as exc:  # pragma: no cover - depends on local CAD install
+        raise ConversionUnavailableError(
+            "STEP snap extraction requires build123d/OCP. Install project dependencies or configure the CAD environment."
+        ) from exc
+
+    try:
+        shape = import_step(step_path)
+    except Exception:
+        return {
+            "source_format": "step",
+            "features": [],
+            "warnings": [f"Could not extract snap features from STEP file: {step_path.name}"],
+        }
+
+    features: list[dict[str, Any]] = []
+
+    try:
+        vertices = shape.vertices()
+        edges = shape.edges()
+    except Exception:
+        return {
+            "source_format": "step",
+            "features": [],
+            "warnings": [f"Could not read topology from STEP file: {step_path.name}"],
+        }
+
+    for vertex in vertices:
+        try:
+            point = _vector_to_float_tuple(vertex.center())
+        except Exception:
+            continue
+        features.append(
+            {
+                "kind": "vertex",
+                "label": "Endpoint",
+                "point": _as_float_tuple(point),
+            }
+        )
+
+    for edge in edges:
+        try:
+            geom_type = getattr(getattr(edge, "geom_type", None), "name", str(getattr(edge, "geom_type", ""))).lower()
+            length = float(edge.length)
+        except Exception:
+            continue
+
+        if geom_type == "line":
+            try:
+                start = _vector_to_float_tuple(edge.position_at(0))
+                end = _vector_to_float_tuple(edge.position_at(1))
+                midpoint = _vector_to_float_tuple(edge.position_at(0.5))
+            except Exception:
+                continue
+            features.append(
+                {
+                    "kind": "line_edge",
+                    "label": "Edge",
+                    "start": _as_float_tuple(start),
+                    "end": _as_float_tuple(end),
+                    "point": _as_float_tuple(midpoint),
+                    "length": length,
+                }
+            )
+            features.append(
+                {
+                    "kind": "edge_midpoint",
+                    "label": "Edge Midpoint",
+                    "point": _as_float_tuple(midpoint),
+                    "edge_start": _as_float_tuple(start),
+                    "edge_end": _as_float_tuple(end),
+                }
+            )
+        elif geom_type == "circle":
+            try:
+                center = _vector_to_float_tuple(edge.arc_center)
+                radius = float(edge.radius)
+                ring_points = [
+                    _as_float_tuple(_vector_to_float_tuple(edge.position_at(position)))
+                    for position in (0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875)
+                ]
+            except Exception:
+                continue
+            features.append(
+                {
+                    "kind": "circle_center",
+                    "label": "Hole Center",
+                    "point": _as_float_tuple(center),
+                    "ring_points": ring_points,
+                    "radius": radius,
+                    "length": length,
+                }
+            )
+
+    sorted_features = sorted(features, key=_snap_feature_sort_key)
+    for index, feature in enumerate(sorted_features):
+        feature["id"] = _snap_feature_id(index, feature)
+
+    return {
+        "schema_version": 2,
+        "source_format": "step",
+        "features": sorted_features,
+        "warnings": [] if sorted_features else [f"No snap features found in STEP file: {step_path.name}"],
+    }
+
+
+def _snap_feature_sort_key(feature: dict[str, Any]) -> tuple[Any, ...]:
+    point = tuple(round(float(value), 5) for value in feature.get("point", [0.0, 0.0, 0.0]))
+    start = tuple(round(float(value), 5) for value in feature.get("start", feature.get("edge_start", point)))
+    end = tuple(round(float(value), 5) for value in feature.get("end", feature.get("edge_end", point)))
+    return (feature["kind"], point, start, end, round(float(feature.get("radius", 0.0)), 5))
+
+
+def _snap_feature_id(index: int, feature: dict[str, Any]) -> str:
+    point = "_".join(f"{float(value):.4f}" for value in feature.get("point", [0.0, 0.0, 0.0]))
+    return f"{feature['kind']}:{index}:{point}"
+
+
 class ViewerService:
     def __init__(
         self,
@@ -165,6 +291,33 @@ class ViewerService:
             return cached_stl, artifact.source_format
         return self.converter(artifact.path, cached_stl), artifact.source_format
 
+    def snap_features(self, component_id: str) -> dict[str, Any]:
+        artifact = self._artifact(self._definition(component_id))
+        if artifact is None:
+            return self._empty_snap_features(component_id, None)
+        if artifact.source_format != "step":
+            return self._empty_snap_features(component_id, artifact.source_format)
+
+        cache_path = self._cached_snap_features_path(artifact.path)
+        if self._cache_is_fresh(artifact.path, cache_path):
+            try:
+                cached = json.loads(cache_path.read_text())
+                if isinstance(cached, dict) and cached.get("schema_version") == 2:
+                    return cached
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        payload = extract_step_snap_features(artifact.path)
+        payload.update(
+            {
+                "component_id": component_id,
+                "artifact_path": _relative_path(artifact.path, self.project_root),
+            }
+        )
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+        return payload
+
     def source_context(self, component_id: str, *, context_lines: int = 16) -> dict[str, Any]:
         definition = self._definition(component_id)
         source_callable = _resolve_source_callable(
@@ -223,6 +376,7 @@ class ViewerService:
             "direct_stl_path": direct_stl_path,
             "model_url": f"/api/parts/{definition.id}/model",
             "source_url": f"/api/parts/{definition.id}/source",
+            "snap_features_url": f"/api/parts/{definition.id}/snap-features",
             "occurrences": occurrences or [self._identity_occurrence(definition.id)],
             "in_assembly": bool(occurrences),
             "default_visible": default_visible,
@@ -253,9 +407,24 @@ class ViewerService:
         rel_step = step_path.relative_to(self.exports_dir / "step")
         return self.viewer_cache_dir / "stl-from-step" / rel_step.with_suffix(".stl")
 
+    def _cached_snap_features_path(self, step_path: Path) -> Path:
+        rel_step = step_path.relative_to(self.exports_dir / "step")
+        return self.viewer_cache_dir / "snap-features" / rel_step.with_suffix(".json")
+
     @staticmethod
     def _cache_is_fresh(source_path: Path, cache_path: Path) -> bool:
         return cache_path.exists() and cache_path.stat().st_mtime >= source_path.stat().st_mtime
+
+    @staticmethod
+    def _empty_snap_features(component_id: str, source_format: str | None) -> dict[str, Any]:
+        return {
+            "component_id": component_id,
+            "artifact_path": None,
+            "schema_version": 2,
+            "source_format": source_format,
+            "features": [],
+            "warnings": [],
+        }
 
     def _placement_map(self) -> dict[str, list[dict[str, Any]]]:
         placement_map: dict[str, list[dict[str, Any]]] = {}

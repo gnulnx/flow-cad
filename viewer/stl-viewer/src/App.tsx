@@ -6,7 +6,7 @@ import FileDropZone from './components/FileDropZone'
 import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import SourcePanel from './components/SourcePanel'
-import type { ModelData, RotationMode, SourceContext, ViewerOccurrence, ViewerPart } from './types'
+import type { ModelData, RotationMode, SnapFeature, SnapFeaturePayload, SourceContext, ViewerOccurrence, ViewerPart } from './types'
 
 const IDENTITY_OCCURRENCE: ViewerOccurrence = {
   name: 'identity',
@@ -44,11 +44,19 @@ export default function App() {
   const [sourceCollapsed, setSourceCollapsed] = useState(false)
   const [partsCollapsed, setPartsCollapsed] = useState(false)
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
+  const [tapeMode, setTapeMode] = useState(false)
+  const [clearMeasurementsRequest, setClearMeasurementsRequest] = useState(0)
   const [isDragOver, setIsDragOver] = useState(false)
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
 
-  const loadStlBuffer = useCallback((name: string, partId: string, occurrences: ViewerOccurrence[], content: ArrayBuffer) => {
+  const loadStlBuffer = useCallback((
+    name: string,
+    partId: string,
+    occurrences: ViewerOccurrence[],
+    content: ArrayBuffer,
+    snapFeatures: SnapFeature[] = [],
+  ) => {
     const geometry = new STLLoader().parse(content)
     geometry.computeVertexNormals()
     geometry.computeBoundingBox()
@@ -64,6 +72,7 @@ export default function App() {
       geometry,
       color: '#5ec4ff',
       wireframeColor: '#f4d35e',
+      snapFeatures,
       occurrences,
       bounds: {
         min: box.min.clone(),
@@ -79,6 +88,17 @@ export default function App() {
     })
   }, [])
 
+  const loadSnapFeatures = useCallback(async (part: ViewerPart) => {
+    if (!part.snap_features_url) return []
+    const response = await fetch(apiUrl(apiBase, part.snap_features_url))
+    if (!response.ok) {
+      console.warn(`${part.id}: snap features unavailable: ${await responseDetail(response)}`)
+      return []
+    }
+    const payload = await response.json() as SnapFeaturePayload
+    return payload.features
+  }, [apiBase])
+
   const loadPartModel = useCallback(async (part: ViewerPart) => {
     if (!part.artifact_format) return null
 
@@ -87,9 +107,10 @@ export default function App() {
       throw new Error(`${part.id}: ${await responseDetail(response)}`)
     }
     const content = await response.arrayBuffer()
-    loadStlBuffer(part.id, part.id, part.occurrences.length ? part.occurrences : [IDENTITY_OCCURRENCE], content)
+    const snapFeatures = await loadSnapFeatures(part)
+    loadStlBuffer(part.id, part.id, part.occurrences.length ? part.occurrences : [IDENTITY_OCCURRENCE], content, snapFeatures)
     return part.id
-  }, [apiBase, loadStlBuffer])
+  }, [apiBase, loadSnapFeatures, loadStlBuffer])
 
   const loadViewerState = useCallback(async () => {
     setStatusMessage('Loading registry parts...')
@@ -287,6 +308,17 @@ export default function App() {
     setFrameSelectedRequest((value) => value + 1)
   }, [])
 
+  const handleClearMeasurements = useCallback(() => {
+    setClearMeasurementsRequest((value) => value + 1)
+  }, [])
+
+  const handleTapeModeChange = useCallback((enabled: boolean) => {
+    setTapeMode(enabled)
+    if (enabled) {
+      setActiveName(null)
+    }
+  }, [])
+
   const handlePartActivate = useCallback((partId: string, additive: boolean) => {
     setSelectedIds((prev) => {
       if (!additive) return [partId]
@@ -327,6 +359,9 @@ export default function App() {
         statusMessage={statusMessage}
         rotationMode={rotationMode}
         onRotationModeChange={setRotationMode}
+        tapeMode={tapeMode}
+        onTapeModeChange={handleTapeModeChange}
+        onClearMeasurements={handleClearMeasurements}
       />
       <SourcePanel
         context={sourceContext}
@@ -357,6 +392,8 @@ export default function App() {
           fitRequest={fitRequest}
           frameSelectedRequest={frameSelectedRequest}
           rotationMode={rotationMode}
+          tapeMode={tapeMode}
+          clearMeasurementsRequest={clearMeasurementsRequest}
         />
       </FileDropZone>
     </div>

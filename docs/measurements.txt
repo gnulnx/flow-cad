@@ -1,0 +1,80 @@
+# Smart Tape Measure V1
+
+  ## Summary
+
+  Add a simple smart tape measure to the Flow CAD viewer with two workflows:
+
+  - Quick Measure: hold M, measure temporarily, release M and it disappears.
+  - Tape Tool: click a toolbar tape icon to create persistent viewport measurement annotations for the current
+    browser session.
+
+  - Measurements should feel automatic: no vertex/edge/center mode switching.
+
+  ## Key Changes
+
+  - Add backend snap metadata for STEP-backed parts:
+      - New API: GET /api/parts/{component_id}/snap-features.
+      - Extract vertices, linear edges, circular edges, edge midpoints, edge lengths, circle/hole centers, and
+        face fallback data from STEP topology.
+
+      - Cache snap metadata beside viewer cache and refresh when the STEP changes.
+      - STL-only files use best-effort mesh fallback.
+
+  - Add frontend smart snapping:
+      - Determine the primary hovered part first.
+
+  - Add measurement interactions:
+      - Hold M: show snap targets, mouse down anchors, drag updates live, release clears.
+      - Tape Tool: same behavior, but completed measurements stay visible.
+      - Hovering an edge previews its length; clicking the highlighted edge creates an edge-length callout.
+      - Edge-to-edge measurements use shortest true 3D distance.
+      - Free-space endpoint uses a camera-facing anchor plane through the first point.
+
+  - Add measurement labels:
+      - Every measurement label states what was measured, not just the number.
+      - Examples:
+          - Hole Center -> Hole Center
+          - Edge -> Hole Center
+          - Edge -> Edge
+          - Face Point -> Free Point
+          - Edge Length
+
+      - Show total distance prominently in mm, with compact Delta X/Y/Z underneath.
+      - Use axis colors for deltas where practical.
+      - Only the newest persistent measurement is active/highlighted.
+      - Persistent callouts support individual delete, Delete key, and Clear Measurements.
+
+  ## Test Plan
+
+  - Backend:
+      - STEP snap extraction returns vertices, line edges, circle centers, edge lengths, and stable feature IDs.
+      - Snap cache invalidates when source STEP changes.
+      - Missing/non-STEP artifacts return safe fallback behavior.
+
+  - Frontend:
+      - Holding/releasing M creates and clears Quick Measure state.
+      - Tape Tool creates persistent callouts without breaking orbit/pan/zoom.
+      - Snap ranking prefers meaningful semantic targets and avoids flicker.
+      - Edge hover/click creates edge-length measurement.
+      - Free-space endpoint is visually and textually distinct.
+      - Labels correctly describe measured feature types.
+      - Delete and Clear All remove persistent measurements.
+
+  - Existing checks:
+      - python -m pytest
+      - npm --prefix viewer/stl-viewer test
+      - npm --prefix viewer/stl-viewer run build
+
+  ## Assumptions
+
+  - Units are millimeters only in V1.
+  - Persistent measurements are browser-session annotations only; they are not saved to .flow or tracked project
+    files.
+
+  - Measurements stay attached through camera movement and part visibility toggles, but may clear on backend
+    reload or browser refresh.
+
+  - STEP-backed project parts get the best smart behavior; dropped STL files get best-effort mesh measurements.
+
+
+

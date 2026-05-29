@@ -16,6 +16,7 @@ interface ViewportControlsProps {
   fitRequest: number
   frameSelectedRequest: number
   rotationMode: RotationMode
+  measurementActive?: boolean
 }
 
 type DragMode = 'rotate' | 'pan'
@@ -246,12 +247,14 @@ export default function ViewportControls({
   fitRequest,
   frameSelectedRequest,
   rotationMode,
+  measurementActive = false,
 }: ViewportControlsProps) {
   const { camera, gl, invalidate } = useThree()
   const pivotRef = useRef(new THREE.Vector3())
   const hasPivotRef = useRef(false)
   const dragRef = useRef<DragState | null>(null)
   const rotationModeRef = useRef(rotationMode)
+  const measurementActiveRef = useRef(measurementActive)
   const turntableStateRef = useRef<TurntableState>({ yaw: 0, pitch: 0, distance: 1 })
   const frameSelectedRequestRef = useRef(frameSelectedRequest)
   const fitRequestRef = useRef<number | null>(null)
@@ -266,6 +269,10 @@ export default function ViewportControls({
       invalidate()
     }
   }, [camera, invalidate, rotationMode])
+
+  useEffect(() => {
+    measurementActiveRef.current = measurementActive
+  }, [measurementActive])
 
   useEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return
@@ -317,6 +324,7 @@ export default function ViewportControls({
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0 && event.button !== 1 && event.button !== 2) return
+      if (measurementActiveRef.current && event.button === 0) return
 
       const pivot = pivotRef.current.clone()
       const { right, back } = cameraBasis(camera.position, pivot, camera.up)
