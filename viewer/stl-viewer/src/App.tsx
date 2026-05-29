@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { Box3, Vector3 } from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import Viewer from './components/Viewer'
 import FileDropZone from './components/FileDropZone'
 import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import SourcePanel from './components/SourcePanel'
+import { calculateMeshMetrics } from './meshMetrics'
 import type { ModelData, RotationMode, SnapFeature, SnapFeaturePayload, SourceContext, ViewerOccurrence, ViewerPart } from './types'
 
 const IDENTITY_OCCURRENCE: ViewerOccurrence = {
@@ -62,9 +62,7 @@ export default function App() {
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
 
-    const box = geometry.boundingBox ?? new Box3().setFromBufferAttribute(geometry.attributes.position)
-    const size = box.getSize(new Vector3())
-    const center = box.getCenter(new Vector3())
+    const metrics = calculateMeshMetrics(geometry)
 
     const model: ModelData = {
       name,
@@ -75,11 +73,12 @@ export default function App() {
       snapFeatures,
       occurrences,
       bounds: {
-        min: box.min.clone(),
-        max: box.max.clone(),
-        size: size.clone(),
-        center: center.clone(),
+        min: metrics.bounds.min.clone(),
+        max: metrics.bounds.max.clone(),
+        size: metrics.bounds.size.clone(),
+        center: metrics.bounds.center.clone(),
       },
+      metrics,
     }
 
     setModels((prev) => {

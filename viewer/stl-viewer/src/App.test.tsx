@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Box3, Vector3 } from 'three'
+import { BufferGeometry, Float32BufferAttribute } from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
@@ -11,13 +11,13 @@ vi.mock('./components/Viewer', () => ({
 vi.mock('three/examples/jsm/loaders/STLLoader.js', () => ({
   STLLoader: class {
     parse() {
-      return {
-        attributes: {},
-        boundingBox: new Box3(new Vector3(0, 0, 0), new Vector3(1, 1, 1)),
-        computeVertexNormals: vi.fn(),
-        computeBoundingBox: vi.fn(),
-        computeBoundingSphere: vi.fn(),
-      }
+      const geometry = new BufferGeometry()
+      geometry.setAttribute('position', new Float32BufferAttribute([
+        0, 0, 0,
+        1, 0, 0,
+        0, 1, 0,
+      ], 3))
+      return geometry
     }
   },
 }))

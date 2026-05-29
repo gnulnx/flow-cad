@@ -1,4 +1,5 @@
 import type { BufferGeometry, Vector3 } from 'three'
+import type { MeshMetrics } from './meshMetrics'
 
 export type RotationMode = 'turntable' | 'arcball' | 'free_orbit'
 export type SnapFeatureKind = 'vertex' | 'line_edge' | 'edge_midpoint' | 'circle_center' | 'face_point' | 'free_point'
@@ -77,4 +78,5 @@ export interface ModelData {
     size: Vector3
     center: Vector3
   }
+  metrics: MeshMetrics
 }

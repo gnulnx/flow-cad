@@ -278,7 +278,7 @@
         import { STLLoader } from 'three/addons/loaders/STLLoader.js';
         import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-        import { BufferGeometryUtils } from 'three/addons/utils/BufferGeometryUtils.js';
+        import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
         // ============================================
         // Configuration
@@ -487,8 +487,14 @@
             }
 
             // Calculate bounding box BEFORE centering to get original size
-            const originalBox = new THREE.Box3().setFromGeometry(geometry);
+            const originalBox = new THREE.Box3().setFromBufferAttribute(geometry.attributes.position);
             const originalSize = originalBox.getSize(new THREE.Vector3());
+            const originalMetrics = {
+                triangleCount: geometry.index ?
+                    geometry.index.count / 3 :
+                    geometry.attributes.position.count / 3,
+                size: originalSize.clone()
+            };
             const maxDim = Math.max(originalSize.x, originalSize.y, originalSize.z);
             console.log(`[loadModel] Original dimensions: ${originalSize.x.toFixed(2)} x ${originalSize.y.toFixed(2)} x ${originalSize.z.toFixed(2)}`);
             
@@ -529,8 +535,8 @@
             state.scene.add(mesh);
             console.log(`[loadModel] Mesh added to scene. Scene has ${state.scene.children.length} children`);
 
-            // Update status bar
-            updateStatusBar(filename, geometry);
+            // Update status bar from original geometry metrics, before viewer centering/scaling.
+            updateStatusBar(filename, originalMetrics);
 
             // Adjust camera to frame the model
             fitCameraToObject(mesh);
@@ -582,18 +588,14 @@
             state.controls.update();
         }
 
-        function updateStatusBar(filename, geometry) {
+        function updateStatusBar(filename, metrics) {
             document.getElementById('model-name').textContent = filename;
             
-            const count = geometry.index ? 
-                geometry.index.count / 3 : 
-                geometry.attributes.position.count / 3;
-            document.getElementById('model-tris').textContent = `Triangles: ${count.toLocaleString()}`;
+            document.getElementById('model-tris').textContent = `Triangles: ${metrics.triangleCount.toLocaleString()}`;
 
-            const boundingBox = new THREE.Box3().setFromGeometry(geometry);
-            const size = boundingBox.getSize(new THREE.Vector3());
+            const size = metrics.size;
             document.getElementById('model-bounds').textContent = 
-                `Bounds: ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)}`;
+                `Bounds: ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)} mm`;
         }
 
         // ============================================
