@@ -13,8 +13,6 @@ dependencies = [
     "rich-click",
     "sqlmodel",
     "uvicorn",
-    # Local BLC orchestrator (for multi-agent workflows)
-    "blc @ file:///home/gnulnx/BaseLayerCouncil",
 ]
 
 [project.scripts]
