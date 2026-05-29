@@ -12,7 +12,10 @@ Core chassis parts:
 - `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_front_panel.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_tray.step`
+- `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_cable_shelf.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_top_lid.step`
+- Lid carry handles, print two copies: `b3/exports/step/lower_chassis/b3_lower_chassis_lid_handle.step`
+- `b3/exports/step/lower_chassis/b3_lower_chassis_simple_mounting_plate.step`
 
 Rear-panel options:
 
@@ -25,7 +28,6 @@ Rear-panel options:
   - `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_body.step`
   - `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout.step`
   - TPU fit-test bumpout: `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout_TPU.step`
-  - Inspection preview: `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable.step`
 - Alternate vented panel:
   - `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_vented.step`
 
@@ -45,16 +47,29 @@ Equipment shelves:
 - `b3/exports/step/lower_chassis/b3_equipment_shelf_service_fit_four_way.step`
 - Optional legacy support: `b3/exports/step/lower_chassis/b3_shelf_spacer_block_55mm.step`
 
+Fit test coupons:
+
+- Push-button threaded body fit test, 20 mm x 20 mm x 10 mm with 12.1 mm through-hole: `b3/exports/step/test_coupons/b3_push_button_hole_test_coupon_12p1mm.step`
+- Push-button recessed top-plate fit test, 40 mm x 40 mm x 10 mm with centered 20 mm x 20 mm area thinned to 5 mm and a 12.1 mm through-hole: `b3/exports/step/test_coupons/b3_push_button_recess_test_coupon_12p1mm.step`
+
+Wheel-box rebuild test prints:
+
+- `b3/exports/step/wheel_box/b3_wheel_box_test_body.step`
+- `b3/exports/step/wheel_box/b3_wheel_box_test_top_lid.step`
+- `b3/exports/step/wheel_box/b3_wheel_box_test_bottom_lid.step`
+- Matching tight insert for this prototype: `b3/exports/step/wheel_box/b3_wheel_box_tight_insert.step`
+
 ## Inspection Or Reference Only
 
 Do not send these as ordinary printable Bambu parts unless explicitly doing visual fit or reference work:
 
 - `b3/exports/step/lower_chassis/b3_lower_chassis_assembly.step`
+- `b3/exports/step/lower_chassis/b3_lower_chassis_rear_panel_detachable.step`
 - `b3/exports/step/reference/b3_reference_wheel_pair.step`
 - `b3/exports/step/reference/b3_reference_axle_pair.step`
 - `b3/exports/step/reference/b3_reference_wheel_axle_pair.step`
 
-Assembly STEP files are for inspection and CAD Explorer review. Reference wheel/axle files represent purchased or non-print reference geometry.
+Assembly and detachable-preview STEP files are for inspection and CAD Explorer review. Use the separate detachable body and bumpout STEP files for Bambu slicing. Reference wheel/axle files represent purchased or non-print reference geometry.
 
 ## Interface-Sensitive Print Groups
 
@@ -83,6 +98,12 @@ Bottom tray group:
 - `b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_tray.step`
+- `b3/exports/step/lower_chassis/b3_lower_chassis_bottom_cable_shelf.step`
+
+Top lid handle group:
+
+- `b3/exports/step/lower_chassis/b3_lower_chassis_top_lid.step`
+- `b3/exports/step/lower_chassis/b3_lower_chassis_lid_handle.step`, printed twice
 
 Shelf and side-ledge group:
 
@@ -95,6 +116,13 @@ Axle insert group:
 - `b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step`
 - `b3/exports/step/lower_chassis/b3_lower_chassis_right_side_plate.step`
 - selected axle insert STEP file
+
+Wheel-box prototype group:
+
+- `b3/exports/step/wheel_box/b3_wheel_box_test_body.step`
+- `b3/exports/step/wheel_box/b3_wheel_box_test_top_lid.step`
+- `b3/exports/step/wheel_box/b3_wheel_box_test_bottom_lid.step`
+- `b3/exports/step/wheel_box/b3_wheel_box_tight_insert.step`
 
 ## Standard Handoff Checks
 

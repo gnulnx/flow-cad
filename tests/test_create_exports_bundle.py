@@ -65,3 +65,24 @@ def test_should_include_can_filter_stale_step_exports() -> None:
     assert should_include(Path("exports/step/lower_chassis/active.step"), Path("exports"), active_steps)
     assert not should_include(Path("exports/step/lower_chassis/stale.step"), Path("exports"), active_steps)
     assert should_include(Path("exports/freecad/model.FCStd"), Path("exports"), active_steps)
+
+
+def test_should_include_filters_non_printable_stl_and_snapshots() -> None:
+    active_exports = {
+        Path("step/lower_chassis/printable.step"),
+        Path("stl/lower_chassis/printable.stl"),
+        Path("snapshots/lower_chassis/printable_front.svg"),
+    }
+
+    assert should_include(Path("exports/stl/lower_chassis/printable.stl"), Path("exports"), active_exports)
+    assert not should_include(Path("exports/stl/lower_chassis/inspection.stl"), Path("exports"), active_exports)
+    assert should_include(
+        Path("exports/snapshots/lower_chassis/printable_front.svg"),
+        Path("exports"),
+        active_exports,
+    )
+    assert not should_include(
+        Path("exports/snapshots/lower_chassis/inspection_front.svg"),
+        Path("exports"),
+        active_exports,
+    )

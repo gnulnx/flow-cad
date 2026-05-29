@@ -52,6 +52,7 @@ class ChassisParams:
     m5_washer_counterbore_diameter: float = 11.0
     m4_clearance_diameter: float = 4.5
     m4_heatset_pilot_diameter: float = 5.0
+    m4_washer_nut_access_diameter: float = 14.0
     m3_clearance_diameter: float = 3.4
 
     assembly_clearance: float = 1.0
@@ -61,6 +62,18 @@ class ChassisParams:
     front_rear_panel_height: float = 240.0
     top_lid_width: float = 240.0
     top_lid_depth: float = 256.0
+    top_lid_switch_center_x: float = -70.0
+    top_lid_switch_center_y: float = 80.0
+    top_lid_handle_center_x_abs: float = 72.0
+    top_lid_handle_screw_spacing_y: float = 84.0
+    lid_handle_foot_width: float = 32.0
+    lid_handle_foot_length: float = 24.0
+    lid_handle_foot_height: float = 6.0
+    lid_handle_grip_width: float = 28.0
+    lid_handle_grip_length: float = 110.0
+    lid_handle_grip_height: float = 10.0
+    lid_handle_post_length: float = 18.0
+    lid_handle_total_height: float = 36.0
     shelf_width: float = 180.0
     shelf_depth: float = 200.0
     shelf_thickness: float = 6.0
@@ -106,6 +119,10 @@ class ChassisParams:
             raise ValueError("TPU rear slide head width must be between the neck width and PETG head width.")
         if not 0.0 < self.rear_slide_tpu_head_depth < self.rear_slide_head_depth:
             raise ValueError("TPU rear slide head depth must be positive and less than PETG head depth.")
+        if self.rear_slide_entry_relief_height <= self.rear_slide_stop_height:
+            raise ValueError("Rear slide entry relief must extend above the lower stop.")
+        if self.rear_slide_entry_relief_clearance <= 0.0:
+            raise ValueError("Rear slide entry relief clearance must be positive.")
 
         print("Mechanical contracts validated successfully.")
 
@@ -157,6 +174,8 @@ class ChassisParams:
     rear_slide_channel_z_min: float = 40.0
     rear_slide_channel_z_max: float = 207.0
     rear_slide_stop_height: float = 4.0
+    rear_slide_entry_relief_height: float = 7.0
+    rear_slide_entry_relief_clearance: float = 0.35
     rear_slide_head_width: float = 10.0
     rear_slide_tpu_head_width: float = 8.0
     rear_slide_head_depth: float = 2.3
@@ -235,9 +254,50 @@ class ChassisParams:
     integrated_bridge_span_width: float = 180.0
     integrated_bridge_side_post_width: float = 0.0
     integrated_bridge_cable_slot_width: float = 24.0
+    integrated_center_spine_usb_access_width: float = 20.0
+    integrated_center_spine_usb_access_depth: float = 50.0
+    integrated_center_spine_usb_access_height: float = 12.0
+    integrated_center_spine_usb_access_edge_overlap: float = 12.0
+    bottom_cable_pad_size: float = 24.0
+    bottom_cable_pad_height: float = 12.0
+    bottom_cable_pad_x: float = 54.0
+    bottom_cable_shelf_width: float = 136.0
+    bottom_cable_shelf_depth: float = 188.0
+    bottom_cable_shelf_thickness: float = 4.0
+    wheel_box_wall_thickness: float = 6.0
+    wheel_box_mount_wall_thickness: float = 10.0
+    wheel_box_lid_thickness: float = 3.0
+    wheel_box_insert_clearance: float = 0.6
+    wheel_box_outer_depth_x: float = 152.0
+    wheel_box_lid_screw_pad_size: float = 18.0
+    wheel_box_side_mount_lug_width_y: float = 43.0
+    wheel_box_top_bottom_mount_lug_height_z: float = 10.0
+    wheel_box_insert_mount_edge_margin_z: float = 28.0
+    wheel_box_insert_mount_window_margin_y: float = 10.0
+    wheel_box_insert_mount_nut_access_depth_x: float = 10.0
+    wheel_box_tray_mount_span_x: float = 127.0
+    wheel_box_tray_mount_hole_offset_x: float = 25.0
+    wheel_box_tray_mount_edge_margin_x: float = 25.4
+    wheel_box_tray_mount_pillar_pull_in_x: float = 5.0
+    wheel_box_tray_mount_outer_wall_clearance_y: float = 20.0
+    wheel_box_tray_mount_y_abs: float = 28.0
+    wheel_box_tray_mount_boss_size: float = 20.0
+    wheel_box_tray_mount_rail_depth_y: float = 40.0
+    wheel_box_tray_mount_rail_height_z: float = 20.0
+    wheel_box_tray_mount_washer_access_diameter: float = 24.0
+    wheel_box_tray_mount_nut_access_height: float = 8.0
+    wheel_box_cable_exit_slot_x: float = 22.0
+    wheel_box_cable_exit_slot_y: float = 30.0
 
     # Simple mounting plate
     simple_mounting_plate_width: float = 36.0
     simple_mounting_plate_length: float = 135.0
     simple_mounting_plate_thickness: float = 10.0
     simple_mounting_plate_hole_offset: float = 10.0
+    push_button_test_coupon_size: float = 20.0
+    push_button_test_coupon_thickness: float = 10.0
+    push_button_test_hole_diameter: float = 12.1
+    push_button_recess_test_coupon_size: float = 40.0
+    push_button_recess_test_pocket_size: float = 20.0
+    push_button_recess_test_coupon_thickness: float = 10.0
+    push_button_recess_test_mounting_thickness: float = 5.0

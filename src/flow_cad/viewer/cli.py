@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+import webbrowser
+from pathlib import Path
+
+import rich_click as click
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+@click.group()
+def viewer() -> None:
+    """Run the source-backed browser CAD viewer."""
+
+
+@viewer.command()
+@click.option("--backend-host", default="127.0.0.1", show_default=True)
+@click.option("--backend-port", default=8000, show_default=True, type=int)
+@click.option("--frontend-host", default="127.0.0.1", show_default=True)
+@click.option("--frontend-port", default=3000, show_default=True, type=int)
+@click.option("--open-browser/--no-open-browser", default=True, show_default=True)
+def start(
+    backend_host: str,
+    backend_port: int,
+    frontend_host: str,
+    frontend_port: int,
+    open_browser: bool,
+) -> None:
+    """Start the viewer API, frontend, and browser."""
+    viewer_dir = PROJECT_ROOT / "viewer" / "stl-viewer"
+    if not (viewer_dir / "node_modules").exists():
+        raise click.ClickException("Viewer dependencies are missing. Run: npm --prefix viewer/stl-viewer install")
+
+    backend_url = f"http://{backend_host}:{backend_port}"
+    frontend_url = f"http://{frontend_host}:{frontend_port}/?api={backend_url}"
+    env = os.environ.copy()
+    env["FLOW_CAD_PROJECT_ROOT"] = str(PROJECT_ROOT)
+    env["FLOW_CAD_NO_VITE_OPEN"] = "1"
+
+    backend_cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "flow_cad.viewer.app:app",
+        "--host",
+        backend_host,
+        "--port",
+        str(backend_port),
+    ]
+    frontend_cmd = [
+        "npm",
+        "run",
+        "dev",
+        "--",
+        "--host",
+        frontend_host,
+        "--port",
+        str(frontend_port),
+    ]
+
+    click.echo(f"Viewer API: {backend_url}")
+    click.echo(f"Viewer UI:  {frontend_url}")
+    backend_proc = subprocess.Popen(backend_cmd, cwd=PROJECT_ROOT, env=env)
+    frontend_proc = subprocess.Popen(frontend_cmd, cwd=viewer_dir, env=env)
+
+    try:
+        if open_browser:
+            time.sleep(1.5)
+            webbrowser.open(frontend_url)
+        while True:
+            backend_status = backend_proc.poll()
+            frontend_status = frontend_proc.poll()
+            if backend_status is not None:
+                raise click.ClickException(f"Viewer backend exited with status {backend_status}")
+            if frontend_status is not None:
+                raise click.ClickException(f"Viewer frontend exited with status {frontend_status}")
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        click.echo("Stopping viewer...")
+    finally:
+        _terminate_process(frontend_proc)
+        _terminate_process(backend_proc)
+
+
+@viewer.command()
+@click.option("--backend-url", default="http://127.0.0.1:8000", show_default=True)
+def reload(backend_url: str) -> None:
+    """Ask the running viewer to refresh registry, export, and source state."""
+    url = backend_url.rstrip("/") + "/api/reload"
+    request = urllib.request.Request(url, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.URLError as exc:
+        raise click.ClickException(f"Viewer API is not reachable at {backend_url}. Is `flow viewer start` running?") from exc
+    click.echo(f"Reloaded viewer revision {payload.get('revision')}")
+
+
+def _terminate_process(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    proc.send_signal(signal.SIGTERM)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
+

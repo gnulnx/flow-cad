@@ -211,6 +211,72 @@ def make_rear_panel_bumpout(params: ChassisParams):
         label="erb_lower_chassis_rear_panel",
     )
 
+def make_rear_slide_entry_relief_cut(params: ChassisParams, center_x: float):
+    z_min = params.rear_slide_channel_z_min
+    receiver_z_min = z_min - params.rear_slide_stop_height
+    head_slot = params.rear_slide_head_width + 2.0 * params.rear_slide_side_clearance
+    neck_slot = params.rear_slide_neck_width + 2.0 * params.rear_slide_side_clearance
+    backing_y_min = -params.wall_thickness
+    backing_y_max = (
+        params.rear_bumpout_detachable_base_gap
+        - REAR_SLIDE_TONGUE_LEAD_IN
+        - params.rear_slide_face_clearance
+    )
+    lip_y_min = params.rear_slide_channel_depth - params.rear_slide_lip_depth
+    entry_clearance = params.rear_slide_entry_relief_clearance
+    entry_z_min = receiver_z_min - entry_clearance
+    entry_z_max = z_min + params.rear_slide_entry_relief_height
+    entry_z_height = entry_z_max - entry_z_min
+    entry_z_center = (entry_z_min + entry_z_max) / 2.0
+    head_y_min = backing_y_min - entry_clearance
+    relief = box_at(
+        (
+            head_slot + 2.0 * entry_clearance,
+            lip_y_min - head_y_min,
+            entry_z_height,
+        ),
+        (center_x, (head_y_min + lip_y_min) / 2.0, entry_z_center),
+    )
+    relief += box_at(
+        (
+            neck_slot + 2.0 * entry_clearance,
+            params.rear_slide_channel_depth - lip_y_min + 2.0,
+            entry_z_height,
+        ),
+        (center_x, (lip_y_min + params.rear_slide_channel_depth + 2.0) / 2.0, entry_z_center),
+    )
+    return relief
+
+def make_rear_bumpout_shell_entry_relief_cut(
+    params: ChassisParams,
+    center_x: float,
+    head_width: float,
+):
+    z_min = params.rear_slide_channel_z_min
+    shell_z_min = params.rear_bumpout_center_z - params.rear_bumpout_height / 2.0
+    entry_clearance = params.rear_slide_entry_relief_clearance
+    entry_z_max = z_min + params.rear_slide_entry_relief_height
+    entry_z_height = entry_z_max - (shell_z_min - entry_clearance)
+    entry_z_center = shell_z_min - entry_clearance + entry_z_height / 2.0
+    head_y_min = (
+        params.rear_bumpout_detachable_base_gap
+        - REAR_SLIDE_TONGUE_LEAD_IN
+        - entry_clearance
+    )
+    relief_y_max = (
+        params.rear_bumpout_detachable_base_gap
+        + params.rear_bumpout_wall_thickness
+        + entry_clearance
+    )
+    return box_at(
+        (
+            head_width + 2.0 * (params.rear_slide_channel_wall + entry_clearance),
+            relief_y_max - head_y_min,
+            entry_z_height,
+        ),
+        (center_x, (head_y_min + relief_y_max) / 2.0, entry_z_center),
+    )
+
 def make_rear_slide_receiver(params: ChassisParams, center_x: float):
     z_min = params.rear_slide_channel_z_min
     z_max = params.rear_slide_channel_z_max
@@ -276,6 +342,7 @@ def make_rear_slide_receiver(params: ChassisParams, center_x: float):
         (neck_slot, depth - lip_y_min + 2.0, slot_z_height),
         (center_x, (lip_y_min + depth + 2.0) / 2.0, slot_z_center),
     )
+    receiver -= make_rear_slide_entry_relief_cut(params, center_x)
     for side in (-1, 1):
         if center_x * side > 0.0:
             weld_center_x = side * (
@@ -344,6 +411,7 @@ def make_rear_panel_detachable_body(params: ChassisParams):
 
     for x in (-params.rear_slide_rail_x, params.rear_slide_rail_x):
         panel += make_rear_slide_receiver(params, x)
+        panel -= make_rear_slide_entry_relief_cut(params, x)
 
     boss = box_at(
         (
@@ -398,6 +466,8 @@ def make_rear_panel_detachable_bumpout_shell(
         bd + 6.0,
         (0.0, bd / 2.0, params.rear_slide_retain_screw_z),
     )
+    for x in (-params.rear_slide_rail_x, params.rear_slide_rail_x):
+        shell -= make_rear_bumpout_shell_entry_relief_cut(params, x, head_width)
 
     tongue_z = params.rear_bumpout_center_z
     head_y_min = base_y - REAR_SLIDE_TONGUE_LEAD_IN

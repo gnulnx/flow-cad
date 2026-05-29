@@ -14,7 +14,7 @@ from flow_cad.registry import (
     ASSEMBLY_DEFINITION,
     INSERT_VARIANTS,
     build_registered_parts,
-    expected_step_relative_paths,
+    expected_printable_export_relative_paths,
     iter_part_definitions,
 )
 
@@ -100,7 +100,7 @@ def build(bundle, cache, snapshots, snapshots_only):
             exporter.step_dir.parent,
             handoff_dir,
             "exports.tar.gz",
-            active_step_paths=expected_step_relative_paths(),
+            active_export_paths=expected_printable_export_relative_paths(),
         )
         click.echo(click.style(f"Created exports handoff bundle: {bundle_path}", fg="cyan", bold=True))
 

@@ -8,10 +8,12 @@ from pathlib import Path
 from flow_cad.params import ChassisParams
 from flow_cad.parts.chassis import (
     make_bottom_tray,
+    make_lid_handle,
     make_side_plate,
     make_simple_mounting_plate,
     make_top_lid,
 )
+from flow_cad.parts.coupons import make_push_button_hole_test_coupon, make_push_button_recess_test_coupon
 from flow_cad.parts.inserts import make_axle_insert
 from flow_cad.parts.panels import (
     make_end_panel,
@@ -28,7 +30,13 @@ from flow_cad.parts.reference import (
     make_reference_wheel_axle_pair,
     make_reference_wheel_pair,
 )
-from flow_cad.parts.shelves import make_equipment_shelf, make_shelf_spacer_block
+from flow_cad.parts.shelves import make_bottom_cable_shelf, make_equipment_shelf, make_shelf_spacer_block
+from flow_cad.parts.wheel_box import (
+    make_wheel_box_test_body,
+    make_wheel_box_test_bottom_lid,
+    make_wheel_box_test_top_lid,
+    make_wheel_box_tight_insert,
+)
 
 
 class PartRole(StrEnum):
@@ -74,14 +82,16 @@ PART_DEFINITIONS: tuple[PartDefinition, ...] = (
     PartDefinition("rear_panel", "lower_chassis", "b3_lower_chassis_rear_panel.step", make_rear_panel_bumpout),
     PartDefinition("rear_panel_body", "lower_chassis", "b3_lower_chassis_rear_panel_body.step", make_rear_panel_body_for_bumpout),
     PartDefinition("rear_panel_bumpout", "lower_chassis", "b3_lower_chassis_rear_panel_bumpout.step", make_rear_panel_bumpout_shell),
-    PartDefinition("rear_panel_detachable", "lower_chassis", "b3_lower_chassis_rear_panel_detachable.step", make_rear_panel_detachable_bumpout),
+    PartDefinition("rear_panel_detachable", "lower_chassis", "b3_lower_chassis_rear_panel_detachable.step", make_rear_panel_detachable_bumpout, role=PartRole.INSPECTION),
     PartDefinition("rear_panel_detachable_body", "lower_chassis", "b3_lower_chassis_rear_panel_detachable_body.step", make_rear_panel_detachable_body),
     PartDefinition("rear_panel_detachable_bumpout", "lower_chassis", "b3_lower_chassis_rear_panel_detachable_bumpout.step", make_rear_panel_detachable_bumpout_shell),
     PartDefinition("rear_panel_detachable_bumpout_tpu", "lower_chassis", "b3_lower_chassis_rear_panel_detachable_bumpout_TPU.step", make_rear_panel_detachable_bumpout_shell_tpu, material="TPU"),
     PartDefinition("rear_panel_vented", "lower_chassis", "b3_lower_chassis_rear_panel_vented.step", lambda p: make_end_panel(p, inward_y=-1, cable_panel=True)),
     PartDefinition("bottom_tray", "lower_chassis", "b3_lower_chassis_bottom_tray.step", make_bottom_tray),
     PartDefinition("top_lid", "lower_chassis", "b3_lower_chassis_top_lid.step", make_top_lid),
+    PartDefinition("lid_handle", "lower_chassis", "b3_lower_chassis_lid_handle.step", make_lid_handle),
     PartDefinition("simple_mounting_plate", "lower_chassis", "b3_lower_chassis_simple_mounting_plate.step", make_simple_mounting_plate),
+    PartDefinition("bottom_cable_shelf", "lower_chassis", "b3_lower_chassis_bottom_cable_shelf.step", make_bottom_cable_shelf),
     PartDefinition("equipment_shelf", "lower_chassis", "b3_equipment_shelf.step", make_equipment_shelf),
     PartDefinition("equipment_shelf_side_cable", "lower_chassis", "b3_equipment_shelf_side_cable.step", lambda p: make_equipment_shelf(p, side_cable_notches=True)),
     PartDefinition(
@@ -129,9 +139,16 @@ PART_DEFINITIONS: tuple[PartDefinition, ...] = (
             end_cable_notch_length=p.shelf_side_cable_notch_length,
             width=p.service_shelf_width,
             depth=p.service_shelf_depth,
+            center_wiring_channels=False,
         ),
     ),
     PartDefinition("shelf_spacer_block_55mm", "lower_chassis", "b3_shelf_spacer_block_55mm.step", make_shelf_spacer_block),
+    PartDefinition("push_button_hole_test_coupon_12p1mm", "test_coupons", "b3_push_button_hole_test_coupon_12p1mm.step", make_push_button_hole_test_coupon),
+    PartDefinition("push_button_recess_test_coupon_12p1mm", "test_coupons", "b3_push_button_recess_test_coupon_12p1mm.step", make_push_button_recess_test_coupon),
+    PartDefinition("wheel_box_test_body", "wheel_box", "b3_wheel_box_test_body.step", make_wheel_box_test_body),
+    PartDefinition("wheel_box_test_top_lid", "wheel_box", "b3_wheel_box_test_top_lid.step", make_wheel_box_test_top_lid),
+    PartDefinition("wheel_box_test_bottom_lid", "wheel_box", "b3_wheel_box_test_bottom_lid.step", make_wheel_box_test_bottom_lid),
+    PartDefinition("wheel_box_tight_insert", "wheel_box", "b3_wheel_box_tight_insert.step", make_wheel_box_tight_insert),
     *(
         PartDefinition(f"axle_insert_{variant}", "inserts", f"b3_axle_insert_{variant}.step", _insert_factory(diameter, flat_to_flat))
         for variant, (diameter, flat_to_flat) in INSERT_VARIANTS.items()
@@ -173,6 +190,29 @@ def expected_step_relative_paths(*, include_references: bool = True, include_ass
             include_assembly=include_assembly,
         )
     }
+
+
+def expected_printable_step_relative_paths() -> set[Path]:
+    return {
+        Path("step") / definition.module_id / definition.filename
+        for definition in iter_part_definitions(include_references=False)
+        if definition.is_printable
+    }
+
+
+def expected_printable_export_relative_paths() -> set[Path]:
+    paths: set[Path] = set()
+    for definition in iter_part_definitions(include_references=False):
+        if not definition.is_printable:
+            continue
+        step_path = Path("step") / definition.module_id / definition.filename
+        stl_path = Path("stl") / definition.module_id / f"{Path(definition.filename).stem}.stl"
+        snapshot_dir = Path("snapshots") / definition.module_id
+        paths.add(step_path)
+        paths.add(stl_path)
+        for view in ("front", "side", "top"):
+            paths.add(snapshot_dir / f"{Path(definition.filename).stem}_{view}.svg")
+    return paths
 
 
 def build_registered_parts(params: ChassisParams) -> dict[str, object]:
