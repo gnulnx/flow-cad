@@ -33,4 +33,8 @@ export default defineConfig({
     port: 3000,
     open: process.env.FLOW_CAD_NO_VITE_OPEN === '1' ? false : true,
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+  },
 })
