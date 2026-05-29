@@ -1,8 +1,5 @@
-# Project specific ignores
-b3/exports/
-b3/reports/
-b3/registry.db
-b3/viewer-cache/
+# Generated project output ignores
+example/
 handoff/
 
 # Python bytecode and cache
@@ -58,9 +55,6 @@ htmlcov/
 # Local handoff bundles
 handoff/
 exports*.tar.gz
-b3/registry.db
-b3/exports/snapshots/
-b3/viewer-cache/
 
 # Agent-specific metadata
 .antigravitycli/

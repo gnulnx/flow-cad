@@ -1,5 +1,5 @@
 import json
-from dataclasses import fields
+from dataclasses import dataclass, fields
 
 from sqlalchemy import inspect
 from sqlmodel import Session, select
@@ -17,8 +17,13 @@ from flow_cad.core.cache import (
     write_active_cache,
     write_build_metadata,
 )
-from flow_cad.params import ChassisParams
-from flow_cad.registry import PartDefinition, PartRole
+from flow_cad.core.metadata import PartDefinition, PartRole
+
+
+@dataclass(frozen=True)
+class ExampleParams:
+    project_id: str = "flow_example"
+    width: float = 10.0
 
 
 class _Point:
@@ -42,13 +47,13 @@ class _Shape:
 
 
 def test_registry_db_path_uses_project_namespace(tmp_path) -> None:
-    params = ChassisParams(project_id="test_project")
+    params = ExampleParams(project_id="test_project")
 
     assert registry_db_path(tmp_path, params) == tmp_path / "test_project" / "registry.db"
 
 
 def test_init_cache_creates_sqlmodel_tables(tmp_path) -> None:
-    db_path = tmp_path / "b3" / "registry.db"
+    db_path = tmp_path / "flow_example" / "registry.db"
 
     init_cache(db_path)
 
@@ -59,7 +64,7 @@ def test_init_cache_creates_sqlmodel_tables(tmp_path) -> None:
 
 
 def test_write_build_metadata_snapshots_params(tmp_path) -> None:
-    params = ChassisParams()
+    params = ExampleParams()
     db_path = tmp_path / params.project_id / "registry.db"
 
     write_build_metadata(
@@ -81,11 +86,11 @@ def test_write_build_metadata_snapshots_params(tmp_path) -> None:
         snapshots = session.exec(select(ParameterSnapshot).where(ParameterSnapshot.build_id == "build-1")).all()
         snapshot_names = {snapshot.name for snapshot in snapshots}
 
-    assert snapshot_names == {field.name for field in fields(ChassisParams)}
+    assert snapshot_names == {field.name for field in fields(ExampleParams)}
 
 
 def test_write_active_cache_upserts_current_component_snapshot(tmp_path) -> None:
-    params = ChassisParams()
+    params = ExampleParams()
     db_path = tmp_path / params.project_id / "registry.db"
     definition = PartDefinition(
         id="sample",
@@ -114,7 +119,7 @@ def test_write_active_cache_upserts_current_component_snapshot(tmp_path) -> None
     assert component is not None
     assert component.module_id == "module"
     assert component.role == "printable"
-    assert component.step_path == "b3/exports/step/module/sample.step"
+    assert component.step_path == "flow_example/exports/step/module/sample.step"
     assert component.volume_mm3 == 42.0
     assert (component.bbox_x, component.bbox_y, component.bbox_z) == (1.0, 2.0, 3.0)
     assert component.build_id == "build-2"

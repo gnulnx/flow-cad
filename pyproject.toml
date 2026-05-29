@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flow-cad"
 version = "0.1.0"
-description = "Parametric CAD and validation helpers for the B3/flow balance bot chassis"
+description = "Reusable project-local CAD workbench, viewer, exporters, and validation runtime"
 requires-python = ">=3.11"
 dependencies = [
     "build123d",

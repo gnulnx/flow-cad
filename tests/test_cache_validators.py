@@ -1,23 +1,26 @@
 from __future__ import annotations
-import pytest
+from dataclasses import dataclass
 from pathlib import Path
-from sqlmodel import Session, select
-from flow_cad.params import ChassisParams
-from flow_cad.registry import PartDefinition, PartRole
+
 from flow_cad.core.cache import (
-    create_cache_engine,
     get_component_cache,
     list_component_cache,
     latest_build_metadata,
     write_active_cache,
 )
+from flow_cad.core.metadata import PartDefinition, PartRole
+
+
+@dataclass(frozen=True)
+class ExampleParams:
+    project_id: str = "flow_example"
 
 def test_validators_can_consume_cache(tmp_path) -> None:
     """
     Verify that validation scripts can use the active cache to retrieve 
     compiled facts without needing to re-evaluate geometry.
     """
-    params = ChassisParams()
+    params = ExampleParams()
     db_path = tmp_path / params.project_id / "registry.db"
 
     # Mock a build with known values
@@ -61,7 +64,7 @@ def test_validators_detect_stale_cache(tmp_path) -> None:
     """
     Verify that validators can detect when the cache is stale relative to source.
     """
-    params = ChassisParams()
+    params = ExampleParams()
     db_path = tmp_path / params.project_id / "registry.db"
 
     # Build 1: old geometry
@@ -86,13 +89,11 @@ def test_validators_detect_stale_cache(tmp_path) -> None:
     assert latest is not None
     assert latest.build_id == "new-build"
 
-def test_cache_contains_all_registry_parts(tmp_path) -> None:
+def test_cache_contains_all_given_parts(tmp_path) -> None:
     """
     Verify that the cache contains exactly what's in the registry after a build.
     """
-    from flow_cad.registry import REGISTRY, PartDefinition
-
-    params = ChassisParams()
+    params = ExampleParams()
     db_path = tmp_path / params.project_id / "registry.db"
 
     # Mock shapes for all registered parts
@@ -104,9 +105,13 @@ def test_cache_contains_all_registry_parts(tmp_path) -> None:
         "volume": 1.0,
     })
 
+    definitions = [
+        PartDefinition("alpha", "test", "alpha.step", lambda _params: None),
+        PartDefinition("beta", "test", "beta.step", lambda _params: None),
+    ]
     components: list[tuple[PartDefinition, object, Path]] = [
-        (def_obj, mock_shape(), tmp_path / f"{def_obj.filename}")
-        for def_obj in REGISTRY.values()
+        (definition, mock_shape(), tmp_path / f"{definition.filename}")
+        for definition in definitions
     ]
 
     write_active_cache(
@@ -117,4 +122,4 @@ def test_cache_contains_all_registry_parts(tmp_path) -> None:
     )
 
     cached = {c.id for c in list_component_cache(db_path)}
-    assert cached == set(REGISTRY.keys())
+    assert cached == {definition.id for definition in definitions}

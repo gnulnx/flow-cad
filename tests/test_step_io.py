@@ -37,7 +37,7 @@ def test_normalize_step_file_replaces_labeled_model_timestamp(tmp_path: Path) ->
             [
                 "ISO-10303-21;",
                 "HEADER;",
-                "FILE_NAME('b3_lower_chassis_assembly','2026-05-20T06:24:54',('Author'),(",
+                "FILE_NAME('flow_example_assembly','2026-05-20T06:24:54',('Author'),(",
                 "    'Open CASCADE'),'Open CASCADE STEP processor 7.8','build123d',",
                 "  'Unknown');",
                 "DATA;",
@@ -51,7 +51,7 @@ def test_normalize_step_file_replaces_labeled_model_timestamp(tmp_path: Path) ->
 
     text = step_file.read_text(encoding="utf-8")
     assert changed is True
-    assert "FILE_NAME('b3_lower_chassis_assembly','2000-01-01T00:00:00'" in text
+    assert "FILE_NAME('flow_example_assembly','2000-01-01T00:00:00'" in text
     assert "2026-05-20T06:24:54" not in text
 
 
@@ -62,7 +62,7 @@ def test_normalize_step_file_replaces_wrapped_filename_timestamp(tmp_path: Path)
             [
                 "ISO-10303-21;",
                 "HEADER;",
-                "FILE_NAME('erb_lower_chassis_rear_panel_detachable',",
+                "FILE_NAME('flow_example_wrapped_part',",
                 "  '2026-05-20T07:17:42',('Author'),('Open CASCADE'),",
                 "  'Open CASCADE STEP processor 7.8','build123d','Unknown');",
                 "DATA;",

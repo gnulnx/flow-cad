@@ -24,7 +24,7 @@ def test_export_part_snapshots(tmp_path: Path) -> None:
         shape=shape,
         part_id="test_part",
         output_dir=tmp_path,
-        metadata={"Project": "B3-Test"}
+        metadata={"Project": "Flow-Test"}
     )
     
     assert "top" in saved_paths
@@ -46,4 +46,4 @@ def test_export_part_snapshots(tmp_path: Path) -> None:
         assert "Part ID: test_part" in content
         assert f"View: {view_name}" in content
         assert "Dimensions (X, Y, Z): 15.00 x 25.00 x 35.00 mm" in content
-        assert "Project: B3-Test" in content
+        assert "Project: Flow-Test" in content
