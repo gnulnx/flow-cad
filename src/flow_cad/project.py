@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import shutil
 import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from flow_cad.core.metadata import PartDefinition, PartRole
 
 PROJECT_MANIFEST = "flowcad.project.yaml"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE_SKILLS_DIR = PROJECT_ROOT / "skills"
 
 
 class ProjectError(RuntimeError):
@@ -244,6 +246,7 @@ def init_project(project_root: Path, *, force: bool = False) -> list[Path]:
         flow_dir / "parts",
         flow_dir / "assemblies",
         flow_dir / "validators",
+        root / "skills",
         root / ".flow",
         root / "docs",
         root / "exports",
@@ -271,6 +274,7 @@ def init_project(project_root: Path, *, force: bool = False) -> list[Path]:
             continue
         _write_file(path, content, created_or_updated)
 
+    _copy_template_skills(root / "skills", created_or_updated, force=force)
     _ensure_gitignore(root / ".gitignore", [".flow/", "__pycache__/", "*.pyc"])
     created_or_updated.append(root / ".gitignore")
     return created_or_updated
@@ -381,6 +385,22 @@ def _write_file(path: Path, content: str, changed: list[Path]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     changed.append(path)
+
+
+def _copy_template_skills(dest_root: Path, changed: list[Path], *, force: bool) -> None:
+    if not TEMPLATE_SKILLS_DIR.exists():
+        return
+
+    for source in sorted(TEMPLATE_SKILLS_DIR.iterdir()):
+        if not source.is_dir():
+            continue
+        dest = dest_root / source.name
+        if dest.exists() and not force:
+            continue
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(source, dest)
+        changed.append(dest)
 
 
 def _ensure_gitignore(path: Path, entries: list[str]) -> None:

@@ -17,6 +17,7 @@ The repo is authoritative. The workstation is normally the heavy CAD generation 
 - Active cache schema: `src/flow_cad/core/cache.py`
 - Active mating-interface registry: `docs/PART_INTERFACES.md`
 - Active print handoff manifest: `docs/PRINT_MANIFEST.md`
+- Bundled project skills: `skills/`
 - Generated STEP outputs: `b3/exports/step/`
 - Generated Hand-off bundle: `handoff/exports.tar.gz`
 - Validation reports: `b3/reports/`
@@ -48,6 +49,15 @@ Keep the repo portable across workstation and laptop.
 - If an optional dependency is missing, fail with a clear message explaining exactly what to install or which variable to set.
 
 ## Standard Commands
+
+Initialize a new Flow CAD project:
+
+```bash
+flow init
+```
+
+`flow init` copies bundled skills from this repo's `skills/` directory into the
+new project. Keep those bundled skills generic enough for any Flow CAD project.
 
 Generate the active chassis STEP files and handoff bundle:
  
@@ -115,6 +125,33 @@ Before claiming a printable CAD change is ready, run the relevant checks:
 - Run `scripts/report_axle_insert_dimensions.py` for axle washer-tab relief or insert geometry changes when FreeCAD is available.
 
 If a command cannot be run because dependencies are missing, say so explicitly and include the command that should be run on the configured machine.
+
+## Skill Ownership
+
+This repo should grow reusable agent skills that make Flow CAD work more
+reliable across projects. Add or update a skill in `skills/` when the guidance
+is about Flow CAD runtime/tooling behavior rather than one robot's geometry.
+
+Put these in Flow CAD `skills/`:
+
+- Build, export, viewer, reload, active-cache, and handoff workflow.
+- Generic placement-review and validator patterns.
+- Generic STEP/STL/manifest/cache troubleshooting.
+- Reusable instructions for creating project validators.
+- Cross-project CAD agent workflow that `flow init` should copy everywhere.
+
+Put these in project-local `skills/`:
+
+- Product or robot-specific part families and mating contracts.
+- Project-specific coordinate conventions beyond the generic Flow CAD frame.
+- Hardware-specific washer/nut/insert/sensor/actuator access rules.
+- Print profiles, material choices, handoff bundles, and shop-specific checks.
+- Repeated repair workflows whose facts live in that project source/docs.
+
+When a local project skill becomes useful to multiple Flow CAD projects, promote
+the generic portion into this repo's `skills/`, keep the project-specific
+contract locally, and add a focused test that `flow init` copies the promoted
+skill.
 
 ## CAD Interface Change Protocol
 
