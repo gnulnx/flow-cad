@@ -78,21 +78,36 @@ body {
 
 .parts-panel {
   right: 24px;
-  width: min(330px, calc(100vw - 48px));
+  width: min(360px, calc(100vw - 48px));
 }
 
 .source-panel {
   left: 24px;
-  width: min(430px, calc(100vw - 48px));
+  width: min(640px, calc(100vw - 48px));
 }
 
 .panel-title {
+  display: block;
+  width: 100%;
   padding: 10px 12px;
+  background: transparent;
   color: var(--accent);
   border-bottom: 1px solid var(--border);
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
+  text-align: left;
+}
+
+.panel-toggle {
+  cursor: pointer;
+}
+
+.panel-collapsed {
+  width: 150px;
 }
 
 .parts-list {

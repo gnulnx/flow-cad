@@ -20,6 +20,7 @@ export interface ViewerPart {
   source_url: string
   occurrences: ViewerOccurrence[]
   in_assembly: boolean
+  default_visible: boolean
 }
 
 export interface SourceContext {

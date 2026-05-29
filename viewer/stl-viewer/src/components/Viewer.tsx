@@ -103,7 +103,7 @@ function SceneContent({ models, activeName, onActiveNameChange, fitRequest }: Vi
     camera.updateProjectionMatrix()
     controlsRef.current?.target.copy(center)
     controlsRef.current?.update()
-  }, [camera, fitRequest, models])
+  }, [camera, fitRequest])
 
   return (
     <>

@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from flow_cad.core.assembly import get_assembly_placements
 from flow_cad.params import ChassisParams
+from flow_cad.parts.wheel_box.prototype import wheel_box_axle_center_z, wheel_box_outer_size
 from flow_cad.registry import PartDefinition, iter_part_definitions
 
 
@@ -103,7 +104,15 @@ class ViewerService:
 
     def list_parts(self) -> dict[str, Any]:
         placement_map = self._placement_map()
-        parts = [self._part_payload(definition, placement_map.get(definition.id, [])) for definition in iter_part_definitions()]
+        default_visible_ids = self._default_visible_part_keys()
+        parts = [
+            self._part_payload(
+                definition,
+                placement_map.get(definition.id, []),
+                default_visible=definition.id in default_visible_ids,
+            )
+            for definition in iter_part_definitions()
+        ]
         return {
             "project_id": self.params.project_id,
             "revision": self.revision,
@@ -149,7 +158,7 @@ class ViewerService:
             "excerpt": excerpt,
         }
 
-    def _part_payload(self, definition: PartDefinition, occurrences: list[dict[str, Any]]) -> dict[str, Any]:
+    def _part_payload(self, definition: PartDefinition, occurrences: list[dict[str, Any]], *, default_visible: bool) -> dict[str, Any]:
         artifact = self._artifact(definition)
         source_format = artifact.source_format if artifact is not None else None
         artifact_path = _relative_path(artifact.path, self.project_root) if artifact is not None else None
@@ -172,6 +181,7 @@ class ViewerService:
             "source_url": f"/api/parts/{definition.id}/source",
             "occurrences": occurrences or [self._identity_occurrence(definition.id)],
             "in_assembly": bool(occurrences),
+            "default_visible": default_visible,
         }
 
     def _artifact(self, definition: PartDefinition) -> Artifact | None:
@@ -214,7 +224,26 @@ class ViewerService:
                     "rotation": _as_float_tuple(placement["rotation"]),
                 }
             )
+        placement_map.update(self._viewer_only_placements())
         return placement_map
+
+    def _default_visible_part_keys(self) -> set[str]:
+        return {
+            placement["part_key"]
+            for placement in get_assembly_placements(self.params, include_references=True)
+        }
+
+    def _viewer_only_placements(self) -> dict[str, list[dict[str, Any]]]:
+        wheel_box_outer_x = wheel_box_outer_size(self.params)[0]
+        return {
+            "wheel_box_tight_insert": [
+                {
+                    "name": "wheel_box_tight_insert",
+                    "location": [-wheel_box_outer_x / 2.0, 0.0, wheel_box_axle_center_z(self.params)],
+                    "rotation": [0.0, 0.0, 0.0],
+                }
+            ],
+        }
 
     @staticmethod
     def _identity_occurrence(component_id: str) -> dict[str, Any]:

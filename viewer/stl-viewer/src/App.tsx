@@ -41,6 +41,8 @@ export default function App() {
   const [sourceContext, setSourceContext] = useState<SourceContext | null>(null)
   const [statusMessage, setStatusMessage] = useState('Loading viewer state...')
   const backendRevisionRef = useRef<number | null>(null)
+  const [sourceCollapsed, setSourceCollapsed] = useState(false)
+  const [partsCollapsed, setPartsCollapsed] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [fitRequest, setFitRequest] = useState(0)
 
@@ -100,7 +102,7 @@ export default function App() {
       const availableIds = new Set(payload.parts.map((part) => part.id))
       const kept = prev.filter((id) => availableIds.has(id))
       if (kept.length) return kept
-      const assembledIds = payload.parts.filter((part) => part.in_assembly).map((part) => part.id)
+      const assembledIds = payload.parts.filter((part) => part.default_visible).map((part) => part.id)
       return assembledIds.length ? assembledIds : payload.parts.map((part) => part.id)
     })
 
@@ -289,7 +291,6 @@ export default function App() {
       return [...prev, partId]
     })
     setActiveName(partId)
-    setFitRequest((value) => value + 1)
   }, [])
 
   const visibleModels = useMemo(
@@ -309,12 +310,19 @@ export default function App() {
         }}
         statusMessage={statusMessage}
       />
-      <SourcePanel context={sourceContext} activeId={activeName} />
+      <SourcePanel
+        context={sourceContext}
+        activeId={activeName}
+        collapsed={sourceCollapsed}
+        onToggle={() => setSourceCollapsed((value) => !value)}
+      />
       <ModelList
         parts={parts}
         selectedIds={selectedIds}
         activeId={activeName}
         onActivate={handlePartActivate}
+        collapsed={partsCollapsed}
+        onToggle={() => setPartsCollapsed((value) => !value)}
       />
       <FileDropZone
         onDrop={handleDrop}

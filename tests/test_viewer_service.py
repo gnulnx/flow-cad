@@ -36,7 +36,25 @@ def test_viewer_service_lists_registry_parts_and_prefers_step(tmp_path) -> None:
     assert part["artifact_path"] == "b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step"
     assert part["direct_stl_path"] == "b3/exports/stl/lower_chassis/b3_lower_chassis_left_side_plate.stl"
     assert part["in_assembly"] is True
+    assert part["default_visible"] is True
     assert part["occurrences"][0]["location"][0] < 0
+
+
+def test_viewer_service_places_wheel_box_tight_insert_in_body_frame(tmp_path) -> None:
+    _write_step(tmp_path, "wheel_box", "b3_wheel_box_tight_insert.step")
+
+    service = ViewerService(tmp_path)
+    part = next(part for part in service.list_parts()["parts"] if part["id"] == "wheel_box_tight_insert")
+
+    assert part["in_assembly"] is True
+    assert part["default_visible"] is False
+    assert part["occurrences"] == [
+        {
+            "name": "wheel_box_tight_insert",
+            "location": [-76.0, 0.0, 49.8],
+            "rotation": [0.0, 0.0, 0.0],
+        }
+    ]
 
 
 def test_viewer_service_serves_direct_stl_when_no_step_exists(tmp_path) -> None:
