@@ -302,11 +302,24 @@ def make_top_lid(params: ChassisParams):
     w = params.top_lid_width
     d = params.top_lid_depth
     t = params.top_lid_thickness
+    lip_height = 4.0
     screw_x = params.center_box_outer_width / 2.0 - 18.0
+    switch_x = params.top_lid_switch_center_x
+    switch_y = params.top_lid_switch_center_y
+    switch_pocket_size = params.push_button_recess_test_pocket_size
+    switch_bottom_z = -lip_height
+    switch_top_z = t
+    switch_total_thickness = switch_top_z - switch_bottom_z
+    switch_mounting_thickness = min(
+        params.push_button_recess_test_mounting_thickness,
+        switch_total_thickness,
+    )
+    switch_mounting_top_z = switch_bottom_z + switch_mounting_thickness
+    switch_pocket_depth = switch_top_z - switch_mounting_top_z
     lid = box_at((w, d, t), (0.0, 0.0, t / 2.0))
 
     # Underside locating lip
-    lid += box_at((params.internal_width - 4.0, params.internal_depth - 10.0, 4.0), (0.0, 0.0, -2.0))
+    lid += box_at((params.internal_width - 4.0, params.internal_depth - 10.0, lip_height), (0.0, 0.0, -lip_height / 2.0))
 
     # M4 service screws and top-side counterbores.
     for x in (-screw_x, screw_x):
@@ -316,7 +329,57 @@ def make_top_lid(params: ChassisParams):
     for y in (-48.0, 0.0, 48.0):
         lid -= box_at((112.0, 9.0, 18.0), (0.0, y, t / 2.0))
 
+    for x in (-params.top_lid_handle_center_x_abs, params.top_lid_handle_center_x_abs):
+        for y in (
+            -params.top_lid_handle_screw_spacing_y / 2.0,
+            params.top_lid_handle_screw_spacing_y / 2.0,
+        ):
+            lid -= cyl_z(params.m5_clearance_diameter / 2.0, 18.0, (x, y, t / 2.0))
+
+    if switch_pocket_depth > 0.0:
+        lid -= box_at(
+            (switch_pocket_size, switch_pocket_size, switch_pocket_depth + 0.2),
+            (
+                switch_x,
+                switch_y,
+                switch_mounting_top_z + switch_pocket_depth / 2.0 + 0.1,
+            ),
+        )
+    lid -= cyl_z(
+        params.push_button_test_hole_diameter / 2.0,
+        switch_total_thickness + 4.0,
+        (switch_x, switch_y, (switch_bottom_z + switch_top_z) / 2.0),
+    )
+
     return safe_chamfer(lid, 0.6)
+
+def make_lid_handle(params: ChassisParams):
+    foot_w = params.lid_handle_foot_width
+    foot_l = params.lid_handle_foot_length
+    foot_h = params.lid_handle_foot_height
+    grip_w = params.lid_handle_grip_width
+    grip_l = params.lid_handle_grip_length
+    grip_h = params.lid_handle_grip_height
+    post_l = params.lid_handle_post_length
+    total_h = params.lid_handle_total_height
+    screw_y = params.top_lid_handle_screw_spacing_y / 2.0
+    post_h = total_h - foot_h - grip_h / 2.0
+
+    handle_shapes = [box_at((grip_w, grip_l, grip_h), (0.0, 0.0, total_h - grip_h / 2.0))]
+    for y in (-screw_y, screw_y):
+        handle_shapes.append(box_at((foot_w, foot_l, foot_h), (0.0, y, foot_h / 2.0)))
+        handle_shapes.append(box_at((grip_w, post_l, post_h), (0.0, y, foot_h + post_h / 2.0)))
+
+    handle = fused_shapes(*handle_shapes)
+    for y in (-screw_y, screw_y):
+        handle -= cyl_z(params.m5_clearance_diameter / 2.0, total_h + 4.0, (0.0, y, total_h / 2.0))
+        handle -= cyl_z(
+            params.m5_washer_counterbore_diameter / 2.0,
+            3.0,
+            (0.0, y, total_h - 1.5),
+        )
+
+    return safe_chamfer(handle, 0.8)
 
 def make_simple_mounting_plate(params: ChassisParams):
     w = params.simple_mounting_plate_width

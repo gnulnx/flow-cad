@@ -31,6 +31,6 @@ export default defineConfig({
   ],
   server: {
     port: 3000,
-    open: true,
+    open: process.env.FLOW_CAD_NO_VITE_OPEN === '1' ? false : true,
   },
 })

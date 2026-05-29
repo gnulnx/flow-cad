@@ -4,8 +4,10 @@ from flow_cad.params import ChassisParams
 from flow_cad.parts.panels import (
     REAR_SLIDE_TONGUE_LEAD_IN,
     box_at,
+    make_rear_bumpout_shell_entry_relief_cut,
     make_rear_panel_detachable_body,
     make_rear_panel_detachable_bumpout_shell,
+    make_rear_slide_entry_relief_cut,
     make_rear_slide_receiver,
     panel_end_span_rib_depth,
 )
@@ -58,8 +60,11 @@ def test_detachable_rear_tpu_head_contract():
     assert P.rear_slide_tpu_head_width == 8.0
     assert P.rear_slide_head_depth == 2.3
     assert P.rear_slide_tpu_head_depth == 1.75
+    assert P.rear_slide_entry_relief_height == 7.0
+    assert P.rear_slide_entry_relief_clearance == 0.35
     assert P.rear_slide_neck_width < P.rear_slide_tpu_head_width < P.rear_slide_head_width
     assert 0.0 < P.rear_slide_tpu_head_depth < P.rear_slide_head_depth
+    assert P.rear_slide_entry_relief_height > P.rear_slide_stop_height
     assert P.rear_slide_outer_weld_width == 10.0
     assert P.rear_slide_outer_weld_depth == 10.0
     assert P.rear_slide_outer_weld_overlap > 0.0
@@ -122,3 +127,68 @@ def test_detachable_rear_receiver_roots_are_connected_without_blocking_head_slot
             box_at((1.0, 1.0, 20.0), (rail_x, head_probe_y, 120.0))
         )
         assert _shape_volume(head_channel) == pytest.approx(0.0, abs=1e-6)
+
+        entry_channel = receiver.intersect(
+            box_at(
+                (1.0, 1.0, 1.0),
+                (
+                    rail_x,
+                    head_probe_y,
+                    P.rear_slide_channel_z_min - P.rear_slide_stop_height / 2.0,
+                ),
+            )
+        )
+        assert _shape_volume(entry_channel) == pytest.approx(0.0, abs=1e-6)
+
+        body_entry_channel = body.intersect(
+            box_at(
+                (1.0, 1.0, 1.0),
+                (
+                    rail_x,
+                    head_probe_y,
+                    P.rear_slide_channel_z_min - P.rear_slide_stop_height / 2.0,
+                ),
+            )
+        )
+        assert _shape_volume(body_entry_channel) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_detachable_rear_entry_relief_cuts_through_panel_skin():
+    body = make_rear_panel_detachable_body(P)
+    for rail_x in (-P.rear_slide_rail_x, P.rear_slide_rail_x):
+        relief = make_rear_slide_entry_relief_cut(P, rail_x)
+        assert _shape_volume(body.intersect(relief)) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_detachable_rear_bumpout_shell_has_visible_entry_reliefs():
+    shell = make_rear_panel_detachable_bumpout_shell(P)
+    for rail_x in (-P.rear_slide_rail_x, P.rear_slide_rail_x):
+        side_probe = box_at(
+            (
+                1.0,
+                P.rear_bumpout_wall_thickness,
+                P.rear_slide_entry_relief_height,
+            ),
+            (
+                rail_x + P.rear_slide_head_width / 2.0 + P.rear_slide_channel_wall / 2.0,
+                P.rear_bumpout_detachable_base_gap + P.rear_bumpout_wall_thickness / 2.0,
+                P.rear_slide_channel_z_min,
+            ),
+        )
+        assert _shape_volume(shell.intersect(side_probe)) == pytest.approx(0.0, abs=1e-6)
+
+        head_probe = box_at(
+            (
+                P.rear_slide_head_width - 1.0,
+                P.rear_slide_head_depth - 0.5,
+                4.0,
+            ),
+            (
+                rail_x,
+                P.rear_bumpout_detachable_base_gap
+                - REAR_SLIDE_TONGUE_LEAD_IN
+                + P.rear_slide_head_depth / 2.0,
+                P.rear_slide_channel_z_min + 2.0,
+            ),
+        )
+        assert _shape_volume(shell.intersect(head_probe)) > 10.0

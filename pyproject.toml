@@ -9,8 +9,10 @@ description = "Parametric CAD and validation helpers for the B3/flow balance bot
 requires-python = ">=3.11"
 dependencies = [
     "build123d",
+    "fastapi",
     "rich-click",
     "sqlmodel",
+    "uvicorn",
     # Local BLC orchestrator (for multi-agent workflows)
     "blc @ file:///home/gnulnx/BaseLayerCouncil",
 ]

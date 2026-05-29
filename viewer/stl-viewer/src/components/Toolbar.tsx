@@ -1,8 +1,10 @@
 interface ToolbarProps {
   onFitToView: () => void
+  onReload: () => void
+  statusMessage: string
 }
 
-export default function Toolbar({ onFitToView }: ToolbarProps) {
+export default function Toolbar({ onFitToView, onReload, statusMessage }: ToolbarProps) {
   return (
     <div className="viewer-toolbar" style={{
       padding: '10px 16px',
@@ -16,7 +18,17 @@ export default function Toolbar({ onFitToView }: ToolbarProps) {
       flexShrink: 0,
     }}>
       <h1 style={{ fontSize: '15px', fontWeight: 600, color: '#e94560', flex: '1 1 190px' }}>ErB Balance Bot — 3D Viewer</h1>
+      <div className="toolbar-status">{statusMessage}</div>
       <div className="viewer-toolbar-actions" style={{ display: 'flex', gap: '8px', flex: '0 0 auto' }}>
+        <button onClick={onReload} style={{
+          background: '#0f3460',
+          color: '#e0e0e0',
+          border: '1px solid #1a5276',
+          padding: '6px 14px',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontSize: '12px',
+        }}>Reload</button>
         <button onClick={onFitToView} style={{
           background: '#0f3460',
           color: '#e0e0e0',

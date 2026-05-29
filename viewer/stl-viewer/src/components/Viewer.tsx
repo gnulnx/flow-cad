@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, Grid } from '@react-three/drei'
-import type { ModelData } from '../types'
+import type { ModelData, ViewerOccurrence } from '../types'
 import * as THREE from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 
@@ -10,6 +10,21 @@ interface ViewerProps {
   activeName: string | null
   onActiveNameChange: (name: string | null) => void
   fitRequest: number
+}
+
+function occurrenceRotation(occurrence: ViewerOccurrence): [number, number, number] {
+  return [
+    THREE.MathUtils.degToRad(occurrence.rotation[0]),
+    THREE.MathUtils.degToRad(occurrence.rotation[1]),
+    THREE.MathUtils.degToRad(occurrence.rotation[2]),
+  ]
+}
+
+function occurrenceMatrix(occurrence: ViewerOccurrence) {
+  const position = new THREE.Vector3(...occurrence.location)
+  const rotation = occurrenceRotation(occurrence)
+  const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2]))
+  return new THREE.Matrix4().compose(position, quaternion, new THREE.Vector3(1, 1, 1))
 }
 
 function ModelComponent({ model, isActive, onClick }: { model: ModelData; isActive: boolean; onClick: (name: string) => void }) {
@@ -21,18 +36,28 @@ function ModelComponent({ model, isActive, onClick }: { model: ModelData; isActi
 
   return (
     <group>
-      <mesh geometry={model.geometry} onClick={() => onClick(model.name)}>
-        <meshStandardMaterial
-          color={isActive ? model.color : '#8d99ae'}
-          metalness={0.15}
-          roughness={0.6}
-          emissive={isActive ? '#17324a' : '#000000'}
-          emissiveIntensity={isActive ? 0.25 : 0}
-        />
-      </mesh>
-      <lineSegments geometry={edgeGeometry}>
-        <lineBasicMaterial color={model.wireframeColor} />
-      </lineSegments>
+      {model.occurrences.map((occurrence) => (
+        <group key={occurrence.name} position={occurrence.location} rotation={occurrenceRotation(occurrence)}>
+          <mesh
+            geometry={model.geometry}
+            onClick={(event) => {
+              event.stopPropagation()
+              onClick(model.partId)
+            }}
+          >
+            <meshStandardMaterial
+              color={isActive ? model.color : '#8d99ae'}
+              metalness={0.15}
+              roughness={0.6}
+              emissive={isActive ? '#17324a' : '#000000'}
+              emissiveIntensity={isActive ? 0.25 : 0}
+            />
+          </mesh>
+          <lineSegments geometry={edgeGeometry}>
+            <lineBasicMaterial color={model.wireframeColor} />
+          </lineSegments>
+        </group>
+      ))}
     </group>
   )
 }
@@ -59,14 +84,16 @@ function SceneContent({ models, activeName, onActiveNameChange, fitRequest }: Vi
     models.forEach((model) => {
       model.geometry.computeBoundingBox()
       if (model.geometry.boundingBox) {
-        box.union(model.geometry.boundingBox)
+        model.occurrences.forEach((occurrence) => {
+          box.union(model.geometry.boundingBox!.clone().applyMatrix4(occurrenceMatrix(occurrence)))
+        })
       }
     })
 
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
     const maxDim = Math.max(size.x, size.y, size.z, 1)
-    const distance = (maxDim / (2 * Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov / 2)))) * 1.45
+    const distance = (maxDim / (2 * Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov / 2)))) * 1.85
     const viewDirection = new THREE.Vector3(1, 0.9, 1).normalize()
 
     perspectiveCamera.position.copy(center).addScaledVector(viewDirection, distance)
@@ -94,7 +121,7 @@ function SceneContent({ models, activeName, onActiveNameChange, fitRequest }: Vi
       />
       <axesHelper args={[70]} />
       {models.map((model) => (
-        <ModelComponent key={model.name} model={model} isActive={model.name === activeName} onClick={onActiveNameChange} />
+        <ModelComponent key={model.partId} model={model} isActive={model.partId === activeName} onClick={onActiveNameChange} />
       ))}
       <OrbitControls ref={controlsRef} enableDamping dampingFactor={0.08} makeDefault />
     </>
@@ -109,8 +136,7 @@ export default function Viewer(props: ViewerProps) {
       </Canvas>
       {props.models.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-title">Drop STL files here</div>
-          <div className="empty-state-subtitle">or use Open File</div>
+          <div className="empty-state-title">No visible parts</div>
         </div>
       ) : null}
     </div>

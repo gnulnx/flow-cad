@@ -71,7 +71,7 @@ def bbox_dims(shape) -> tuple[float, float, float]:
     bb = shape.bounding_box()
     return (bb.max.X - bb.min.X, bb.max.Y - bb.min.Y, bb.max.Z - bb.min.Z)
 
-def get_assembly_occurrences(params: ChassisParams, parts: dict[str, object], include_references: bool = False):
+def get_assembly_placements(params: ChassisParams, include_references: bool = False):
     UPPER_SHELF_TOP_Z = params.shelf_z_levels[1] + params.shelf_thickness
     THIRD_SHELF_Z = UPPER_SHELF_TOP_Z + params.shelf_spacer_block_height
 
@@ -103,10 +103,25 @@ def get_assembly_occurrences(params: ChassisParams, parts: dict[str, object], in
             ("reference_axle_pair", "reference_axle_pair", (0.0, 0.0, 0.0)),
         ])
 
+    return [
+        {
+            "name": placement[0],
+            "part_key": placement[1],
+            "location": placement[2],
+            "rotation": placement[3] if len(placement) > 3 else (0.0, 0.0, 0.0),
+        }
+        for placement in placements
+    ]
+
+
+def get_assembly_occurrences(params: ChassisParams, parts: dict[str, object], include_references: bool = False):
+    placements = get_assembly_placements(params, include_references)
     occurrences = []
     for placement in placements:
-        name, part_key, location = placement[:3]
-        rotation = placement[3] if len(placement) > 3 else (0.0, 0.0, 0.0)
+        name = placement["name"]
+        part_key = placement["part_key"]
+        location = placement["location"]
+        rotation = placement["rotation"]
         placed_shape = parts[part_key].moved(Location(location, rotation))
         occurrences.append({
             "name": name,

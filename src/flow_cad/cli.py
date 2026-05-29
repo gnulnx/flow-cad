@@ -2,6 +2,7 @@ from __future__ import annotations
 import rich_click as click
 from .main import cli as cad_cli
 from .registry_cli import registry as registry_cli
+from .viewer.cli import viewer as viewer_cli
 
 @click.group()
 def flow():
@@ -11,6 +12,7 @@ def flow():
 # Nest the CAD CLI under flow
 flow.add_command(cad_cli, name="cad")
 flow.add_command(registry_cli, name="registry")
+flow.add_command(viewer_cli, name="viewer")
 
 if __name__ == "__main__":
     flow()

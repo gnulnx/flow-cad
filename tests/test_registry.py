@@ -1,7 +1,15 @@
 from flow_cad.params import ChassisParams
 from pathlib import Path
 
-from flow_cad.registry import ASSEMBLY_DEFINITION, PART_DEFINITIONS, PartRole, REGISTRY, expected_step_relative_paths
+from flow_cad.registry import (
+    ASSEMBLY_DEFINITION,
+    PART_DEFINITIONS,
+    PartRole,
+    REGISTRY,
+    expected_printable_export_relative_paths,
+    expected_printable_step_relative_paths,
+    expected_step_relative_paths,
+)
 
 
 def test_registry_ids_and_export_paths_are_unique() -> None:
@@ -39,6 +47,9 @@ def test_registry_includes_expected_roles() -> None:
 
     assert PartRole.PRINTABLE in roles
     assert PartRole.REFERENCE in roles
+    assert REGISTRY["rear_panel_detachable"].role == PartRole.INSPECTION
+    assert REGISTRY["rear_panel_detachable_body"].role == PartRole.PRINTABLE
+    assert REGISTRY["rear_panel_detachable_bumpout"].role == PartRole.PRINTABLE
     assert ASSEMBLY_DEFINITION.role == PartRole.INSPECTION
 
 
@@ -48,3 +59,23 @@ def test_expected_step_relative_paths_include_parts_and_assembly() -> None:
     assert Path("step/lower_chassis/b3_lower_chassis_left_side_plate.step") in paths
     assert Path("step/lower_chassis/b3_lower_chassis_assembly.step") in paths
     assert len(paths) == len(PART_DEFINITIONS) + 1
+
+
+def test_expected_printable_step_relative_paths_exclude_inspection_previews() -> None:
+    paths = expected_printable_step_relative_paths()
+
+    assert Path("step/lower_chassis/b3_lower_chassis_rear_panel_detachable_body.step") in paths
+    assert Path("step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout.step") in paths
+    assert Path("step/lower_chassis/b3_lower_chassis_rear_panel_detachable.step") not in paths
+    assert Path("step/lower_chassis/b3_lower_chassis_assembly.step") not in paths
+
+
+def test_expected_printable_export_relative_paths_exclude_inspection_artifacts() -> None:
+    paths = expected_printable_export_relative_paths()
+
+    assert Path("step/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout.step") in paths
+    assert Path("stl/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout.stl") in paths
+    assert Path("snapshots/lower_chassis/b3_lower_chassis_rear_panel_detachable_bumpout_front.svg") in paths
+    assert Path("step/lower_chassis/b3_lower_chassis_rear_panel_detachable.step") not in paths
+    assert Path("stl/lower_chassis/b3_lower_chassis_rear_panel_detachable.stl") not in paths
+    assert Path("snapshots/lower_chassis/b3_lower_chassis_rear_panel_detachable_front.svg") not in paths
