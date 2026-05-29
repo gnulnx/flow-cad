@@ -29,3 +29,6 @@ addopts = "-ra"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["flow_cad*"]
+
+[tool.setuptools.package-data]
+flow_cad = ["bundled_projects/**/*.yaml"]

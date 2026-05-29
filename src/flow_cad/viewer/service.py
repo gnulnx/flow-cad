@@ -6,14 +6,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from flow_cad.core.assembly import get_assembly_placements
-from flow_cad.params import ChassisParams
-from flow_cad.parts.wheel_box.prototype import wheel_box_axle_center_z, wheel_box_outer_size
-from flow_cad.registry import PartDefinition, iter_part_definitions
+from flow_cad.project import FlowCadProject, load_project
+from flow_cad.registry import PartDefinition
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-REGISTRY_SOURCE_FILE = Path(inspect.getsourcefile(iter_part_definitions) or "").resolve()
 
 
 class ViewerError(RuntimeError):
@@ -58,9 +55,14 @@ def _source_file_for_callable(func: Callable[..., Any]) -> Path | None:
     return Path(source_file).resolve()
 
 
-def _resolve_source_callable(factory: Callable[..., Any]) -> Callable[..., Any]:
+def _resolve_source_callable(
+    factory: Callable[..., Any],
+    *,
+    wrapper_source_files: tuple[Path, ...] = (),
+) -> Callable[..., Any]:
     source_file = _source_file_for_callable(factory)
-    if getattr(factory, "__name__", "") != "<lambda>" and source_file != REGISTRY_SOURCE_FILE:
+    wrapper_files = {path.resolve() for path in wrapper_source_files}
+    if getattr(factory, "__name__", "") != "<lambda>" and source_file not in wrapper_files:
         return factory
 
     code = getattr(factory, "__code__", None)
@@ -72,7 +74,7 @@ def _resolve_source_callable(factory: Callable[..., Any]) -> Callable[..., Any]:
         candidate = globals_.get(name)
         if callable(candidate):
             candidate_source_file = _source_file_for_callable(candidate)
-            if candidate_source_file is not None and candidate_source_file != REGISTRY_SOURCE_FILE:
+            if candidate_source_file is not None and candidate_source_file not in wrapper_files:
                 return candidate
 
     return factory
@@ -104,24 +106,31 @@ class ViewerService:
         self,
         project_root: Path | None = None,
         *,
-        params: ChassisParams | None = None,
+        params: Any | None = None,
+        project: FlowCadProject | None = None,
         converter: Converter = convert_step_to_stl,
     ):
-        self.project_root = (project_root or PROJECT_ROOT).resolve()
-        self.params = params or ChassisParams()
+        self.project = project or load_project(project_root or Path.cwd())
+        self.project_root = self.project.root
+        self.params = params or self.project.make_params()
         self.converter = converter
         self.revision = 0
         self.reloaded_at: datetime | None = None
 
     @property
     def exports_dir(self) -> Path:
-        return self.project_root / self.params.project_id / "exports"
+        return self.project.paths.exports
 
     @property
     def viewer_cache_dir(self) -> Path:
-        return self.project_root / self.params.project_id / "viewer-cache"
+        if self.project.bundled_b3:
+            return self.project_root / self.params.project_id / "viewer-cache"
+        return self.project.paths.local_state / "viewer-cache"
 
     def reload(self) -> dict[str, Any]:
+        self.project = load_project(self.project_root)
+        self.project_root = self.project.root
+        self.params = self.project.make_params()
         self.revision += 1
         self.reloaded_at = datetime.now(UTC)
         return {
@@ -139,10 +148,10 @@ class ViewerService:
                 placement_map.get(definition.id, []),
                 default_visible=definition.id in default_visible_ids,
             )
-            for definition in iter_part_definitions()
+            for definition in self.project.iter_part_definitions()
         ]
         return {
-            "project_id": self.params.project_id,
+            "project_id": self.project.project_id,
             "revision": self.revision,
             "parts": parts,
         }
@@ -160,7 +169,10 @@ class ViewerService:
 
     def source_context(self, component_id: str, *, context_lines: int = 16) -> dict[str, Any]:
         definition = self._definition(component_id)
-        source_callable = _resolve_source_callable(definition.factory)
+        source_callable = _resolve_source_callable(
+            definition.factory,
+            wrapper_source_files=self.project.source_wrapper_files,
+        )
         try:
             source_file = Path(inspect.getsourcefile(source_callable) or "").resolve()
             lines, first_line = inspect.getsourcelines(source_callable)
@@ -234,7 +246,7 @@ class ViewerService:
         return artifact
 
     def _definition(self, component_id: str) -> PartDefinition:
-        for definition in iter_part_definitions():
+        for definition in self.project.iter_part_definitions():
             if definition.id == component_id:
                 return definition
         raise ArtifactNotFoundError(f"Component is not registered: {component_id}")
@@ -249,7 +261,7 @@ class ViewerService:
 
     def _placement_map(self) -> dict[str, list[dict[str, Any]]]:
         placement_map: dict[str, list[dict[str, Any]]] = {}
-        for placement in get_assembly_placements(self.params, include_references=True):
+        for placement in self.project.get_assembly_placements(self.params, include_references=True):
             part_key = placement["part_key"]
             placement_map.setdefault(part_key, []).append(
                 {
@@ -258,16 +270,19 @@ class ViewerService:
                     "rotation": _as_float_tuple(placement["rotation"]),
                 }
             )
-        placement_map.update(self._viewer_only_placements())
+        if self.project.bundled_b3:
+            placement_map.update(self._viewer_only_placements())
         return placement_map
 
     def _default_visible_part_keys(self) -> set[str]:
         return {
             placement["part_key"]
-            for placement in get_assembly_placements(self.params, include_references=True)
+            for placement in self.project.get_assembly_placements(self.params, include_references=True)
         }
 
     def _viewer_only_placements(self) -> dict[str, list[dict[str, Any]]]:
+        from flow_cad.parts.wheel_box.prototype import wheel_box_axle_center_z, wheel_box_outer_size
+
         wheel_box_outer_x, _wheel_box_outer_y, wheel_box_outer_z = wheel_box_outer_size(self.params)
         wheel_box_lid_t = self.params.wheel_box_lid_thickness
         return {

@@ -1,75 +1,8 @@
 from __future__ import annotations
-from build123d import Location, Compound, export_step, export_stl
-from pathlib import Path
+from build123d import Location, Compound
 from ..params import ChassisParams
 from .utils import bottom_cable_shelf_z
-from ..step_io import normalize_step_file
-
-class Exporter:
-    def __init__(self, project_root: Path, params: ChassisParams, enable_snapshots: bool = True, snapshots_only: bool = False):
-        self.project_root = project_root
-        self.params = params
-        self.step_dir = project_root / params.project_id / "exports" / "step"
-        self.stl_dir = project_root / params.project_id / "exports" / "stl"
-        self.report_dir = project_root / params.project_id / "reports"
-        self.snapshot_dir = project_root / params.project_id / "exports" / "snapshots"
-        self.enable_snapshots = enable_snapshots
-        self.snapshots_only = snapshots_only
-        self.snapshot_count = 0
-        self.step_dir.mkdir(parents=True, exist_ok=True)
-        self.stl_dir.mkdir(parents=True, exist_ok=True)
-        self.report_dir.mkdir(parents=True, exist_ok=True)
-        if self.enable_snapshots:
-            self.snapshot_dir.mkdir(parents=True, exist_ok=True)
-
-    def export(self, shape, filename: str, module_id: str | None = None, is_printable: bool = True) -> Path:
-        if module_id:
-            dest_dir = self.step_dir / module_id
-            stl_dest_dir = self.stl_dir / module_id
-        else:
-            dest_dir = self.step_dir
-            stl_dest_dir = self.stl_dir
-        path = dest_dir / filename
-
-        if not self.snapshots_only:
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            ok = export_step(shape, path)
-            if not ok:
-                raise RuntimeError(f"STEP export failed: {path}")
-            normalize_step_file(path)
-            
-            # Also export STL for quick viewing (no server needed)
-            stl_path = stl_dest_dir / filename.replace(".step", ".stl")
-            stl_dest_dir.mkdir(parents=True, exist_ok=True)
-            ok = export_stl(shape, stl_path)
-            if not ok:
-                raise RuntimeError(f"STL export failed: {stl_path}")
-
-        if self.enable_snapshots and is_printable:
-            if module_id:
-                snap_dest = self.snapshot_dir / module_id
-            else:
-                snap_dest = self.snapshot_dir
-            part_id = Path(filename).stem
-            from .snapshots import export_part_snapshots
-            snap_paths = export_part_snapshots(shape, part_id, snap_dest, metadata={"Project": self.params.project_id})
-            self.snapshot_count += len(snap_paths)
-
-        return path
-
-    def clear(self):
-        if self.step_dir.exists():
-            for path in self.step_dir.rglob("*.step"):
-                if path.is_file():
-                    path.unlink()
-        if self.stl_dir.exists():
-            for path in self.stl_dir.rglob("*.stl"):
-                if path.is_file():
-                    path.unlink()
-
-def bbox_dims(shape) -> tuple[float, float, float]:
-    bb = shape.bounding_box()
-    return (bb.max.X - bb.min.X, bb.max.Y - bb.min.Y, bb.max.Z - bb.min.Z)
+from .exporter import Exporter, bbox_dims
 
 def get_assembly_placements(params: ChassisParams, include_references: bool = False):
     UPPER_SHELF_TOP_Z = params.shelf_z_levels[1] + params.shelf_thickness

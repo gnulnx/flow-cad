@@ -5,21 +5,15 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-from flow_cad.params import ChassisParams
-from flow_cad.core.assembly import make_assembly, Exporter, bbox_dims
-from flow_cad.core.cache import registry_db_path, write_active_cache
+from flow_cad.core.exporter import Exporter
+from flow_cad.core.cache import write_active_cache
 from flow_cad.core.report import write_report
 from flow_cad.core.bundler import create_bundle
-from flow_cad.registry import (
-    ASSEMBLY_DEFINITION,
-    INSERT_VARIANTS,
-    build_registered_parts,
-    expected_printable_export_relative_paths,
-    iter_part_definitions,
-)
+from flow_cad.project import load_project
 
-def build_parts(params: ChassisParams):
-    return build_registered_parts(params)
+def build_parts(params):
+    project = load_project(Path.cwd())
+    return project.build_parts(params)
 
 def assert_printable(name: str, shape) -> None:
     bb = shape.bounding_box()
@@ -40,22 +34,31 @@ def cli():
 @click.option("--snapshots-only", is_flag=True, default=False, help="Only regenerate SVG snapshots without rebuilding STEP geometry.")
 def build(bundle, cache, snapshots, snapshots_only):
     """Build all chassis parts and export STEP files."""
-    params = ChassisParams()
-    params.validate_params()
+    project = load_project(Path.cwd())
+    params = project.make_params()
+    if hasattr(params, "validate_params"):
+        params.validate_params()
     
-    exporter = Exporter(PROJECT_ROOT, params, enable_snapshots=snapshots, snapshots_only=snapshots_only)
+    exporter = Exporter(
+        project.root,
+        params,
+        enable_snapshots=snapshots,
+        snapshots_only=snapshots_only,
+        exports_dir=project.paths.exports,
+        reports_dir=project.paths.reports,
+    )
     if not snapshots_only:
         exporter.clear()
     
-    parts = build_parts(params)
+    parts = project.build_parts(params)
     
-    for definition in iter_part_definitions():
+    for definition in project.iter_part_definitions():
         if definition.is_printable:
             assert_printable(definition.id, parts[definition.id])
             
     exported = []
     cache_components = []
-    for definition in iter_part_definitions():
+    for definition in project.iter_part_definitions():
         path = exporter.export(
             parts[definition.id],
             definition.filename,
@@ -65,23 +68,31 @@ def build(bundle, cache, snapshots, snapshots_only):
         exported.append(path)
         cache_components.append((definition, parts[definition.id], path))
         
-    parts["assembly"] = make_assembly(params, parts)
+    assembly_definition = project.assembly_definition
+    parts["assembly"] = project.make_assembly(params, parts)
     assembly_path = exporter.export(
         parts["assembly"],
-        ASSEMBLY_DEFINITION.filename,
-        module_id=ASSEMBLY_DEFINITION.module_id,
-        is_printable=ASSEMBLY_DEFINITION.is_printable
+        assembly_definition.filename,
+        module_id=assembly_definition.module_id,
+        is_printable=assembly_definition.is_printable
     )
     exported.append(assembly_path)
-    cache_components.append((ASSEMBLY_DEFINITION, parts["assembly"], assembly_path))
+    cache_components.append((assembly_definition, parts["assembly"], assembly_path))
     
-    report_path = write_report(params, parts, exported, exporter.report_dir, PROJECT_ROOT)
+    report_path = write_report(
+        params,
+        parts,
+        exported,
+        exporter.report_dir,
+        project.root,
+        printable_occurrences=project.get_assembly_occurrences(params, parts, include_references=False),
+    )
 
     if cache:
-        db_path = registry_db_path(PROJECT_ROOT, params)
+        db_path = project.paths.cache
         build_id = write_active_cache(
             db_path,
-            project_root=PROJECT_ROOT,
+            project_root=project.root,
             params=params,
             components=cache_components,
         )
@@ -95,12 +106,12 @@ def build(bundle, cache, snapshots, snapshots_only):
     click.echo(click.style(f"Wrote report to {report_path}", fg="green"))
 
     if bundle:
-        handoff_dir = PROJECT_ROOT / "handoff"
+        handoff_dir = project.root / "handoff"
         bundle_path = create_bundle(
             exporter.step_dir.parent,
             handoff_dir,
             "exports.tar.gz",
-            active_export_paths=expected_printable_export_relative_paths(),
+            active_export_paths=project.expected_printable_export_relative_paths(),
         )
         click.echo(click.style(f"Created exports handoff bundle: {bundle_path}", fg="cyan", bold=True))
 

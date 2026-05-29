@@ -6,15 +6,17 @@ import rich_click as click
 from rich.console import Console
 from rich.table import Table
 
-from flow_cad.core.cache import get_component_cache, latest_build_metadata, list_component_cache, registry_db_path
-from flow_cad.params import ChassisParams
+from flow_cad.core.cache import get_component_cache, latest_build_metadata, list_component_cache
+from flow_cad.project import bundled_b3_project, find_project_manifest, load_project
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _active_cache_path() -> Path:
-    return registry_db_path(PROJECT_ROOT, ChassisParams())
+    if find_project_manifest(Path.cwd()) is not None:
+        return load_project(Path.cwd(), fallback_to_bundled=False).paths.cache
+    return bundled_b3_project(PROJECT_ROOT).paths.cache
 
 
 def _require_cache() -> Path:
