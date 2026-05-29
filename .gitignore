@@ -1,3 +1,10 @@
+# Project specific ignores
+b3/exports/
+b3/reports/
+b3/registry.db
+b3/viewer-cache/
+handoff/
+
 # Python bytecode and cache
 *.pyc
 *.pyo
