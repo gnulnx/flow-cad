@@ -22,6 +22,38 @@ For a runtime-only editable install without test dependencies:
 python -m pip install -e .
 ```
 
+## Initialize A Project
+
+Create a new Flow CAD project layout in an existing repo:
+
+```bash
+flow init
+```
+
+`flow init` creates the project manifest, `flow/` source layout, docs stubs,
+local runtime directories, and a `skills/` directory. The bundled
+`skills/flow-cad-project/SKILL.md` is copied into the project so agents have a
+small workflow guide for build, viewer, placement, validation, and handoff work.
+
+## Agent Skills
+
+Flow CAD is intended to support LLM-first CAD workflows. Reusable skills that
+apply to every initialized Flow CAD project belong in this repo under
+`skills/`, and `flow init` copies them into project repos.
+
+Project-local skills belong in the project repo when they encode robot,
+fixture, product, or customer-specific geometry contracts. Good local skill
+topics include named part families, hardware access checks, print handoff
+rules, field calibration workflows, and project-specific validators.
+
+Use this split:
+
+- Put reusable build/viewer/cache/export/validator workflow in Flow CAD skills.
+- Put B3, arm, chassis, payload, customer, material, or printer-specific
+  contracts in the project repo's `skills/`.
+- When a local skill becomes broadly useful across Flow CAD projects, promote it
+  back to this repo and update `flow init` coverage/tests.
+
 Optional machine-specific tool paths can be set in the environment or in a local `.env` copied from `.env.example`:
 
 - `TEXT_TO_CAD_ROOT`

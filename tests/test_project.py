@@ -28,6 +28,7 @@ def test_init_project_creates_native_project_layout(tmp_path: Path) -> None:
     assert (tmp_path / "flow" / "parts" / "example.py").exists()
     assert (tmp_path / "flow" / "assemblies" / "robot.py").exists()
     assert (tmp_path / "flow" / "validators" / "project.py").exists()
+    assert (tmp_path / "skills" / "flow-cad-project" / "SKILL.md").exists()
     assert (tmp_path / ".flow").is_dir()
     assert ".flow/" in (tmp_path / ".gitignore").read_text()
 
