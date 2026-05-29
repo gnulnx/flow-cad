@@ -1,9 +1,15 @@
+from dataclasses import dataclass
+
 from click.testing import CliRunner
 
 from flow_cad.cli import flow
 from flow_cad.core.cache import write_active_cache
-from flow_cad.params import ChassisParams
-from flow_cad.registry import PartDefinition, PartRole
+from flow_cad.core.metadata import PartDefinition, PartRole
+
+
+@dataclass(frozen=True)
+class ExampleParams:
+    project_id: str = "flow_example"
 
 
 class _Point:
@@ -27,7 +33,7 @@ class _Shape:
 
 
 def _write_sample_cache(project_root):
-    params = ChassisParams()
+    params = ExampleParams()
     definition = PartDefinition(
         id="sample_part",
         module_id="lower_chassis",
@@ -36,14 +42,14 @@ def _write_sample_cache(project_root):
         role=PartRole.PRINTABLE,
     )
     return write_active_cache(
-        project_root / params.project_id / "registry.db",
+        project_root / "example" / "registry.db",
         project_root=project_root,
         params=params,
         components=[
             (
                 definition,
                 _Shape(),
-                project_root / params.project_id / "exports" / "step" / "lower_chassis" / "sample_part.step",
+                project_root / "example" / "exports" / "step" / "lower_chassis" / "sample_part.step",
             )
         ],
         build_id="build-cli",
@@ -83,7 +89,7 @@ def test_registry_show_reads_component(tmp_path, monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "id: sample_part" in result.output
-    assert "step_path: b3/exports/step/lower_chassis/sample_part.step" in result.output
+    assert "step_path: example/exports/step/lower_chassis/sample_part.step" in result.output
     assert "volume_mm3: 1234.500" in result.output
 
 

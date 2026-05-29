@@ -10,8 +10,7 @@ from uuid import uuid4
 
 from sqlmodel import Field, SQLModel, Session, create_engine, select
 
-from flow_cad.params import ChassisParams
-from flow_cad.registry import PartDefinition
+from flow_cad.core.metadata import PartDefinition
 
 
 def utc_now() -> datetime:
@@ -45,7 +44,7 @@ class ParameterSnapshot(SQLModel, table=True):
     value_json: str
 
 
-def registry_db_path(project_root: Path, params: ChassisParams) -> Path:
+def registry_db_path(project_root: Path, params: Any) -> Path:
     return project_root / params.project_id / "registry.db"
 
 
@@ -59,7 +58,7 @@ def init_cache(db_path: Path) -> None:
     SQLModel.metadata.create_all(engine)
 
 
-def params_as_json(params: ChassisParams) -> str:
+def params_as_json(params: Any) -> str:
     return json.dumps(asdict(params), sort_keys=True)
 
 
@@ -71,7 +70,7 @@ def write_build_metadata(
     db_path: Path,
     *,
     build_id: str,
-    params: ChassisParams,
+    params: Any,
     git_commit: str | None,
     is_dirty: bool,
     compiled_at: datetime | None = None,
@@ -169,7 +168,7 @@ def write_active_cache(
     db_path: Path,
     *,
     project_root: Path,
-    params: ChassisParams,
+    params: Any,
     components: list[tuple[PartDefinition, object, Path]],
     build_id: str | None = None,
     git_commit: str | None = None,

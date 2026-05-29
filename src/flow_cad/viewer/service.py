@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from flow_cad.core.metadata import PartDefinition
 from flow_cad.project import FlowCadProject, load_project
-from flow_cad.registry import PartDefinition
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -123,8 +123,6 @@ class ViewerService:
 
     @property
     def viewer_cache_dir(self) -> Path:
-        if self.project.bundled_b3:
-            return self.project_root / self.params.project_id / "viewer-cache"
         return self.project.paths.local_state / "viewer-cache"
 
     def reload(self) -> dict[str, Any]:
@@ -270,50 +268,12 @@ class ViewerService:
                     "rotation": _as_float_tuple(placement["rotation"]),
                 }
             )
-        if self.project.bundled_b3:
-            placement_map.update(self._viewer_only_placements())
         return placement_map
 
     def _default_visible_part_keys(self) -> set[str]:
         return {
             placement["part_key"]
             for placement in self.project.get_assembly_placements(self.params, include_references=True)
-        }
-
-    def _viewer_only_placements(self) -> dict[str, list[dict[str, Any]]]:
-        from flow_cad.parts.wheel_box.prototype import wheel_box_axle_center_z, wheel_box_outer_size
-
-        wheel_box_outer_x, _wheel_box_outer_y, wheel_box_outer_z = wheel_box_outer_size(self.params)
-        wheel_box_lid_t = self.params.wheel_box_lid_thickness
-        return {
-            "wheel_box_test_body": [
-                {
-                    "name": "wheel_box_test_body",
-                    "location": [0.0, 0.0, 0.0],
-                    "rotation": [0.0, 0.0, 0.0],
-                }
-            ],
-            "wheel_box_test_top_lid": [
-                {
-                    "name": "wheel_box_test_top_lid",
-                    "location": [0.0, 0.0, wheel_box_outer_z + wheel_box_lid_t],
-                    "rotation": [180.0, 0.0, 0.0],
-                }
-            ],
-            "wheel_box_test_bottom_lid": [
-                {
-                    "name": "wheel_box_test_bottom_lid",
-                    "location": [0.0, 0.0, -wheel_box_lid_t],
-                    "rotation": [0.0, 0.0, 0.0],
-                }
-            ],
-            "wheel_box_tight_insert": [
-                {
-                    "name": "wheel_box_tight_insert",
-                    "location": [-wheel_box_outer_x / 2.0, 0.0, wheel_box_axle_center_z(self.params)],
-                    "rotation": [0.0, 0.0, 0.0],
-                }
-            ],
         }
 
     @staticmethod

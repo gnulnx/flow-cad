@@ -1,88 +1,46 @@
 from pathlib import Path
 
-from flow_cad.params import ChassisParams
 from flow_cad.viewer.app import create_app
 from flow_cad.viewer.service import ConversionUnavailableError, ViewerService
 
 
 def _export_path(project_root: Path, kind: str, module_id: str, filename: str) -> Path:
-    return project_root / ChassisParams().project_id / "exports" / kind / module_id / filename
+    return project_root / "example" / "exports" / kind / module_id / filename
 
 
-def _write_step(project_root: Path, module_id: str = "lower_chassis", filename: str = "b3_lower_chassis_left_side_plate.step") -> Path:
+def _write_step(project_root: Path, module_id: str = "example", filename: str = "example_block.step") -> Path:
     path = _export_path(project_root, "step", module_id, filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n")
     return path
 
 
-def _write_stl(project_root: Path, module_id: str = "lower_chassis", filename: str = "b3_lower_chassis_left_side_plate.stl") -> Path:
+def _write_stl(project_root: Path, module_id: str = "example", filename: str = "example_block.stl") -> Path:
     path = _export_path(project_root, "stl", module_id, filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("solid sample\nendsolid sample\n")
     return path
 
 
-def test_viewer_service_lists_registry_parts_and_prefers_step(tmp_path) -> None:
+def test_viewer_service_lists_example_parts_and_prefers_step(tmp_path) -> None:
     _write_step(tmp_path)
     _write_stl(tmp_path)
 
     service = ViewerService(tmp_path)
     payload = service.list_parts()
-    part = next(part for part in payload["parts"] if part["id"] == "left_side_plate")
+    part = payload["parts"][0]
 
-    assert payload["project_id"] == "b3"
+    assert payload["project_id"] == "flow_example"
+    assert part["id"] == "example_block"
     assert part["artifact_format"] == "step"
-    assert part["artifact_path"] == "b3/exports/step/lower_chassis/b3_lower_chassis_left_side_plate.step"
-    assert part["direct_stl_path"] == "b3/exports/stl/lower_chassis/b3_lower_chassis_left_side_plate.stl"
+    assert part["artifact_path"] == "example/exports/step/example/example_block.step"
+    assert part["direct_stl_path"] == "example/exports/stl/example/example_block.stl"
     assert part["in_assembly"] is True
     assert part["default_visible"] is True
-    assert part["occurrences"][0]["location"][0] < 0
-
-
-def test_viewer_service_places_wheel_box_tight_insert_in_body_frame(tmp_path) -> None:
-    _write_step(tmp_path, "wheel_box", "b3_wheel_box_tight_insert.step")
-
-    service = ViewerService(tmp_path)
-    part = next(part for part in service.list_parts()["parts"] if part["id"] == "wheel_box_tight_insert")
-
-    assert part["in_assembly"] is True
-    assert part["default_visible"] is False
     assert part["occurrences"] == [
         {
-            "name": "wheel_box_tight_insert",
-            "location": [-76.0, 0.0, 49.8],
-            "rotation": [0.0, 0.0, 0.0],
-        }
-    ]
-
-
-def test_viewer_service_places_wheel_box_lids_in_body_frame(tmp_path) -> None:
-    _write_step(tmp_path, "wheel_box", "b3_wheel_box_test_body.step")
-    _write_step(tmp_path, "wheel_box", "b3_wheel_box_test_top_lid.step")
-    _write_step(tmp_path, "wheel_box", "b3_wheel_box_test_bottom_lid.step")
-
-    service = ViewerService(tmp_path)
-    parts = {part["id"]: part for part in service.list_parts()["parts"]}
-
-    assert parts["wheel_box_test_body"]["occurrences"] == [
-        {
-            "name": "wheel_box_test_body",
+            "name": "example_block",
             "location": [0.0, 0.0, 0.0],
-            "rotation": [0.0, 0.0, 0.0],
-        }
-    ]
-    assert parts["wheel_box_test_top_lid"]["occurrences"] == [
-        {
-            "name": "wheel_box_test_top_lid",
-            "location": [0.0, 0.0, 102.6],
-            "rotation": [180.0, 0.0, 0.0],
-        }
-    ]
-    assert parts["wheel_box_test_bottom_lid"]["occurrences"] == [
-        {
-            "name": "wheel_box_test_bottom_lid",
-            "location": [0.0, 0.0, -3.0],
             "rotation": [0.0, 0.0, 0.0],
         }
     ]
@@ -92,7 +50,7 @@ def test_viewer_service_serves_direct_stl_when_no_step_exists(tmp_path) -> None:
     stl_path = _write_stl(tmp_path)
 
     service = ViewerService(tmp_path)
-    model_path, source_format = service.model_path("left_side_plate")
+    model_path, source_format = service.model_path("example_block")
 
     assert model_path == stl_path
     assert source_format == "stl"
@@ -109,38 +67,23 @@ def test_viewer_service_converts_step_to_cached_stl(tmp_path) -> None:
         return dest
 
     service = ViewerService(tmp_path, converter=converter)
-    model_path, source_format = service.model_path("left_side_plate")
+    model_path, source_format = service.model_path("example_block")
 
     assert source_format == "step"
-    assert model_path == tmp_path / "b3" / "viewer-cache" / "stl-from-step" / "lower_chassis" / "b3_lower_chassis_left_side_plate.stl"
+    assert model_path == tmp_path / "example" / "viewer-cache" / "stl-from-step" / "example" / "example_block.stl"
     assert calls == [(step_path, model_path)]
 
 
 def test_viewer_service_returns_source_context() -> None:
-    context = ViewerService().source_context("left_side_plate")
+    context = ViewerService().source_context("example_block")
 
-    assert context["component_id"] == "left_side_plate"
-    assert context["symbol"] == "make_side_plate"
-    assert context["relative_file_path"] == "src/flow_cad/parts/chassis.py"
-    assert context["start_line"] == 1
-    assert context["end_line"] == len(context["content"].splitlines())
-    assert "def make_side_plate" in context["content"]
-    assert "def make_side_plate" in context["excerpt"]
-    assert context["highlight_start_line"] > context["start_line"]
-    assert context["highlight_end_line"] >= context["highlight_start_line"]
-
-
-def test_viewer_service_returns_full_wheel_box_source_context() -> None:
-    context = ViewerService().source_context("wheel_box_test_body")
-
-    assert context["component_id"] == "wheel_box_test_body"
-    assert context["symbol"] == "make_wheel_box_test_body"
-    assert context["relative_file_path"] == "src/flow_cad/parts/wheel_box/prototype.py"
+    assert context["component_id"] == "example_block"
+    assert context["symbol"] == "_make_example_block"
+    assert context["relative_file_path"] == "src/flow_cad/project.py"
     assert context["language"] == "python"
     assert context["start_line"] == 1
     assert context["end_line"] == len(context["content"].splitlines())
-    assert "def make_wheel_box_test_body" in context["content"]
-    assert "def make_wheel_box_test_top_lid" in context["content"]
+    assert "def _make_example_block" in context["content"]
     assert context["highlight_start_line"] > context["start_line"]
     assert context["highlight_end_line"] >= context["highlight_start_line"]
 
@@ -163,9 +106,9 @@ def test_viewer_service_reload_and_direct_model(tmp_path) -> None:
     service = ViewerService(tmp_path)
 
     parts = service.list_parts()["parts"]
-    assert any(part["id"] == "left_side_plate" for part in parts)
+    assert any(part["id"] == "example_block" for part in parts)
 
-    model_path, source_format = service.model_path("left_side_plate")
+    model_path, source_format = service.model_path("example_block")
     assert source_format == "stl"
     assert model_path.read_text() == "solid sample\nendsolid sample\n"
 
@@ -181,7 +124,7 @@ def test_viewer_api_reports_missing_converter(tmp_path) -> None:
     service = ViewerService(tmp_path, converter=converter)
 
     try:
-        service.model_path("left_side_plate")
+        service.model_path("example_block")
     except ConversionUnavailableError as exc:
         assert str(exc) == "missing STEP converter"
     else:

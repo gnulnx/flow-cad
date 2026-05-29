@@ -5,18 +5,17 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from flow_cad.cli import flow
+from flow_cad.core.metadata import PartDefinition
 from flow_cad.project import (
-    BUNDLED_B3_MANIFEST,
     PROJECT_MANIFEST,
     FlowCadProject,
     ProjectDocs,
     ProjectError,
     ProjectPaths,
-    bundled_b3_project,
+    bundled_example_project,
     init_project,
     load_project,
 )
-from flow_cad.registry import PartDefinition
 from flow_cad.viewer.service import ViewerService
 
 
@@ -64,7 +63,7 @@ def test_load_project_manifest_uses_project_local_flow_source(tmp_path: Path) ->
     assert [name for name, _validator in project.iter_validators()] == ["project"]
 
 
-def test_project_runtime_imports_do_not_load_bundled_b3_modules() -> None:
+def test_project_runtime_imports_do_not_load_external_project_modules() -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -72,7 +71,7 @@ def test_project_runtime_imports_do_not_load_bundled_b3_modules() -> None:
             (
                 "import sys; "
                 "import flow_cad.project, flow_cad.core.exporter; "
-                "loaded = [name for name in ('flow_cad.params', 'flow_cad.registry', 'flow_cad.core.assembly') "
+                "loaded = [name for name in ('flow_cad.params', 'flow_cad.registry', 'flow_cad.parts') "
                 "if name in sys.modules]; "
                 "print(','.join(loaded))"
             ),
@@ -85,22 +84,19 @@ def test_project_runtime_imports_do_not_load_bundled_b3_modules() -> None:
     assert result.stdout.strip() == ""
 
 
-def test_bundled_b3_project_uses_packaged_manifest(tmp_path: Path) -> None:
-    project = bundled_b3_project(tmp_path)
+def test_bundled_example_project_uses_generic_runtime_source(tmp_path: Path) -> None:
+    project = bundled_example_project(tmp_path)
 
-    assert BUNDLED_B3_MANIFEST.exists()
-    assert project.bundled_b3 is True
-    assert project.project_id == "b3"
-    assert project.paths.exports == tmp_path / "b3" / "exports"
-    assert project.paths.cache == tmp_path / "b3" / "registry.db"
-    assert project.source_wrapper_files
+    assert project.project_id == "flow_example"
+    assert project.paths.exports == tmp_path / "example" / "exports"
+    assert project.paths.cache == tmp_path / "example" / "registry.db"
+    assert project.source_wrapper_files == ()
 
 
-def test_load_project_falls_back_to_bundled_b3_fixture(tmp_path: Path) -> None:
+def test_load_project_falls_back_to_bundled_example_fixture(tmp_path: Path) -> None:
     project = load_project(tmp_path)
 
-    assert project.bundled_b3 is True
-    assert project.project_id == "b3"
+    assert project.project_id == "flow_example"
     assert project.root == tmp_path.resolve()
 
 
@@ -183,7 +179,7 @@ def test_external_project_source_context_resolves_wrapped_part_file(tmp_path: Pa
     assembly_path.write_text(
         """from __future__ import annotations
 
-from flow_cad.registry import PartDefinition
+from flow_cad.core.metadata import PartDefinition
 from flow.parts.example import make_example_block
 
 

@@ -8,12 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from build123d import Box
 from build123d import Compound, Location
+
+from flow_cad.core.metadata import PartDefinition, PartRole
 
 
 PROJECT_MANIFEST = "flowcad.project.yaml"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-BUNDLED_B3_MANIFEST = Path(__file__).resolve().parent / "bundled_projects" / "b3" / PROJECT_MANIFEST
 
 
 class ProjectError(RuntimeError):
@@ -45,7 +47,6 @@ class FlowCadProject:
     paths: ProjectPaths
     docs: ProjectDocs
     validators: dict[str, Callable[..., Any]]
-    bundled_b3: bool = False
     source_wrapper_files: tuple[Path, ...] = ()
 
     def make_params(self) -> Any:
@@ -55,10 +56,6 @@ class FlowCadProject:
         return _call_with_supported_kwargs(self.part_definitions, include_references=include_references)
 
     def build_parts(self, params: Any) -> dict[str, object]:
-        if self.bundled_b3:
-            from flow_cad.registry import build_registered_parts
-
-            return build_registered_parts(params)
         return {definition.id: definition.factory(params) for definition in self.iter_part_definitions()}
 
     def get_assembly_placements(self, params: Any, *, include_references: bool = False) -> Iterable[dict[str, Any]]:
@@ -87,11 +84,6 @@ class FlowCadProject:
         return occurrences
 
     def make_assembly(self, params: Any, parts: dict[str, object], *, include_references: bool = True) -> object:
-        if self.bundled_b3:
-            from flow_cad.core.assembly import make_assembly
-
-            return make_assembly(params, parts, include_references=include_references)
-
         children = [
             occurrence["shape"]
             for occurrence in self.get_assembly_occurrences(params, parts, include_references=include_references)
@@ -100,13 +92,6 @@ class FlowCadProject:
 
     @property
     def assembly_definition(self) -> Any:
-        if self.bundled_b3:
-            from flow_cad.registry import ASSEMBLY_DEFINITION
-
-            return ASSEMBLY_DEFINITION
-
-        from flow_cad.registry import PartDefinition, PartRole
-
         return PartDefinition(
             "assembly",
             "assembly",
@@ -132,34 +117,51 @@ class FlowCadProject:
         yield from self.validators.items()
 
 
-def bundled_b3_project(project_root: Path | None = None) -> FlowCadProject:
-    from flow_cad.core.assembly import get_assembly_placements
-    from flow_cad.params import ChassisParams
-    from flow_cad.registry import iter_part_definitions
+class ExampleParams:
+    project_id = "flow_example"
 
+
+def _make_example_block(_params: ExampleParams):
+    return Box(20.0, 20.0, 10.0)
+
+
+def _iter_example_part_definitions(*, include_references: bool = True) -> Iterable[PartDefinition]:
+    _ = include_references
+    yield PartDefinition("example_block", "example", "example_block.step", _make_example_block)
+
+
+def _get_example_assembly_placements(_params: ExampleParams, *, include_references: bool = False) -> list[dict[str, Any]]:
+    _ = include_references
+    return [
+        {
+            "name": "example_block",
+            "part_key": "example_block",
+            "location": (0.0, 0.0, 0.0),
+            "rotation": (0.0, 0.0, 0.0),
+        }
+    ]
+
+
+def bundled_example_project(project_root: Path | None = None) -> FlowCadProject:
     root = (project_root or PROJECT_ROOT).resolve()
-    manifest = _read_simple_yaml(BUNDLED_B3_MANIFEST) if BUNDLED_B3_MANIFEST.exists() else {}
-    outputs = manifest.get("outputs", {})
-    if not isinstance(outputs, dict):
-        outputs = {}
-    registry_source = inspect.getsourcefile(iter_part_definitions)
     return FlowCadProject(
         root=root,
-        project_id=str(manifest.get("project_id", "b3")),
-        name=str(manifest.get("name", "Bundled B3 Balance Robot")),
-        params_factory=ChassisParams,
-        part_definitions=iter_part_definitions,
-        assembly_placements=get_assembly_placements,
+        project_id="flow_example",
+        name="Bundled Flow CAD Example",
+        params_factory=ExampleParams,
+        part_definitions=_iter_example_part_definitions,
+        assembly_placements=_get_example_assembly_placements,
         paths=ProjectPaths(
-            exports=root / str(outputs.get("exports", "b3/exports")),
-            reports=root / str(outputs.get("reports", "b3/reports")),
-            local_state=root / str(outputs.get("local_state", "b3")),
-            cache=root / str(outputs.get("cache", "b3/registry.db")),
+            exports=root / "example" / "exports",
+            reports=root / "example" / "reports",
+            local_state=root / "example",
+            cache=root / "example" / "registry.db",
         ),
-        docs=_docs_from_manifest(root, manifest),
+        docs=ProjectDocs(
+            print_manifest=root / "docs" / "PRINT_MANIFEST.md",
+            part_interfaces=root / "docs" / "PART_INTERFACES.md",
+        ),
         validators={},
-        bundled_b3=True,
-        source_wrapper_files=(Path(registry_source).resolve(),) if registry_source else (),
     )
 
 
@@ -178,7 +180,7 @@ def load_project(start: Path | None = None, *, fallback_to_bundled: bool = True)
     manifest = find_project_manifest(start)
     if manifest is None:
         if fallback_to_bundled:
-            return bundled_b3_project(start or PROJECT_ROOT)
+            return bundled_example_project(start or PROJECT_ROOT)
         raise ProjectError(f"No {PROJECT_MANIFEST} found from {start or Path.cwd()}")
     return load_project_manifest(manifest)
 
@@ -443,7 +445,7 @@ def make_example_block(_params):
 def _starter_assembly() -> str:
     return """from __future__ import annotations
 
-from flow_cad.registry import PartDefinition
+from flow_cad.core.metadata import PartDefinition
 from flow.parts.example import make_example_block
 
 
