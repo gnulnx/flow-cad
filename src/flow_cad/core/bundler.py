@@ -20,8 +20,11 @@ def should_include(path: Path, exports_dir: Path, active_export_paths: set[Path]
         if any(part.endswith(suffix) for suffix in EXCLUDED_SUFFIXES):
             return False
     relative_path = Path(*relative_parts) if relative_parts else Path()
-    if active_export_paths is not None and relative_path.suffix in {".step", ".stl", ".svg"}:
-        return relative_path in active_export_paths
+    if active_export_paths is not None:
+        if relative_path.suffix in {".step", ".stl", ".svg"}:
+            return relative_path in active_export_paths
+        if relative_parts and relative_parts[0] in {"step", "stl", "snapshots"}:
+            return any(relative_path == active_path or relative_path in active_path.parents for active_path in active_export_paths)
     return True
 
 def create_bundle(

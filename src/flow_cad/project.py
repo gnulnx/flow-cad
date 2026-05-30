@@ -12,7 +12,7 @@ from typing import Any
 from build123d import Box
 from build123d import Compound, Location
 
-from flow_cad.core.metadata import PartDefinition, PartRole
+from flow_cad.core.metadata import PartDefinition, PartRole, definition_export_subdir
 
 
 PROJECT_MANIFEST = "flowcad.project.yaml"
@@ -49,6 +49,7 @@ class FlowCadProject:
     paths: ProjectPaths
     docs: ProjectDocs
     validators: dict[str, Callable[..., Any]]
+    assembly_definition_factory: Callable[[], Any] | None = None
     source_wrapper_files: tuple[Path, ...] = ()
 
     def make_params(self) -> Any:
@@ -60,16 +61,34 @@ class FlowCadProject:
     def build_parts(self, params: Any) -> dict[str, object]:
         return {definition.id: definition.factory(params) for definition in self.iter_part_definitions()}
 
-    def get_assembly_placements(self, params: Any, *, include_references: bool = False) -> Iterable[dict[str, Any]]:
+    def get_assembly_placements(
+        self,
+        params: Any,
+        *,
+        include_references: bool = False,
+        assembly_id: str | None = None,
+    ) -> Iterable[dict[str, Any]]:
         return _call_with_supported_kwargs(
             self.assembly_placements,
             params,
             include_references=include_references,
+            assembly_id=assembly_id,
         )
 
-    def get_assembly_occurrences(self, params: Any, parts: dict[str, object], *, include_references: bool = False) -> list[dict[str, Any]]:
+    def get_assembly_occurrences(
+        self,
+        params: Any,
+        parts: dict[str, object],
+        *,
+        include_references: bool = False,
+        assembly_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         occurrences: list[dict[str, Any]] = []
-        for placement in self.get_assembly_placements(params, include_references=include_references):
+        for placement in self.get_assembly_placements(
+            params,
+            include_references=include_references,
+            assembly_id=assembly_id,
+        ):
             name = placement["name"]
             part_key = placement["part_key"]
             location = placement["location"]
@@ -85,15 +104,29 @@ class FlowCadProject:
             )
         return occurrences
 
-    def make_assembly(self, params: Any, parts: dict[str, object], *, include_references: bool = True) -> object:
+    def make_assembly(
+        self,
+        params: Any,
+        parts: dict[str, object],
+        *,
+        include_references: bool = True,
+        assembly_id: str | None = None,
+    ) -> object:
         children = [
             occurrence["shape"]
-            for occurrence in self.get_assembly_occurrences(params, parts, include_references=include_references)
+            for occurrence in self.get_assembly_occurrences(
+                params,
+                parts,
+                include_references=include_references,
+                assembly_id=assembly_id,
+            )
         ]
         return Compound(children=children, label=f"{self.project_id}_assembly")
 
     @property
     def assembly_definition(self) -> Any:
+        if self.assembly_definition_factory is not None:
+            return self.assembly_definition_factory()
         return PartDefinition(
             "assembly",
             "assembly",
@@ -109,10 +142,11 @@ class FlowCadProject:
             if not definition.is_printable:
                 continue
             stem = Path(definition.filename).stem
-            paths.add(Path("step") / definition.module_id / definition.filename)
-            paths.add(Path("stl") / definition.module_id / f"{stem}.stl")
+            export_subdir = definition_export_subdir(definition)
+            paths.add(Path("step") / export_subdir / definition.filename)
+            paths.add(Path("stl") / export_subdir / f"{stem}.stl")
             for view in ("front", "side", "top"):
-                paths.add(Path("snapshots") / definition.module_id / f"{stem}_{view}.svg")
+                paths.add(Path("snapshots") / export_subdir / f"{stem}_{view}.svg")
         return paths
 
     def iter_validators(self) -> Iterable[tuple[str, Callable[..., Any]]]:
@@ -153,6 +187,7 @@ def bundled_example_project(project_root: Path | None = None) -> FlowCadProject:
         params_factory=ExampleParams,
         part_definitions=_iter_example_part_definitions,
         assembly_placements=_get_example_assembly_placements,
+        assembly_definition_factory=None,
         paths=ProjectPaths(
             exports=root / "example" / "exports",
             reports=root / "example" / "reports",
@@ -205,6 +240,11 @@ def load_project_manifest(path: Path) -> FlowCadProject:
     params_factory = _load_symbol(_required_section_value(python_section, "params", path))
     part_definitions = _load_symbol(_required_section_value(python_section, "registry", path))
     assembly_placements = _load_symbol(_required_section_value(python_section, "assembly", path))
+    assembly_definition_factory = (
+        _load_symbol(str(python_section["assembly_definition"]))
+        if python_section.get("assembly_definition")
+        else None
+    )
     validators = {
         name: _load_symbol(str(spec))
         for name, spec in validators_section.items()
@@ -219,6 +259,7 @@ def load_project_manifest(path: Path) -> FlowCadProject:
         params_factory=params_factory,
         part_definitions=part_definitions,
         assembly_placements=assembly_placements,
+        assembly_definition_factory=assembly_definition_factory,
         paths=ProjectPaths(
             exports=root / str(outputs.get("exports", "exports")),
             reports=root / str(outputs.get("reports", "reports")),

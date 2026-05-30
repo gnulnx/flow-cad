@@ -7,6 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 from flow_cad.core.exporter import Exporter
 from flow_cad.core.cache import write_active_cache
+from flow_cad.core.metadata import definition_export_subdir
 from flow_cad.core.report import write_report
 from flow_cad.core.bundler import create_bundle
 from flow_cad.project import load_project
@@ -62,7 +63,7 @@ def build(bundle, cache, snapshots, snapshots_only):
         path = exporter.export(
             parts[definition.id],
             definition.filename,
-            module_id=definition.module_id,
+            module_id=definition_export_subdir(definition),
             is_printable=definition.is_printable
         )
         exported.append(path)
@@ -73,7 +74,7 @@ def build(bundle, cache, snapshots, snapshots_only):
     assembly_path = exporter.export(
         parts["assembly"],
         assembly_definition.filename,
-        module_id=assembly_definition.module_id,
+        module_id=definition_export_subdir(assembly_definition),
         is_printable=assembly_definition.is_printable
     )
     exported.append(assembly_path)
