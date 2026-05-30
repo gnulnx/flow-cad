@@ -3,9 +3,9 @@ import { Canvas, useThree } from '@react-three/fiber'
 import { Grid, Html } from '@react-three/drei'
 import ViewportControls from './ViewportControls'
 import {
-  buildMeshSnapFeatures,
   formatMm,
   freePointTarget,
+  measurementSnapFeaturesForModel,
   resolveEdgeLength,
   resolveMeasurement,
   SNAP_KIND_PRIORITY,
@@ -228,6 +228,9 @@ function MeasurementLabel({
           </button>
         ) : null}
         <div className="measurement-kind">{annotation.label}</div>
+        <div className={`measurement-quality measurement-quality-${annotation.qualityLabel.toLowerCase()}`}>
+          {annotation.qualityLabel}
+        </div>
         <div className="measurement-distance">{formatMm(annotation.distance)}</div>
         <div className="measurement-deltas" aria-label="Measurement deltas">
           <span className="delta-x">DX {formatMm(annotation.delta.x)}</span>
@@ -286,8 +289,7 @@ function MeasurementLayer({
   const meshFeatures = useMemo(() => {
     const map = new Map<string, SnapFeature[]>()
     models.forEach((model) => {
-      const holeFeatures = model.snapFeatures.filter((feature) => feature.kind === 'circle_center')
-      map.set(model.partId, [...holeFeatures, ...buildMeshSnapFeatures(model.geometry)])
+      map.set(model.partId, measurementSnapFeaturesForModel(model))
     })
     return map
   }, [models])
@@ -546,6 +548,7 @@ function annotationFromResolved(resolved: ResolvedMeasurement, temporary: boolea
     endPoint: resolved.endPoint.clone(),
     distance: resolved.distance,
     delta: resolved.delta.clone(),
+    qualityLabel: resolved.qualityLabel,
   }
 }
 
@@ -601,6 +604,8 @@ function findSnapTarget(
       point: hit.point.clone(),
       partId,
       occurrenceName,
+      quality: 'approximate',
+      qualityLabel: 'Approximate',
     },
     screenDistance: 22,
     depth: hit.distance,

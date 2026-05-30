@@ -1,8 +1,10 @@
 from pathlib import Path
+import json
 import time
 
 from flow_cad.viewer.app import create_app
 from flow_cad.viewer.service import ConversionUnavailableError, ViewerService
+from flow_cad.viewer.geometry_authority import DISPLAY_MESH_CONTRACT_VERSION, SNAP_EXTRACTOR_CONTRACT_VERSION
 
 
 def _export_path(project_root: Path, kind: str, module_id: str, filename: str) -> Path:
@@ -45,6 +47,13 @@ def test_viewer_service_lists_example_parts_and_prefers_step(tmp_path) -> None:
     assert part["artifact_format"] == "step"
     assert part["artifact_path"] == "example/exports/step/example/example_block.step"
     assert part["direct_stl_path"] == "example/exports/stl/example/example_block.stl"
+    assert part["source_kind"] == "flow_python"
+    assert part["geometry_authority"] == "step_kernel"
+    assert part["quality_label"] == "exact"
+    assert part["capabilities"]["exact_topology"] is True
+    assert part["capabilities"]["exact_snap"] is True
+    assert part["capabilities"]["mesh_only"] is False
+    assert part["warnings"] == []
     assert part["snap_features_url"] == "/api/parts/example_block/snap-features"
     assert part["in_assembly"] is True
     assert part["default_visible"] is True
@@ -61,8 +70,16 @@ def test_viewer_service_serves_direct_stl_when_no_step_exists(tmp_path) -> None:
     stl_path = _write_stl(tmp_path)
 
     service = ViewerService(tmp_path)
+    part = service.list_parts()["parts"][0]
     model_path, source_format = service.model_path("example_block")
 
+    assert part["source_kind"] == "stl"
+    assert part["geometry_authority"] == "mesh"
+    assert part["quality_label"] == "approximate"
+    assert part["capabilities"]["mesh_only"] is True
+    assert part["capabilities"]["approximate_measurement"] is True
+    assert part["capabilities"]["exact_editing"] is False
+    assert part["warnings"]
     assert model_path == stl_path
     assert source_format == "stl"
 
@@ -83,6 +100,18 @@ def test_viewer_service_converts_step_to_cached_stl(tmp_path) -> None:
     assert source_format == "step"
     assert model_path == tmp_path / "example" / "viewer-cache" / "stl-from-step" / "example" / "example_block.stl"
     assert calls == [(step_path, model_path)]
+
+    service.model_path("example_block")
+    assert calls == [(step_path, model_path)]
+
+    metadata_path = model_path.with_suffix(".stl.json")
+    metadata = json.loads(metadata_path.read_text())
+    assert metadata["contract_version"] == DISPLAY_MESH_CONTRACT_VERSION
+    metadata["contract_version"] = -1
+    metadata_path.write_text(json.dumps(metadata))
+
+    service.model_path("example_block")
+    assert calls == [(step_path, model_path), (step_path, model_path)]
 
 
 def test_viewer_service_returns_source_context() -> None:
@@ -154,11 +183,20 @@ def test_viewer_service_extracts_step_snap_features(tmp_path) -> None:
 
     assert box_payload["component_id"] == "example_block"
     assert box_payload["schema_version"] == 2
+    assert box_payload["extractor_contract_version"] == SNAP_EXTRACTOR_CONTRACT_VERSION
     assert box_payload["source_format"] == "step"
     assert box_payload["artifact_path"] == "example/exports/step/example/example_block.step"
     assert {feature["kind"] for feature in box_features} >= {"vertex", "line_edge", "edge_midpoint"}
-    assert any(feature["label"] == "Edge" and feature["length"] == 30.0 for feature in box_features)
+    assert any(feature["label"] == "Line Edge" and feature["length"] == 30.0 for feature in box_features)
+    assert all(feature["quality_label"] == "Exact" for feature in box_features)
     assert len({feature["id"] for feature in box_features}) == len(box_features)
+
+    cache_path = tmp_path / "example" / "viewer-cache" / "snap-features" / "example" / "example_block.json"
+    cached = json.loads(cache_path.read_text())
+    cached["extractor_contract_version"] = -1
+    cache_path.write_text(json.dumps(cached))
+    service.snap_features("example_block")
+    assert json.loads(cache_path.read_text())["extractor_contract_version"] == SNAP_EXTRACTOR_CONTRACT_VERSION
 
     _write_build123d_step(tmp_path, Cylinder(3, 8))
     step_path = _export_path(tmp_path, "step", "example", "example_block.step")
@@ -172,7 +210,8 @@ def test_viewer_service_extracts_step_snap_features(tmp_path) -> None:
     cylinder_features = cylinder_payload["features"]
 
     assert any(feature["kind"] == "circle_center" for feature in cylinder_features)
-    assert any(feature["label"] == "Hole Center" and feature["radius"] == 3.0 for feature in cylinder_features)
+    assert any(feature["label"] == "Circle Center" and feature["radius"] == 3.0 for feature in cylinder_features)
+    assert not any(feature["label"] == "Hole Center" for feature in cylinder_features)
     assert any(feature["kind"] == "circle_center" and len(feature["ring_points"]) == 8 for feature in cylinder_features)
 
 
@@ -186,7 +225,20 @@ def test_viewer_service_snap_features_fallbacks_are_safe(tmp_path) -> None:
         "schema_version": 2,
         "source_format": "stl",
         "features": [],
-        "warnings": [],
+        "warnings": [
+            "STL-only mesh: viewing and approximate mesh measurements are available; exact CAD editing is disabled.",
+        ],
+        "geometry_authority": "mesh",
+        "capabilities": {
+            "display_mesh": True,
+            "mesh_metrics": True,
+            "exact_topology": False,
+            "exact_snap": False,
+            "exact_measurement": False,
+            "approximate_measurement": True,
+            "exact_editing": False,
+            "mesh_only": True,
+        },
     }
 
     _write_step(tmp_path)

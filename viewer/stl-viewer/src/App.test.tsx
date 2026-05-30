@@ -4,8 +4,13 @@ import { BufferGeometry, Float32BufferAttribute } from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
+const viewerRenderProps = vi.hoisted(() => [] as Array<{ clearMeasurementsRequest: number }>)
+
 vi.mock('./components/Viewer', () => ({
-  default: () => <div data-testid="viewer">viewer</div>,
+  default: (props: { clearMeasurementsRequest: number }) => {
+    viewerRenderProps.push(props)
+    return <div data-testid="viewer">viewer</div>
+  },
 }))
 
 vi.mock('three/examples/jsm/loaders/STLLoader.js', () => ({
@@ -35,6 +40,20 @@ const partsPayload = {
       artifact_format: 'step',
       artifact_path: 'b3/exports/step/wheel_box/b3_wheel_box_test_body.step',
       direct_stl_path: null,
+      source_kind: 'flow_python',
+      geometry_authority: 'step_kernel',
+      quality_label: 'exact',
+      capabilities: {
+        display_mesh: true,
+        mesh_metrics: true,
+        exact_topology: true,
+        exact_snap: true,
+        exact_measurement: true,
+        approximate_measurement: false,
+        exact_editing: false,
+        mesh_only: false,
+      },
+      warnings: [],
       model_url: '/api/parts/wheel_box_test_body/model',
       source_url: '/api/parts/wheel_box_test_body/source',
       snap_features_url: '/api/parts/wheel_box_test_body/snap-features',
@@ -71,6 +90,9 @@ const sourcePayload = {
   excerpt: '',
 }
 
+let partsRevision = 0
+let healthRevision = 0
+
 function jsonResponse(payload: unknown) {
   return Promise.resolve(new Response(JSON.stringify(payload), {
     status: 200,
@@ -80,9 +102,12 @@ function jsonResponse(payload: unknown) {
 
 describe('App source loading', () => {
   beforeEach(() => {
+    viewerRenderProps.length = 0
+    partsRevision = 0
+    healthRevision = 0
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = input.toString()
-      if (url.endsWith('/api/parts')) return jsonResponse(partsPayload)
+      if (url.endsWith('/api/parts')) return jsonResponse({ ...partsPayload, revision: partsRevision })
       if (url.endsWith('/api/parts/wheel_box_test_body/source')) return jsonResponse(sourcePayload)
       if (url.endsWith('/api/parts/wheel_box_test_body/snap-features')) {
         return jsonResponse({ component_id: 'wheel_box_test_body', artifact_path: null, source_format: 'step', features: [], warnings: [] })
@@ -90,12 +115,13 @@ describe('App source loading', () => {
       if (url.endsWith('/api/parts/wheel_box_test_body/model')) {
         return Promise.resolve(new Response(new ArrayBuffer(8), { status: 200 }))
       }
-      if (url.endsWith('/api/health')) return jsonResponse({ revision: 0 })
+      if (url.endsWith('/api/health')) return jsonResponse({ revision: healthRevision })
       return Promise.resolve(new Response('not found', { status: 404 }))
     }))
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -112,5 +138,32 @@ describe('App source loading', () => {
     expect(document.querySelector('.source-code')?.textContent).toContain('make_wheel_box_test_top_lid')
     expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/parts/wheel_box_test_body/source')
     await waitFor(() => expect(screen.getByText('1 models loaded')).toBeInTheDocument())
+  })
+
+  it('shows a mesh-only warning for client-loaded STL files', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    const input = container.querySelector('#file-input') as HTMLInputElement
+    await user.upload(input, new File(['solid loose\nendsolid loose\n'], 'loose.stl', { type: 'model/stl' }))
+
+    await screen.findByText(/STL-only mesh/)
+  })
+
+  it('clears measurements when health polling observes a backend revision change', async () => {
+    vi.useFakeTimers()
+    render(<App />)
+
+    await vi.waitFor(() => expect(screen.getByText('1 models loaded')).toBeInTheDocument())
+    expect(viewerRenderProps.at(-1)?.clearMeasurementsRequest).toBe(0)
+
+    partsRevision = 1
+    healthRevision = 1
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await vi.waitFor(() => {
+      expect(viewerRenderProps.some((props) => props.clearMeasurementsRequest > 0)).toBe(true)
+    })
   })
 })

@@ -6,13 +6,26 @@ import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import SourcePanel from './components/SourcePanel'
 import { calculateMeshMetrics } from './meshMetrics'
-import type { ModelData, RotationMode, SnapFeature, SnapFeaturePayload, SourceContext, ViewerOccurrence, ViewerPart } from './types'
+import type { GeometryCapabilities, ModelData, RotationMode, SnapFeature, SnapFeaturePayload, SourceContext, ViewerOccurrence, ViewerPart } from './types'
 
 const IDENTITY_OCCURRENCE: ViewerOccurrence = {
   name: 'identity',
   location: [0, 0, 0],
   rotation: [0, 0, 0],
 }
+
+const MESH_ONLY_CAPABILITIES: GeometryCapabilities = {
+  display_mesh: true,
+  mesh_metrics: true,
+  exact_topology: false,
+  exact_snap: false,
+  exact_measurement: false,
+  approximate_measurement: true,
+  exact_editing: false,
+  mesh_only: true,
+}
+
+const CLIENT_STL_WARNING = 'STL-only mesh: viewing and approximate mesh measurements are available; exact CAD editing is disabled.'
 
 function backendBaseUrl() {
   const params = new URLSearchParams(window.location.search)
@@ -56,6 +69,19 @@ export default function App() {
     occurrences: ViewerOccurrence[],
     content: ArrayBuffer,
     snapFeatures: SnapFeature[] = [],
+    geometryMetadata: {
+      sourceKind: ModelData['sourceKind']
+      geometryAuthority: ModelData['geometryAuthority']
+      qualityLabel: ModelData['qualityLabel']
+      capabilities: GeometryCapabilities
+      warnings: string[]
+    } = {
+      sourceKind: 'client_stl',
+      geometryAuthority: 'mesh',
+      qualityLabel: 'approximate',
+      capabilities: MESH_ONLY_CAPABILITIES,
+      warnings: [CLIENT_STL_WARNING],
+    },
   ) => {
     const geometry = new STLLoader().parse(content)
     geometry.computeVertexNormals()
@@ -71,6 +97,7 @@ export default function App() {
       color: '#5ec4ff',
       wireframeColor: '#f4d35e',
       snapFeatures,
+      ...geometryMetadata,
       occurrences,
       bounds: {
         min: metrics.bounds.min.clone(),
@@ -106,8 +133,21 @@ export default function App() {
       throw new Error(`${part.id}: ${await responseDetail(response)}`)
     }
     const content = await response.arrayBuffer()
-    const snapFeatures = await loadSnapFeatures(part)
-    loadStlBuffer(part.id, part.id, part.occurrences.length ? part.occurrences : [IDENTITY_OCCURRENCE], content, snapFeatures)
+    const snapFeatures = part.capabilities.exact_snap ? await loadSnapFeatures(part) : []
+    loadStlBuffer(
+      part.id,
+      part.id,
+      part.occurrences.length ? part.occurrences : [IDENTITY_OCCURRENCE],
+      content,
+      snapFeatures,
+      {
+        sourceKind: part.source_kind,
+        geometryAuthority: part.geometry_authority,
+        qualityLabel: part.quality_label,
+        capabilities: part.capabilities,
+        warnings: part.warnings,
+      },
+    )
     return part.id
   }, [apiBase, loadSnapFeatures, loadStlBuffer])
 
@@ -118,8 +158,17 @@ export default function App() {
       throw new Error(await responseDetail(response))
     }
     const payload = await response.json() as { revision: number; parts: ViewerPart[] }
+    const previousRevision = backendRevisionRef.current
+    if (previousRevision !== null && payload.revision !== previousRevision) {
+      setModels((prev) => prev.filter((model) => model.partId.startsWith('file:') || model.partId.startsWith('url:')))
+      setSourceContext(null)
+      setActiveName(null)
+      setClearMeasurementsRequest((value) => value + 1)
+    }
     backendRevisionRef.current = payload.revision
     setParts(payload.parts)
+    const availablePartIds = new Set(payload.parts.map((part) => part.id))
+    setModels((prev) => prev.filter((model) => model.partId.startsWith('file:') || model.partId.startsWith('url:') || availablePartIds.has(model.partId)))
     setSelectedIds((prev) => {
       const availableIds = new Set(payload.parts.map((part) => part.id))
       const kept = prev.filter((id) => availableIds.has(id))
@@ -212,7 +261,6 @@ export default function App() {
         .then((payload) => {
           const currentRevision = backendRevisionRef.current
           if (currentRevision !== null && payload.revision > currentRevision) {
-            backendRevisionRef.current = payload.revision
             loadViewerState().catch((err) => {
               console.error('Failed to refresh viewer state:', err)
               setStatusMessage(`Refresh failed: ${err.message}`)
@@ -343,6 +391,10 @@ export default function App() {
     () => models.filter((model) => selectedIds.includes(model.partId)),
     [models, selectedIds],
   )
+  const visibleWarnings = useMemo(
+    () => Array.from(new Set(visibleModels.flatMap((model) => model.warnings))).slice(0, 3),
+    [visibleModels],
+  )
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -383,6 +435,13 @@ export default function App() {
         onFileSelect={handleFileSelect}
         isDragOver={isDragOver}
       >
+        {visibleWarnings.length ? (
+          <div className="geometry-warnings" role="status" aria-label="Geometry capability warnings">
+            {visibleWarnings.map((warning) => (
+              <div key={warning} className="geometry-warning">{warning}</div>
+            ))}
+          </div>
+        ) : null}
         <Viewer
           models={visibleModels}
           activeName={activeName}

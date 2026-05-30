@@ -2,7 +2,18 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import ModelList from './ModelList'
-import type { ViewerPart } from '../types'
+import type { GeometryCapabilities, ViewerPart } from '../types'
+
+const STEP_CAPABILITIES: GeometryCapabilities = {
+  display_mesh: true,
+  mesh_metrics: true,
+  exact_topology: true,
+  exact_snap: true,
+  exact_measurement: true,
+  approximate_measurement: false,
+  exact_editing: false,
+  mesh_only: false,
+}
 
 function part(id: string, moduleId = 'wheel_box'): ViewerPart {
   return {
@@ -15,6 +26,11 @@ function part(id: string, moduleId = 'wheel_box'): ViewerPart {
     artifact_format: 'step',
     artifact_path: `b3/exports/step/${moduleId}/${id}.step`,
     direct_stl_path: null,
+    source_kind: 'flow_python',
+    geometry_authority: 'step_kernel',
+    quality_label: 'exact',
+    capabilities: STEP_CAPABILITIES,
+    warnings: [],
     model_url: `/api/parts/${id}/model`,
     source_url: `/api/parts/${id}/source`,
     occurrences: [

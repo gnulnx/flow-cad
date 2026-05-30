@@ -22,7 +22,8 @@
       - STEP-backed parts import through build123d/OCP and expose exact topology, exact snap targets, exact
         measurements, and a generated display mesh.
 
-      - STL-only parts expose display mesh and mesh metrics only, with mesh_only, approximate_measurement, and
+      - STL-only parts expose display mesh and mesh metrics only, with mesh_only, approximate_measurement,
+        exact_editing=false, no exact topology/snap, and warning text that exact CAD editing is disabled.
       - Flow-generated parts keep Python source binding and params metadata while using kernel geometry for
         topology/snap/export behavior.
 
@@ -79,5 +80,4 @@
 
   - STEP is the preferred import/edit format; STL is mesh-only and approximate.
   - No direct modeling tools are added until this geometry authority layer is in place and tested.
-
 
