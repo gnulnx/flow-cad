@@ -150,6 +150,19 @@ function fallbackCamera(camera: THREE.PerspectiveCamera, pivot: THREE.Vector3) {
   applyLookAt(camera, pivot, true)
 }
 
+export function dollyCameraTowardPivot(camera: THREE.PerspectiveCamera, pivot: THREE.Vector3, factor: number) {
+  const offset = camera.position.clone().sub(pivot)
+  const distance = offset.length()
+
+  if (distance <= MIN_DISTANCE && factor <= 1) {
+    return false
+  }
+
+  const nextDistance = Math.max(distance * factor, MIN_DISTANCE)
+  camera.position.copy(pivot).add(offset.setLength(nextDistance))
+  return true
+}
+
 function projectArcball(clientX: number, clientY: number, element: HTMLElement) {
   const rect = element.getBoundingClientRect()
   const scale = Math.min(rect.width, rect.height)
@@ -224,21 +237,6 @@ function arcballOrbit(camera: THREE.PerspectiveCamera, drag: DragState, currentA
   const up = drag.startUp.clone().applyQuaternion(quaternion)
 
   setOrbitPose(camera, drag.startPivot, offset, up, false)
-}
-
-function cursorZoomTarget(event: WheelEvent, element: HTMLElement, camera: THREE.PerspectiveCamera, pivot: THREE.Vector3) {
-  const rect = element.getBoundingClientRect()
-  const pointer = new THREE.Vector2(
-    ((event.clientX - rect.left) / rect.width) * 2 - 1,
-    -(((event.clientY - rect.top) / rect.height) * 2 - 1),
-  )
-  const raycaster = new THREE.Raycaster()
-  raycaster.setFromCamera(pointer, camera)
-
-  const cameraDirection = camera.getWorldDirection(new THREE.Vector3())
-  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(cameraDirection, pivot)
-  const target = new THREE.Vector3()
-  return raycaster.ray.intersectPlane(plane, target) ?? pivot.clone()
 }
 
 export default function ViewportControls({
@@ -399,14 +397,9 @@ export default function ViewportControls({
     }
 
     const onWheel = (event: WheelEvent) => {
-      const target = cursorZoomTarget(event, element, camera, pivotRef.current)
       const factor = Math.exp(THREE.MathUtils.clamp(event.deltaY, -600, 600) * 0.001)
-      const offset = camera.position.clone().sub(target)
-      const nextPosition = target.clone().add(offset.multiplyScalar(factor))
-      const nextDistance = nextPosition.distanceTo(pivotRef.current)
 
-      if (nextDistance >= MIN_DISTANCE || factor > 1) {
-        camera.position.copy(nextPosition)
+      if (dollyCameraTowardPivot(camera, pivotRef.current, factor)) {
         turntableStateRef.current = turntableStateFromCamera(camera, pivotRef.current)
         applyLookAt(camera, pivotRef.current, rotationModeRef.current === 'turntable')
         invalidate()
