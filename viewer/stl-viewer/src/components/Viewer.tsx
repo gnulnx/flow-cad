@@ -158,7 +158,15 @@ function MeasurementLine({
 
   return (
     <line geometry={geometry}>
-      <lineBasicMaterial color={color} transparent={subtle} opacity={subtle ? 0.3 : 1} depthTest={false} />
+      <lineBasicMaterial
+        color={color}
+        transparent={subtle}
+        opacity={subtle ? 0.3 : 1}
+        depthTest={true}
+        polygonOffset={true}
+        polygonOffsetFactor={-2}
+        polygonOffsetUnits={-2}
+      />
     </line>
   )
 }
@@ -172,7 +180,15 @@ function MeasurementPolyline({ points, color, subtle = false }: { points: THREE.
 
   return (
     <line geometry={geometry}>
-      <lineBasicMaterial color={color} transparent={subtle} opacity={subtle ? 0.3 : 1} depthTest={false} />
+      <lineBasicMaterial
+        color={color}
+        transparent={subtle}
+        opacity={subtle ? 0.3 : 1}
+        depthTest={true}
+        polygonOffset={true}
+        polygonOffsetFactor={-2}
+        polygonOffsetUnits={-2}
+      />
     </line>
   )
 }
@@ -195,7 +211,10 @@ function MeasurementMarker({
         transparent={subtle}
         opacity={subtle ? 0.25 : 1}
         wireframe={!locked && !subtle}
-        depthTest={false}
+        depthTest={true}
+        polygonOffset={true}
+        polygonOffsetFactor={-4}
+        polygonOffsetUnits={-4}
       />
     </mesh>
   )
