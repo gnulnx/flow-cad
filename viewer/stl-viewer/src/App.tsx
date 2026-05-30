@@ -62,6 +62,13 @@ export default function App() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
+  const [projectName, setProjectName] = useState<string | null>(null)
+
+  // Resizing state hooks
+  const [sourceWidth, setSourceWidth] = useState(380)
+  const [partsWidth, setPartsWidth] = useState(320)
+  const [isResizingSource, setIsResizingSource] = useState(false)
+  const [isResizingParts, setIsResizingParts] = useState(false)
 
   const loadStlBuffer = useCallback((
     name: string,
@@ -157,7 +164,10 @@ export default function App() {
     if (!response.ok) {
       throw new Error(await responseDetail(response))
     }
-    const payload = await response.json() as { revision: number; parts: ViewerPart[] }
+    const payload = await response.json() as { revision: number; parts: ViewerPart[]; project_name?: string }
+    if (payload.project_name) {
+      setProjectName(payload.project_name)
+    }
     const previousRevision = backendRevisionRef.current
     if (previousRevision !== null && payload.revision !== previousRevision) {
       setModels((prev) => prev.filter((model) => model.partId.startsWith('file:') || model.partId.startsWith('url:')))
@@ -351,6 +361,54 @@ export default function App() {
     setFitRequest((value) => value + 1)
   }, [])
 
+  const startResizingSource = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    setIsResizingSource(true)
+    
+    const startX = e.clientX
+    const startWidth = sourceWidth
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const deltaX = moveEvent.clientX - startX
+      const newWidth = Math.max(100, startWidth + deltaX)
+      setSourceWidth(newWidth)
+    }
+
+    const handlePointerUp = () => {
+      setIsResizingSource(false)
+      document.removeEventListener('pointermove', handlePointerMove)
+      document.removeEventListener('pointerup', handlePointerUp)
+      handleFitToView()
+    }
+
+    document.addEventListener('pointermove', handlePointerMove)
+    document.addEventListener('pointerup', handlePointerUp)
+  }, [sourceWidth, handleFitToView])
+
+  const startResizingParts = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    setIsResizingParts(true)
+
+    const startX = e.clientX
+    const startWidth = partsWidth
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const deltaX = startX - moveEvent.clientX
+      const newWidth = Math.max(100, startWidth + deltaX)
+      setPartsWidth(newWidth)
+    }
+
+    const handlePointerUp = () => {
+      setIsResizingParts(false)
+      document.removeEventListener('pointermove', handlePointerMove)
+      document.removeEventListener('pointerup', handlePointerUp)
+      handleFitToView()
+    }
+
+    document.addEventListener('pointermove', handlePointerMove)
+    document.addEventListener('pointerup', handlePointerUp)
+  }, [partsWidth, handleFitToView])
+
   const handleFrameSelected = useCallback(() => {
     setFrameSelectedRequest((value) => value + 1)
   }, [])
@@ -413,47 +471,84 @@ export default function App() {
         tapeMode={tapeMode}
         onTapeModeChange={handleTapeModeChange}
         onClearMeasurements={handleClearMeasurements}
+        projectName={projectName}
       />
-      <SourcePanel
-        context={sourceContext}
-        activeId={activeName}
-        collapsed={sourceCollapsed}
-        onToggle={() => setSourceCollapsed((value) => !value)}
-      />
-      <ModelList
-        parts={parts}
-        selectedIds={selectedIds}
-        activeId={activeName}
-        onActivate={handlePartActivate}
-        collapsed={partsCollapsed}
-        onToggle={() => setPartsCollapsed((value) => !value)}
-      />
-      <FileDropZone
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onFileSelect={handleFileSelect}
-        isDragOver={isDragOver}
-      >
-        {visibleWarnings.length ? (
-          <div className="geometry-warnings" role="status" aria-label="Geometry capability warnings">
-            {visibleWarnings.map((warning) => (
-              <div key={warning} className="geometry-warning">{warning}</div>
-            ))}
-          </div>
-        ) : null}
-        <Viewer
-          models={visibleModels}
-          activeName={activeName}
-          onActiveNameChange={setActiveName}
-          onModelActivate={handleViewerModelActivate}
-          fitRequest={fitRequest}
-          frameSelectedRequest={frameSelectedRequest}
-          rotationMode={rotationMode}
-          tapeMode={tapeMode}
-          clearMeasurementsRequest={clearMeasurementsRequest}
+      <div className="workspace-container">
+        <SourcePanel
+          context={sourceContext}
+          activeId={activeName}
+          collapsed={sourceCollapsed}
+          onToggle={() => {
+            setSourceCollapsed((value) => !value)
+            setTimeout(() => handleFitToView(), 310)
+          }}
+          width={sourceWidth}
+          isResizing={isResizingSource}
         />
-      </FileDropZone>
+        {sourceCollapsed ? null : (
+          <div 
+            className={`resize-handle left-handle ${isResizingSource ? 'active' : ''}`}
+            onPointerDown={startResizingSource}
+          />
+        )}
+        <div className={`workspace-canvas ${isResizingSource || isResizingParts ? 'resizing' : ''}`}>
+          <FileDropZone
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onFileSelect={handleFileSelect}
+            isDragOver={isDragOver}
+          >
+            {visibleWarnings.length ? (
+              <div className="geometry-warnings" role="status" aria-label="Geometry capability warnings">
+                {visibleWarnings.map((warning) => (
+                  <div key={warning} className="geometry-warning">{warning}</div>
+                ))}
+              </div>
+            ) : null}
+            <Viewer
+              models={visibleModels}
+              activeName={activeName}
+              onActiveNameChange={setActiveName}
+              onModelActivate={handleViewerModelActivate}
+              fitRequest={fitRequest}
+              frameSelectedRequest={frameSelectedRequest}
+              rotationMode={rotationMode}
+              tapeMode={tapeMode}
+              clearMeasurementsRequest={clearMeasurementsRequest}
+              onFitToView={handleFitToView}
+              onFrameSelected={handleFrameSelected}
+              onReload={() => {
+                reloadViewer().catch((err) => {
+                  console.error('Reload failed:', err)
+                  setStatusMessage(`Reload failed: ${err.message}`)
+                })
+              }}
+              onTapeModeChange={handleTapeModeChange}
+              onClearMeasurements={handleClearMeasurements}
+            />
+          </FileDropZone>
+        </div>
+        {partsCollapsed ? null : (
+          <div 
+            className={`resize-handle right-handle ${isResizingParts ? 'active' : ''}`}
+            onPointerDown={startResizingParts}
+          />
+        )}
+        <ModelList
+          parts={parts}
+          selectedIds={selectedIds}
+          activeId={activeName}
+          onActivate={handlePartActivate}
+          collapsed={partsCollapsed}
+          onToggle={() => {
+            setPartsCollapsed((value) => !value)
+            setTimeout(() => handleFitToView(), 310)
+          }}
+          width={partsWidth}
+          isResizing={isResizingParts}
+        />
+      </div>
     </div>
   )
 }

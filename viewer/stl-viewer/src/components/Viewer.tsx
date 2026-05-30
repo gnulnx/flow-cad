@@ -26,6 +26,11 @@ interface ViewerProps {
   rotationMode: RotationMode
   tapeMode: boolean
   clearMeasurementsRequest: number
+  onFitToView?: () => void
+  onFrameSelected?: () => void
+  onReload?: () => void
+  onTapeModeChange?: (enabled: boolean) => void
+  onClearMeasurements?: () => void
 }
 
 type MeasurementMode = 'off' | 'quick' | 'tape'
@@ -101,15 +106,15 @@ function ModelComponent({
             }}
           >
             <meshStandardMaterial
-              color={isActive ? model.color : '#8d99ae'}
-              metalness={0.15}
-              roughness={0.6}
-              emissive={isActive ? '#17324a' : '#000000'}
-              emissiveIntensity={isActive ? 0.25 : 0}
+              color={isActive ? '#94a3b8' : '#8b949e'}
+              metalness={0.1}
+              roughness={0.7}
+              emissive={isActive ? '#22d3ee' : '#000000'}
+              emissiveIntensity={isActive ? 0.08 : 0}
             />
           </mesh>
           <lineSegments geometry={edgeGeometry}>
-            <lineBasicMaterial color={model.wireframeColor} />
+            <lineBasicMaterial color={isActive ? '#22d3ee' : '#475569'} />
           </lineSegments>
         </group>
       ))}
@@ -117,9 +122,9 @@ function ModelComponent({
   )
 }
 
-const TRACKING_COLOR = '#fbbf24'
-const LOCK_COLOR = '#4ecca3'
-const MUTED_TARGET_COLOR = '#cbd5e1'
+const TRACKING_COLOR = '#22d3ee'
+const LOCK_COLOR = '#10b981'
+const MUTED_TARGET_COLOR = '#475569'
 const SNAP_VISIBILITY_TOLERANCE_MM = 3
 const SILHOUETTE_SCREEN_TOLERANCE_PX = 10
 
@@ -153,7 +158,15 @@ function MeasurementLine({
 
   return (
     <line geometry={geometry}>
-      <lineBasicMaterial color={color} transparent={subtle} opacity={subtle ? 0.3 : 1} depthTest={false} />
+      <lineBasicMaterial
+        color={color}
+        transparent={subtle}
+        opacity={subtle ? 0.3 : 1}
+        depthTest={true}
+        polygonOffset={true}
+        polygonOffsetFactor={-2}
+        polygonOffsetUnits={-2}
+      />
     </line>
   )
 }
@@ -167,7 +180,15 @@ function MeasurementPolyline({ points, color, subtle = false }: { points: THREE.
 
   return (
     <line geometry={geometry}>
-      <lineBasicMaterial color={color} transparent={subtle} opacity={subtle ? 0.3 : 1} depthTest={false} />
+      <lineBasicMaterial
+        color={color}
+        transparent={subtle}
+        opacity={subtle ? 0.3 : 1}
+        depthTest={true}
+        polygonOffset={true}
+        polygonOffsetFactor={-2}
+        polygonOffsetUnits={-2}
+      />
     </line>
   )
 }
@@ -190,7 +211,10 @@ function MeasurementMarker({
         transparent={subtle}
         opacity={subtle ? 0.25 : 1}
         wireframe={!locked && !subtle}
-        depthTest={false}
+        depthTest={true}
+        polygonOffset={true}
+        polygonOffsetFactor={-4}
+        polygonOffsetUnits={-4}
       />
     </mesh>
   )
@@ -251,7 +275,7 @@ function MeasurementAnnotationView({
   onDelete?: (id: string) => void
   showMarkers?: boolean
 }) {
-  const color = annotation.temporary ? '#fbbf24' : annotation.active ? '#4ecca3' : '#dbe3ee'
+  const color = '#facc15'
 
   return (
     <group>
@@ -439,14 +463,6 @@ function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode })
       <directionalLight position={[80, 120, 80]} intensity={1.1} />
       <directionalLight position={[-80, -60, -70]} intensity={0.35} color="#f4d35e" />
       <hemisphereLight color="#d8f3ff" groundColor="#253040" intensity={0.45} />
-      <Grid
-        rotation={[Math.PI / 2, 0, 0]}
-        args={[320, 32]}
-        cellColor="#334155"
-        sectionColor="#64748b"
-        fadeDistance={700}
-        fadeStrength={1}
-      />
       <axesHelper args={[70]} />
       {models.map((model) => (
         <ModelComponent
@@ -474,6 +490,7 @@ export default function Viewer(props: ViewerProps) {
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
   const maxPointerDeltaRef = useRef(0)
   const [quickMeasureActive, setQuickMeasureActive] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const measurementMode: MeasurementMode = quickMeasureActive ? 'quick' : props.tapeMode ? 'tape' : 'off'
 
   useEffect(() => {
@@ -501,7 +518,15 @@ export default function Viewer(props: ViewerProps) {
   }, [])
 
   return (
-    <div style={{ width: '100%', height: '100%', minHeight: 0 }}>
+    <div
+      style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative' }}
+      onContextMenu={(event) => {
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault()
+          setContextMenu({ x: event.clientX, y: event.clientY })
+        }
+      }}
+    >
       <Canvas
         camera={{ position: [140, 110, 140], fov: 45 }}
         shadows
@@ -532,6 +557,99 @@ export default function Viewer(props: ViewerProps) {
       {props.models.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-title">No visible parts</div>
+        </div>
+      ) : null}
+
+      {/* Floating Glassmorphic Context Menu (Command/Control + Right Click) */}
+      {contextMenu ? (
+        <div
+          style={{
+            position: 'fixed',
+            left: contextMenu.x,
+            top: contextMenu.y,
+            background: 'rgba(13, 20, 37, 0.95)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '8px',
+            padding: '6px 0',
+            minWidth: 180,
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
+            zIndex: 9999,
+          }}
+          ref={(el) => {
+            if (!el) return
+            const handleClickOutside = (e: MouseEvent) => {
+              if (!el.contains(e.target as Node)) {
+                setContextMenu(null)
+                document.removeEventListener('click', handleClickOutside)
+              }
+            }
+            setTimeout(() => {
+              document.addEventListener('click', handleClickOutside)
+            }, 0)
+          }}
+        >
+          <div
+            style={{
+              padding: '6px 14px',
+              fontSize: '10px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: 'var(--accent)',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+              marginBottom: '4px',
+            }}
+          >
+            Quick Actions
+          </div>
+          <button
+            onClick={() => {
+              props.onFitToView?.()
+              setContextMenu(null)
+            }}
+            className="context-menu-item"
+          >
+            🔎 Fit to View
+          </button>
+          <button
+            onClick={() => {
+              props.onFrameSelected?.()
+              setContextMenu(null)
+            }}
+            className="context-menu-item"
+            disabled={!props.activeName}
+          >
+            🎯 Frame Selection
+          </button>
+          <button
+            onClick={() => {
+              props.onTapeModeChange?.(!props.tapeMode)
+              setContextMenu(null)
+            }}
+            className="context-menu-item"
+          >
+            {props.tapeMode ? '❌ Exit Tape Mode' : '📏 Enter Tape Mode'}
+          </button>
+          <button
+            onClick={() => {
+              props.onClearMeasurements?.()
+              setContextMenu(null)
+            }}
+            className="context-menu-item"
+          >
+            🗑️ Clear Measurements
+          </button>
+          <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.05)', margin: '4px 0' }} />
+          <button
+            onClick={() => {
+              props.onReload?.()
+              setContextMenu(null)
+            }}
+            className="context-menu-item"
+          >
+            🔄 Reload Project
+          </button>
         </div>
       ) : null}
     </div>

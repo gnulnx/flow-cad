@@ -13,20 +13,16 @@ export default function FileDropZone({ children, onDrop, onDragOver, onDragLeave
   return (
     <div
       data-testid="drop-zone"
-      onDrop={onDrop}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
+      onDrop={onDrop}
       style={{
         flex: 1,
+        height: '100%',
+        width: '100%',
         position: 'relative',
-        border: isDragOver ? '2px solid #e94560' : '2px dashed #0f3460',
-        borderRadius: '8px',
-        margin: '16px',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        transition: 'all 0.2s',
-        background: isDragOver ? 'rgba(233,69,96,0.05)' : 'transparent',
+        flexDirection: 'column',
       }}
     >
       <input
@@ -37,6 +33,18 @@ export default function FileDropZone({ children, onDrop, onDragOver, onDragLeave
         style={{ display: 'none' }}
         id="file-input"
       />
+      
+      {/* Glassmorphic File Drag Overlay */}
+      <div className={`drag-overlay ${isDragOver ? 'active' : ''}`}>
+        <div className="drag-overlay-box">
+          <div className="drag-overlay-icon">📁</div>
+          <div className="drag-overlay-title">Drop STL Mesh File</div>
+          <div className="drag-overlay-text">
+            Drop your generated STL files here to instantly load and inspect them in 3D space.
+          </div>
+        </div>
+      </div>
+      
       {children}
     </div>
   )

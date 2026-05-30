@@ -1,5 +1,8 @@
+<p align="center">
+  <img src="docs/logo.svg" alt="Flow CAD Logo" width="600">
+</p>
+
 # Erb Stage 1 Lower Chassis
-Test
 
 This project contains the active wider/taller lower chassis for Erb, a two-wheel self-balancing waiter robot.
 
