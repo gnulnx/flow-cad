@@ -82,6 +82,36 @@ Generated files are written to:
 - `b3/exports/step/`
 - `b3/reports/`
 
+## Start The Flow CAD Workbench
+
+Start the source-backed browser workbench for the current project:
+
+```bash
+flow start
+```
+
+`flow start` runs the viewer API and frontend, scans for nearby free ports when
+the preferred ports are busy, and opens the browser by default. Use
+`--no-open-browser` when you only want the local servers:
+
+```bash
+flow start --no-open-browser
+```
+
+After regenerating exports or editing project source, ask the running workbench
+to refresh registry, geometry, and source state:
+
+```bash
+flow reload
+```
+
+If the backend is running somewhere other than the default
+`http://127.0.0.1:8000`, pass it explicitly:
+
+```bash
+flow reload --backend-url http://127.0.0.1:8123
+```
+
 ## View In Text-To-CAD
 
 Mirror the generated STEP files into the local text-to-cad app and generate the viewer sidecars:

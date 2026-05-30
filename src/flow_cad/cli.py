@@ -5,7 +5,7 @@ import rich_click as click
 from .main import cli as cad_cli
 from .project import PROJECT_MANIFEST, ProjectError, init_project, load_project
 from .registry_cli import registry as registry_cli
-from .viewer.cli import start_viewer, viewer as viewer_cli
+from .viewer.cli import reload_viewer, start_viewer
 
 @click.group()
 def flow():
@@ -56,10 +56,17 @@ def start(
     )
 
 
+@flow.command("reload")
+@click.option("--backend-url", default="http://127.0.0.1:8000", show_default=True)
+def reload(backend_url: str) -> None:
+    """Ask the running Flow CAD workbench to refresh project state."""
+    payload = reload_viewer(backend_url)
+    click.echo(f"Reloaded viewer revision {payload.get('revision')}")
+
+
 # Nest the CAD CLI under flow
 flow.add_command(cad_cli, name="cad")
 flow.add_command(registry_cli, name="registry")
-flow.add_command(viewer_cli, name="viewer")
 
 if __name__ == "__main__":
     flow()
