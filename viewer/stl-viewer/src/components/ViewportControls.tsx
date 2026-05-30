@@ -37,10 +37,17 @@ interface DragState {
   startTurntable: TurntableState
 }
 
-interface TurntableState {
+export interface TurntableState {
   yaw: number
   pitch: number
   distance: number
+}
+
+export interface OrbitDragBasis {
+  startArcball: THREE.Vector3
+  startRight: THREE.Vector3
+  startUp: THREE.Vector3
+  startBack: THREE.Vector3
 }
 
 function occurrenceRotation(occurrence: ViewerOccurrence): [number, number, number] {
@@ -192,6 +199,18 @@ function setOrbitPose(
   applyLookAt(camera, pivot, preserveWorldUp)
 }
 
+export function turntableStateForDrag(
+  startTurntable: TurntableState,
+  dx: number,
+  dy: number,
+) {
+  return {
+    yaw: startTurntable.yaw - dx * ROTATE_SPEED,
+    pitch: THREE.MathUtils.clamp(startTurntable.pitch + dy * ROTATE_SPEED, -MAX_TURNTABLE_PITCH, MAX_TURNTABLE_PITCH),
+    distance: startTurntable.distance,
+  }
+}
+
 function turntableOrbit(
   camera: THREE.PerspectiveCamera,
   drag: DragState,
@@ -199,11 +218,7 @@ function turntableOrbit(
   dy: number,
   stateRef: MutableRefObject<TurntableState>,
 ) {
-  stateRef.current = {
-    yaw: drag.startTurntable.yaw - dx * ROTATE_SPEED,
-    pitch: THREE.MathUtils.clamp(drag.startTurntable.pitch - dy * ROTATE_SPEED, -MAX_TURNTABLE_PITCH, MAX_TURNTABLE_PITCH),
-    distance: drag.startTurntable.distance,
-  }
+  stateRef.current = turntableStateForDrag(drag.startTurntable, dx, dy)
   applyTurntablePose(camera, drag.startPivot, stateRef.current)
 }
 
@@ -220,11 +235,11 @@ function freeOrbit(camera: THREE.PerspectiveCamera, drag: DragState, dx: number,
   setOrbitPose(camera, drag.startPivot, offset, up, false)
 }
 
-function arcballOrbit(camera: THREE.PerspectiveCamera, drag: DragState, currentArcball: THREE.Vector3) {
+export function arcballQuaternionForDrag(drag: OrbitDragBasis, currentArcball: THREE.Vector3) {
   // The virtual sphere gives a screen-space axis; the camera basis maps that axis into world space.
-  const axis = drag.startArcball.clone().cross(currentArcball)
+  const axis = currentArcball.clone().cross(drag.startArcball)
   const axisLength = axis.length()
-  if (axisLength < 0.0001) return
+  if (axisLength < 0.0001) return null
 
   const angle = Math.atan2(axisLength, THREE.MathUtils.clamp(drag.startArcball.dot(currentArcball), -1, 1))
   const screenAxis = axis.divideScalar(axisLength)
@@ -232,7 +247,13 @@ function arcballOrbit(camera: THREE.PerspectiveCamera, drag: DragState, currentA
     .add(drag.startUp.clone().multiplyScalar(screenAxis.y))
     .add(drag.startBack.clone().multiplyScalar(screenAxis.z))
     .normalize()
-  const quaternion = new THREE.Quaternion().setFromAxisAngle(worldAxis, angle)
+  return new THREE.Quaternion().setFromAxisAngle(worldAxis, angle)
+}
+
+function arcballOrbit(camera: THREE.PerspectiveCamera, drag: DragState, currentArcball: THREE.Vector3) {
+  const quaternion = arcballQuaternionForDrag(drag, currentArcball)
+  if (!quaternion) return
+
   const offset = drag.startPosition.clone().sub(drag.startPivot).applyQuaternion(quaternion)
   const up = drag.startUp.clone().applyQuaternion(quaternion)
 
