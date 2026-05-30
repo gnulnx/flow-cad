@@ -28,8 +28,9 @@ export default function ModelList({ parts, selectedIds, activeId, onActivate, co
               >
                 <div className="part-name">{part.id}</div>
                 <div className="part-meta">
-                  {part.module_id} / {part.artifact_format ?? 'missing'}
+                  {part.module_id} / {part.artifact_format ?? 'missing'} / {part.geometry_authority}
                 </div>
+                {part.capabilities.mesh_only ? <div className="part-warning">Mesh-only approximate</div> : null}
               </li>
             )
           })}

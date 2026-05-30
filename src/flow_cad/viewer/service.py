@@ -9,6 +9,14 @@ from typing import Any, Callable
 
 from flow_cad.core.metadata import PartDefinition
 from flow_cad.project import FlowCadProject, load_project
+from flow_cad.viewer.geometry_authority import (
+    GeometryAuthorityError,
+    cache_metadata_matches,
+    display_mesh_cache_metadata,
+    extract_step_snap_features,
+    geometry_for_artifact,
+    snap_feature_cache_metadata,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -36,10 +44,6 @@ class Artifact:
 
 
 Converter = Callable[[Path, Path], Path]
-
-
-def _vector_to_float_tuple(vector: Any) -> tuple[float, float, float]:
-    return (float(vector.X), float(vector.Y), float(vector.Z))
 
 
 def _relative_path(path: Path, project_root: Path) -> str:
@@ -106,127 +110,6 @@ def convert_step_to_stl(step_path: Path, stl_path: Path) -> Path:
     return stl_path
 
 
-def extract_step_snap_features(step_path: Path) -> dict[str, Any]:
-    """Extract lightweight snap targets from STEP topology for the browser viewer."""
-    try:
-        from build123d import import_step
-    except Exception as exc:  # pragma: no cover - depends on local CAD install
-        raise ConversionUnavailableError(
-            "STEP snap extraction requires build123d/OCP. Install project dependencies or configure the CAD environment."
-        ) from exc
-
-    try:
-        shape = import_step(step_path)
-    except Exception:
-        return {
-            "source_format": "step",
-            "features": [],
-            "warnings": [f"Could not extract snap features from STEP file: {step_path.name}"],
-        }
-
-    features: list[dict[str, Any]] = []
-
-    try:
-        vertices = shape.vertices()
-        edges = shape.edges()
-    except Exception:
-        return {
-            "source_format": "step",
-            "features": [],
-            "warnings": [f"Could not read topology from STEP file: {step_path.name}"],
-        }
-
-    for vertex in vertices:
-        try:
-            point = _vector_to_float_tuple(vertex.center())
-        except Exception:
-            continue
-        features.append(
-            {
-                "kind": "vertex",
-                "label": "Endpoint",
-                "point": _as_float_tuple(point),
-            }
-        )
-
-    for edge in edges:
-        try:
-            geom_type = getattr(getattr(edge, "geom_type", None), "name", str(getattr(edge, "geom_type", ""))).lower()
-            length = float(edge.length)
-        except Exception:
-            continue
-
-        if geom_type == "line":
-            try:
-                start = _vector_to_float_tuple(edge.position_at(0))
-                end = _vector_to_float_tuple(edge.position_at(1))
-                midpoint = _vector_to_float_tuple(edge.position_at(0.5))
-            except Exception:
-                continue
-            features.append(
-                {
-                    "kind": "line_edge",
-                    "label": "Edge",
-                    "start": _as_float_tuple(start),
-                    "end": _as_float_tuple(end),
-                    "point": _as_float_tuple(midpoint),
-                    "length": length,
-                }
-            )
-            features.append(
-                {
-                    "kind": "edge_midpoint",
-                    "label": "Edge Midpoint",
-                    "point": _as_float_tuple(midpoint),
-                    "edge_start": _as_float_tuple(start),
-                    "edge_end": _as_float_tuple(end),
-                }
-            )
-        elif geom_type == "circle":
-            try:
-                center = _vector_to_float_tuple(edge.arc_center)
-                radius = float(edge.radius)
-                ring_points = [
-                    _as_float_tuple(_vector_to_float_tuple(edge.position_at(position)))
-                    for position in (0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875)
-                ]
-            except Exception:
-                continue
-            features.append(
-                {
-                    "kind": "circle_center",
-                    "label": "Hole Center",
-                    "point": _as_float_tuple(center),
-                    "ring_points": ring_points,
-                    "radius": radius,
-                    "length": length,
-                }
-            )
-
-    sorted_features = sorted(features, key=_snap_feature_sort_key)
-    for index, feature in enumerate(sorted_features):
-        feature["id"] = _snap_feature_id(index, feature)
-
-    return {
-        "schema_version": 2,
-        "source_format": "step",
-        "features": sorted_features,
-        "warnings": [] if sorted_features else [f"No snap features found in STEP file: {step_path.name}"],
-    }
-
-
-def _snap_feature_sort_key(feature: dict[str, Any]) -> tuple[Any, ...]:
-    point = tuple(round(float(value), 5) for value in feature.get("point", [0.0, 0.0, 0.0]))
-    start = tuple(round(float(value), 5) for value in feature.get("start", feature.get("edge_start", point)))
-    end = tuple(round(float(value), 5) for value in feature.get("end", feature.get("edge_end", point)))
-    return (feature["kind"], point, start, end, round(float(feature.get("radius", 0.0)), 5))
-
-
-def _snap_feature_id(index: int, feature: dict[str, Any]) -> str:
-    point = "_".join(f"{float(value):.4f}" for value in feature.get("point", [0.0, 0.0, 0.0]))
-    return f"{feature['kind']}:{index}:{point}"
-
-
 class ViewerService:
     def __init__(
         self,
@@ -287,9 +170,13 @@ class ViewerService:
 
         assert artifact.source_format == "step"
         cached_stl = self._cached_stl_path(artifact.path)
-        if self._cache_is_fresh(artifact.path, cached_stl):
+        metadata_path = self._cached_metadata_path(cached_stl)
+        if self._display_cache_is_fresh(artifact.path, cached_stl, metadata_path):
             return cached_stl, artifact.source_format
-        return self.converter(artifact.path, cached_stl), artifact.source_format
+        converted = self.converter(artifact.path, cached_stl)
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(json.dumps(display_mesh_cache_metadata(artifact.path), indent=2, sort_keys=True))
+        return converted, artifact.source_format
 
     def snap_features(self, component_id: str) -> dict[str, Any]:
         artifact = self._artifact(self._definition(component_id))
@@ -299,19 +186,20 @@ class ViewerService:
             return self._empty_snap_features(component_id, artifact.source_format)
 
         cache_path = self._cached_snap_features_path(artifact.path)
-        if self._cache_is_fresh(artifact.path, cache_path):
-            try:
-                cached = json.loads(cache_path.read_text())
-                if isinstance(cached, dict) and cached.get("schema_version") == 2:
-                    return cached
-            except (OSError, json.JSONDecodeError):
-                pass
+        cached = self._read_json_cache(cache_path)
+        if cached is not None and cache_metadata_matches(cached, snap_feature_cache_metadata(artifact.path)):
+            return cached
 
-        payload = extract_step_snap_features(artifact.path)
+        try:
+            payload = extract_step_snap_features(artifact.path)
+        except GeometryAuthorityError as exc:
+            raise ConversionUnavailableError(str(exc)) from exc
         payload.update(
             {
                 "component_id": component_id,
                 "artifact_path": _relative_path(artifact.path, self.project_root),
+                "geometry_authority": geometry_for_artifact(artifact.source_format).geometry_authority,
+                "capabilities": geometry_for_artifact(artifact.source_format).to_payload()["capabilities"],
             }
         )
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -364,6 +252,7 @@ class ViewerService:
             if artifact is not None and artifact.direct_stl_path is not None
             else None
         )
+        geometry = geometry_for_artifact(source_format).to_payload()
         return {
             "id": definition.id,
             "module_id": definition.module_id,
@@ -374,6 +263,11 @@ class ViewerService:
             "artifact_format": source_format,
             "artifact_path": artifact_path,
             "direct_stl_path": direct_stl_path,
+            "source_kind": geometry["source_kind"],
+            "geometry_authority": geometry["geometry_authority"],
+            "quality_label": geometry["quality_label"],
+            "capabilities": geometry["capabilities"],
+            "warnings": geometry["warnings"],
             "model_url": f"/api/parts/{definition.id}/model",
             "source_url": f"/api/parts/{definition.id}/source",
             "snap_features_url": f"/api/parts/{definition.id}/snap-features",
@@ -416,14 +310,35 @@ class ViewerService:
         return cache_path.exists() and cache_path.stat().st_mtime >= source_path.stat().st_mtime
 
     @staticmethod
+    def _cached_metadata_path(cache_path: Path) -> Path:
+        return cache_path.with_suffix(f"{cache_path.suffix}.json")
+
+    def _display_cache_is_fresh(self, source_path: Path, cache_path: Path, metadata_path: Path) -> bool:
+        if not self._cache_is_fresh(source_path, cache_path):
+            return False
+        cached = self._read_json_cache(metadata_path)
+        return cached is not None and cache_metadata_matches(cached, display_mesh_cache_metadata(source_path))
+
+    @staticmethod
+    def _read_json_cache(cache_path: Path) -> dict[str, Any] | None:
+        try:
+            cached = json.loads(cache_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        return cached if isinstance(cached, dict) else None
+
+    @staticmethod
     def _empty_snap_features(component_id: str, source_format: str | None) -> dict[str, Any]:
+        geometry = geometry_for_artifact(source_format).to_payload()
         return {
             "component_id": component_id,
             "artifact_path": None,
             "schema_version": 2,
             "source_format": source_format,
             "features": [],
-            "warnings": [],
+            "warnings": geometry["warnings"] if source_format == "stl" else [],
+            "geometry_authority": geometry["geometry_authority"],
+            "capabilities": geometry["capabilities"],
         }
 
     def _placement_map(self) -> dict[str, list[dict[str, Any]]]:

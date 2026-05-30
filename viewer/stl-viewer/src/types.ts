@@ -10,6 +10,17 @@ export interface ViewerOccurrence {
   rotation: [number, number, number]
 }
 
+export interface GeometryCapabilities {
+  display_mesh: boolean
+  mesh_metrics: boolean
+  exact_topology: boolean
+  exact_snap: boolean
+  exact_measurement: boolean
+  approximate_measurement: boolean
+  exact_editing: boolean
+  mesh_only: boolean
+}
+
 export interface ViewerPart {
   id: string
   module_id: string
@@ -20,6 +31,11 @@ export interface ViewerPart {
   artifact_format: 'step' | 'stl' | null
   artifact_path: string | null
   direct_stl_path: string | null
+  source_kind: 'flow_python' | 'step' | 'stl' | 'missing'
+  geometry_authority: 'step_kernel' | 'mesh' | 'missing'
+  quality_label: 'exact' | 'approximate' | 'missing'
+  capabilities: GeometryCapabilities
+  warnings: string[]
   model_url: string
   source_url: string
   snap_features_url?: string
@@ -40,6 +56,9 @@ export interface SnapFeature {
   ring_points?: [number, number, number][]
   length?: number
   radius?: number
+  source?: string
+  quality?: 'exact' | 'approximate'
+  quality_label?: string
 }
 
 export interface SnapFeaturePayload {
@@ -71,6 +90,11 @@ export interface ModelData {
   color: string
   wireframeColor: string
   snapFeatures: SnapFeature[]
+  sourceKind: ViewerPart['source_kind'] | 'client_stl'
+  geometryAuthority: ViewerPart['geometry_authority']
+  qualityLabel: ViewerPart['quality_label']
+  capabilities: GeometryCapabilities
+  warnings: string[]
   occurrences: ViewerOccurrence[]
   bounds: {
     min: Vector3

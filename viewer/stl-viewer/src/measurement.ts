@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { BufferGeometry } from 'three'
-import type { SnapFeature, SnapFeatureKind } from './types'
+import type { ModelData, SnapFeature, SnapFeatureKind } from './types'
 
 export interface MeasurementTarget {
   id: string
@@ -16,6 +16,8 @@ export interface MeasurementTarget {
   ringPoints?: THREE.Vector3[]
   length?: number
   radius?: number
+  quality?: 'exact' | 'approximate'
+  qualityLabel?: string
 }
 
 export interface ResolvedMeasurement {
@@ -24,6 +26,7 @@ export interface ResolvedMeasurement {
   endPoint: THREE.Vector3
   distance: number
   delta: THREE.Vector3
+  qualityLabel: string
 }
 
 const EPSILON = 1e-9
@@ -40,10 +43,10 @@ export const SNAP_KIND_PRIORITY: Record<SnapFeatureKind, number> = {
 }
 
 export function labelForFeatureKind(kind: SnapFeatureKind) {
-  if (kind === 'circle_center') return 'Hole Center'
-  if (kind === 'vertex') return 'Endpoint'
+  if (kind === 'circle_center') return 'Circle Center'
+  if (kind === 'vertex') return 'Vertex'
   if (kind === 'edge_midpoint') return 'Edge Midpoint'
-  if (kind === 'line_edge') return 'Edge'
+  if (kind === 'line_edge') return 'Line Edge'
   if (kind === 'face_point') return 'Face Point'
   return 'Free Point'
 }
@@ -83,6 +86,8 @@ export function targetFromFeature(
     ringPoints,
     length: feature.length,
     radius: feature.radius,
+    quality: feature.quality,
+    qualityLabel: feature.quality_label,
   }
 }
 
@@ -92,6 +97,8 @@ export function freePointTarget(point: THREE.Vector3): MeasurementTarget {
     kind: 'free_point',
     label: 'Free Point',
     point: point.clone(),
+    quality: 'approximate',
+    qualityLabel: 'Approximate',
   }
 }
 
@@ -104,6 +111,7 @@ export function resolveMeasurement(start: MeasurementTarget, end: MeasurementTar
     endPoint: closest.end,
     distance: delta.length(),
     delta,
+    qualityLabel: measurementQualityLabel(start, end),
   }
 }
 
@@ -116,6 +124,7 @@ export function resolveEdgeLength(target: MeasurementTarget): ResolvedMeasuremen
     endPoint: target.segment.end.clone(),
     distance: target.length ?? delta.length(),
     delta,
+    qualityLabel: target.qualityLabel ?? (target.quality === 'exact' ? 'Exact' : 'Approximate'),
   }
 }
 
@@ -150,8 +159,11 @@ export function buildMeshSnapFeatures(geometry: BufferGeometry): SnapFeature[] {
   features.push(...Array.from(vertexMap.entries()).map(([key, point], index) => ({
     id: `mesh-vertex:${index}:${key}`,
     kind: 'vertex',
-    label: 'Endpoint',
+    label: 'Vertex',
     point,
+    source: 'display_mesh',
+    quality: 'approximate',
+    quality_label: 'Approximate',
   })))
 
   const edgeMap = new Map<string, [[number, number, number], [number, number, number]]>()
@@ -177,11 +189,14 @@ export function buildMeshSnapFeatures(geometry: BufferGeometry): SnapFeature[] {
     features.push({
       id: `mesh-edge:${index}:${key}`,
       kind: 'line_edge',
-      label: 'Edge',
+      label: 'Line Edge',
       point: [midpoint.x, midpoint.y, midpoint.z],
       start,
       end,
       length,
+      source: 'display_mesh',
+      quality: 'approximate',
+      quality_label: 'Approximate',
     })
     features.push({
       id: `mesh-edge-midpoint:${index}:${key}`,
@@ -190,11 +205,21 @@ export function buildMeshSnapFeatures(geometry: BufferGeometry): SnapFeature[] {
       point: [midpoint.x, midpoint.y, midpoint.z],
       edge_start: start,
       edge_end: end,
+      source: 'display_mesh',
+      quality: 'approximate',
+      quality_label: 'Approximate',
     })
   })
 
   edgeGeometry.dispose()
   return features
+}
+
+export function measurementSnapFeaturesForModel(model: Pick<ModelData, 'capabilities' | 'geometry' | 'snapFeatures'>): SnapFeature[] {
+  if (model.capabilities.exact_snap) {
+    return model.snapFeatures
+  }
+  return [...model.snapFeatures, ...buildMeshSnapFeatures(model.geometry)]
 }
 
 function addMeshEdge(
@@ -235,6 +260,10 @@ function closestMeasurementPoints(start: MeasurementTarget, end: MeasurementTarg
     start: start.point.clone(),
     end: end.point.clone(),
   }
+}
+
+function measurementQualityLabel(start: MeasurementTarget, end: MeasurementTarget) {
+  return start.quality === 'exact' && end.quality === 'exact' ? 'Exact' : 'Approximate'
 }
 
 function closestPointOnSegment(start: THREE.Vector3, end: THREE.Vector3, point: THREE.Vector3) {

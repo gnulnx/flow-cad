@@ -176,6 +176,33 @@ body {
   font-size: 11px;
 }
 
+.part-warning {
+  margin-top: 3px;
+  color: #fbbf24;
+  font-size: 11px;
+}
+
+.geometry-warnings {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 2;
+  display: grid;
+  gap: 6px;
+  width: min(520px, calc(100% - 36px));
+  pointer-events: none;
+}
+
+.geometry-warning {
+  padding: 8px 10px;
+  background: rgba(12, 18, 28, 0.92);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  border-radius: 6px;
+  color: #fde68a;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .source-file {
   padding: 8px 12px;
   color: var(--text-accent);
@@ -287,6 +314,20 @@ body {
   font-size: 15px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.measurement-quality {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.measurement-quality-exact {
+  color: var(--text-accent);
+}
+
+.measurement-quality-approximate {
+  color: #fbbf24;
 }
 
 .measurement-deltas {
