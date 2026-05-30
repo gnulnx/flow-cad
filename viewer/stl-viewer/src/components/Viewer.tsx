@@ -685,14 +685,14 @@ function screenPointToNdc(point: THREE.Vector2, rect: DOMRect) {
   )
 }
 
-function snapScore(target: MeasurementTarget, screenDistance: number, previousTargetId: string | null) {
+export function snapScore(target: MeasurementTarget, screenDistance: number, previousTargetId: string | null) {
   const priority = SNAP_KIND_PRIORITY[target.kind] ?? 10
   const pullBonus = isLockedTarget(target) ? 30 : 0
   const stickyBonus = target.id === previousTargetId ? 32 : 0
   return priority * 40 + screenDistance - pullBonus - stickyBonus
 }
 
-function snapReleaseDistance(target: MeasurementTarget, previousTargetId: string | null) {
+export function snapReleaseDistance(target: MeasurementTarget, previousTargetId: string | null) {
   if (target.id === previousTargetId) return 74
   return isLockedTarget(target) ? 56 : 34
 }
