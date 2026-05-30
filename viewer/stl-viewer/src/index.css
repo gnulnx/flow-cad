@@ -81,17 +81,27 @@ body {
 }
 
 .sidebar-dock.collapsed {
-  width: 48px;
+  width: 48px !important; /* Force collapsed width */
   background: var(--bg-primary);
+}
+
+.sidebar-dock.resizing {
+  transition: none !important; /* Disable transition during drag resize */
+}
+
+.workspace-canvas.resizing {
+  transition: none !important;
+  pointer-events: none !important;
 }
 
 .sidebar-content {
   display: flex;
   flex-direction: column;
   height: 100%;
-  width: 320px; /* Preserve fixed width so contents do not squish during transition */
+  width: 100%; /* Scale to fit parent container width */
   opacity: 1;
   transition: opacity 0.2s ease-in-out;
+  min-width: 0;
 }
 
 .sidebar-dock.collapsed .sidebar-content {
@@ -503,7 +513,7 @@ body {
    Measurement & HUD Overlay Styling
    ========================================================================== */
 .measurement-html {
-  pointer-events: auto;
+  pointer-events: none;
   z-index: 1000;
 }
 
@@ -522,6 +532,7 @@ body {
   text-align: left;
   user-select: none;
   transition: var(--transition-smooth);
+  pointer-events: none;
 }
 
 .measurement-label-active {
@@ -593,6 +604,7 @@ body {
   height: 16px;
   border: 0;
   background: rgba(255, 255, 255, 0.05);
+  pointer-events: auto;
   border-radius: 4px;
   color: var(--text-secondary);
   cursor: pointer;
@@ -783,4 +795,35 @@ body {
   color: var(--text-secondary);
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ==========================================================================
+   Workspace Resize Handles Styling
+   ========================================================================== */
+.resize-handle {
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s, box-shadow 0.2s;
+  z-index: 100;
+  position: relative;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.resize-handle:hover,
+.resize-handle.active {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.left-handle {
+  margin-right: -3px;
+  margin-left: -3px;
+}
+
+.right-handle {
+  margin-right: -3px;
+  margin-left: -3px;
 }

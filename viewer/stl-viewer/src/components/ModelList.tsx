@@ -7,13 +7,18 @@ interface ModelListProps {
   onActivate: (partId: string, additive: boolean) => void
   collapsed: boolean
   onToggle: () => void
+  width?: number
+  isResizing?: boolean
 }
 
-export default function ModelList({ parts, selectedIds, activeId, onActivate, collapsed, onToggle }: ModelListProps) {
+export default function ModelList({ parts, selectedIds, activeId, onActivate, collapsed, onToggle, width, isResizing }: ModelListProps) {
   if (parts.length === 0) return null
 
   return (
-    <div className={`sidebar-dock right-dock ${collapsed ? 'collapsed' : ''}`}>
+    <div 
+      className={`sidebar-dock right-dock ${collapsed ? 'collapsed' : ''} ${isResizing ? 'resizing' : ''}`}
+      style={{ width: collapsed ? undefined : width }}
+    >
       <div className="sidebar-icon-strip" onClick={onToggle} title="Expand Parts Panel">
         <button type="button" className="icon-strip-btn">⚙️</button>
         <div style={{

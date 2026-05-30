@@ -6,6 +6,8 @@ interface SourcePanelProps {
   activeId: string | null
   collapsed: boolean
   onToggle: () => void
+  width?: number
+  isResizing?: boolean
 }
 
 const PYTHON_KEYWORDS = new Set([
@@ -147,9 +149,12 @@ function HighlightedSource({ context }: { context: SourceContext }) {
   )
 }
 
-export default function SourcePanel({ context, activeId, collapsed, onToggle }: SourcePanelProps) {
+export default function SourcePanel({ context, activeId, collapsed, onToggle, width, isResizing }: SourcePanelProps) {
   return (
-    <div className={`sidebar-dock left-dock ${collapsed ? 'collapsed' : ''}`}>
+    <div 
+      className={`sidebar-dock left-dock ${collapsed ? 'collapsed' : ''} ${isResizing ? 'resizing' : ''}`}
+      style={{ width: collapsed ? undefined : width }}
+    >
       <div className="sidebar-icon-strip" onClick={onToggle} title="Expand Source Panel">
         <button type="button" className="icon-strip-btn">💻</button>
         <div style={{
