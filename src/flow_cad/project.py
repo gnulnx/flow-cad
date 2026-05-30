@@ -58,6 +58,63 @@ class FlowCadProject:
     def iter_part_definitions(self, *, include_references: bool = True) -> Iterable[Any]:
         return _call_with_supported_kwargs(self.part_definitions, include_references=include_references)
 
+    @property
+    def active_version(self) -> str | None:
+        assembly_version = str(getattr(self.assembly_definition, "version", "") or "")
+        if assembly_version:
+            return assembly_version
+        for definition in self.iter_part_definitions():
+            version = str(getattr(definition, "version", "") or "")
+            if version:
+                return version
+        return None
+
+    @property
+    def active_assembly_id(self) -> str | None:
+        assembly_ids = tuple(getattr(self.assembly_definition, "assembly_ids", ()) or ())
+        return str(assembly_ids[0]) if assembly_ids else None
+
+    def available_versions(self) -> list[str]:
+        versions = sorted(
+            {
+                str(getattr(definition, "version", "") or "")
+                for definition in self.iter_part_definitions()
+                if getattr(definition, "version", None)
+            }
+        )
+        active_version = self.active_version
+        if active_version and active_version in versions:
+            versions.remove(active_version)
+            return [active_version, *versions]
+        return versions
+
+    def definition_matches_profile(self, definition: Any, profile: str = "all") -> bool:
+        normalized_profile = profile.strip() or "all"
+        if normalized_profile == "all":
+            return True
+
+        definition_version = str(getattr(definition, "version", "") or "")
+        compatible_versions = tuple(str(version) for version in getattr(definition, "compatible_versions", ()) or ())
+        if normalized_profile == "active":
+            active_version = self.active_version
+            if not active_version:
+                return str(getattr(definition, "role", "")) != str(PartRole.LEGACY)
+            if str(getattr(definition, "role", "")) == str(PartRole.LEGACY):
+                return False
+            return definition_version == active_version or active_version in compatible_versions
+
+        return definition_version == normalized_profile or normalized_profile in compatible_versions
+
+    def iter_part_definitions_for_profile(
+        self,
+        profile: str = "all",
+        *,
+        include_references: bool = True,
+    ) -> Iterable[Any]:
+        for definition in self.iter_part_definitions(include_references=include_references):
+            if self.definition_matches_profile(definition, profile):
+                yield definition
+
     def build_parts(self, params: Any) -> dict[str, object]:
         return {definition.id: definition.factory(params) for definition in self.iter_part_definitions()}
 
@@ -136,9 +193,9 @@ class FlowCadProject:
             material="",
         )
 
-    def expected_printable_export_relative_paths(self) -> set[Path]:
+    def expected_printable_export_relative_paths(self, profile: str = "active") -> set[Path]:
         paths: set[Path] = set()
-        for definition in self.iter_part_definitions(include_references=False):
+        for definition in self.iter_part_definitions_for_profile(profile, include_references=False):
             if not definition.is_printable:
                 continue
             stem = Path(definition.filename).stem

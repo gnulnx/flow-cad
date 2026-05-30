@@ -5,6 +5,8 @@ import time
 from flow_cad.viewer.app import create_app
 from flow_cad.viewer.service import ConversionUnavailableError, ViewerService
 from flow_cad.viewer.geometry_authority import DISPLAY_MESH_CONTRACT_VERSION, SNAP_EXTRACTOR_CONTRACT_VERSION
+from flow_cad.core.metadata import PartDefinition, PartRole
+from flow_cad.project import FlowCadProject, ProjectDocs, ProjectPaths
 
 
 def _export_path(project_root: Path, kind: str, module_id: str, filename: str) -> Path:
@@ -64,6 +66,125 @@ def test_viewer_service_lists_example_parts_and_prefers_step(tmp_path) -> None:
             "rotation": [0.0, 0.0, 0.0],
         }
     ]
+
+
+def test_viewer_service_reports_active_version_and_hides_references_by_default(tmp_path) -> None:
+    class Params:
+        project_id = "versioned"
+
+    definitions = (
+        PartDefinition(
+            "wheel_box_test_body",
+            "wheel_box",
+            "body.step",
+            lambda _params: object(),
+            role=PartRole.PRINTABLE,
+            version="b3_v2",
+            family="wheel_box",
+            assembly_ids=("b3_v2_wheel_box",),
+        ),
+        PartDefinition(
+            "reference_wheel_pair",
+            "reference",
+            "wheels.step",
+            lambda _params: object(),
+            role=PartRole.REFERENCE,
+            version="b3_v2",
+            family="reference",
+            compatible_versions=("b3_v1",),
+        ),
+        PartDefinition(
+            "left_side_plate",
+            "lower_chassis",
+            "left.step",
+            lambda _params: object(),
+            role=PartRole.LEGACY,
+            version="b3_v1",
+            family="lower_chassis",
+            assembly_ids=("b3_v1_lower_chassis",),
+        ),
+    )
+
+    def iter_part_definitions(*, include_references: bool = True):
+        for definition in definitions:
+            if include_references or definition.role != PartRole.REFERENCE:
+                yield definition
+
+    def get_assembly_placements(_params, *, include_references: bool = False, assembly_id: str | None = None):
+        if assembly_id == "b3_v1_lower_chassis":
+            placements = [
+                {
+                    "name": "left_side_plate",
+                    "part_key": "left_side_plate",
+                    "location": (-10.0, 0.0, 0.0),
+                    "rotation": (0.0, 0.0, 0.0),
+                }
+            ]
+        else:
+            placements = [
+                {
+                    "name": "wheel_box_test_body",
+                    "part_key": "wheel_box_test_body",
+                    "location": (0.0, 0.0, 0.0),
+                    "rotation": (0.0, 0.0, 0.0),
+                }
+            ]
+        if include_references:
+            placements.append(
+                {
+                    "name": "reference_wheel_pair",
+                    "part_key": "reference_wheel_pair",
+                    "location": (1.0, 2.0, 3.0),
+                    "rotation": (0.0, 0.0, 0.0),
+                }
+            )
+        return placements
+
+    def assembly_definition():
+        return PartDefinition(
+            "assembly",
+            "assembly",
+            "assembly.step",
+            lambda _params: None,
+            role=PartRole.INSPECTION,
+            version="b3_v2",
+            assembly_ids=("b3_v2_wheel_box",),
+        )
+
+    project = FlowCadProject(
+        root=tmp_path,
+        project_id="versioned",
+        name="Versioned",
+        params_factory=Params,
+        part_definitions=iter_part_definitions,
+        assembly_placements=get_assembly_placements,
+        assembly_definition_factory=assembly_definition,
+        paths=ProjectPaths(
+            exports=tmp_path / "exports",
+            reports=tmp_path / "reports",
+            local_state=tmp_path / ".flow",
+            cache=tmp_path / ".flow" / "registry.db",
+        ),
+        docs=ProjectDocs(
+            print_manifest=tmp_path / "docs" / "PRINT_MANIFEST.md",
+            part_interfaces=tmp_path / "docs" / "PART_INTERFACES.md",
+        ),
+        validators={},
+    )
+
+    payload = ViewerService(project=project).list_parts()
+    parts = {part["id"]: part for part in payload["parts"]}
+
+    assert payload["active_version"] == "b3_v2"
+    assert payload["active_assembly_id"] == "b3_v2_wheel_box"
+    assert payload["versions"] == ["b3_v2", "b3_v1"]
+    assert parts["wheel_box_test_body"]["default_visible"] is True
+    assert parts["reference_wheel_pair"]["default_visible"] is False
+    assert parts["reference_wheel_pair"]["occurrences"][0]["location"] == [1.0, 2.0, 3.0]
+    assert len(parts["reference_wheel_pair"]["occurrences"]) == 2
+    assert parts["left_side_plate"]["default_visible"] is False
+    assert parts["left_side_plate"]["occurrences"][0]["assembly_id"] == "b3_v1_lower_chassis"
+    assert parts["left_side_plate"]["occurrences"][0]["location"] == [-10.0, 0.0, 0.0]
 
 
 def test_viewer_service_serves_direct_stl_when_no_step_exists(tmp_path) -> None:

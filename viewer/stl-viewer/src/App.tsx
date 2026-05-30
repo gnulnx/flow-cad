@@ -6,7 +6,17 @@ import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import SourcePanel from './components/SourcePanel'
 import { calculateMeshMetrics } from './meshMetrics'
-import type { GeometryCapabilities, ModelData, RotationMode, SnapFeature, SnapFeaturePayload, SourceContext, ViewerOccurrence, ViewerPart } from './types'
+import type {
+  GeometryCapabilities,
+  ModelData,
+  RotationMode,
+  SnapFeature,
+  SnapFeaturePayload,
+  SourceContext,
+  ViewerOccurrence,
+  ViewerPart,
+  ViewerPartsPayload,
+} from './types'
 
 const IDENTITY_OCCURRENCE: ViewerOccurrence = {
   name: 'identity',
@@ -63,6 +73,8 @@ export default function App() {
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
   const [projectName, setProjectName] = useState<string | null>(null)
+  const [activeVersion, setActiveVersion] = useState<string | null>(null)
+  const loadingPartIdsRef = useRef<Set<string>>(new Set())
 
   // Resizing state hooks
   const [sourceWidth, setSourceWidth] = useState(380)
@@ -164,10 +176,11 @@ export default function App() {
     if (!response.ok) {
       throw new Error(await responseDetail(response))
     }
-    const payload = await response.json() as { revision: number; parts: ViewerPart[]; project_name?: string }
+    const payload = await response.json() as ViewerPartsPayload
     if (payload.project_name) {
       setProjectName(payload.project_name)
     }
+    setActiveVersion(payload.active_version ?? null)
     const previousRevision = backendRevisionRef.current
     if (previousRevision !== null && payload.revision !== previousRevision) {
       setModels((prev) => prev.filter((model) => model.partId.startsWith('file:') || model.partId.startsWith('url:')))
@@ -186,16 +199,42 @@ export default function App() {
       const assembledIds = payload.parts.filter((part) => part.default_visible).map((part) => part.id)
       return assembledIds.length ? assembledIds : payload.parts.map((part) => part.id)
     })
+    setStatusMessage(`${payload.parts.length} parts indexed`)
+  }, [apiBase])
 
-    const results = await Promise.allSettled(payload.parts.map((part) => loadPartModel(part)))
-    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-    if (failures.length) {
-      setStatusMessage(`${payload.parts.length - failures.length}/${payload.parts.length} models loaded; ${failures[0].reason}`)
-    } else {
-      setStatusMessage(`${payload.parts.length} models loaded`)
-    }
-    setFitRequest((value) => value + 1)
-  }, [apiBase, loadPartModel])
+  useEffect(() => {
+    if (!parts.length || !selectedIds.length) return
+
+    const loadedIds = new Set(models.map((model) => model.partId))
+    const selectedParts = selectedIds
+      .map((id) => parts.find((part) => part.id === id))
+      .filter((part): part is ViewerPart => Boolean(part))
+    const missingParts = selectedParts.filter((part) => {
+      if (!part.artifact_format) return false
+      if (loadedIds.has(part.id)) return false
+      return !loadingPartIdsRef.current.has(part.id)
+    })
+    if (!missingParts.length) return
+
+    missingParts.forEach((part) => loadingPartIdsRef.current.add(part.id))
+    setStatusMessage(`Loading ${missingParts.length} selected model${missingParts.length === 1 ? '' : 's'}...`)
+
+    Promise.allSettled(missingParts.map((part) => loadPartModel(part)))
+      .then((results) => {
+        missingParts.forEach((part) => loadingPartIdsRef.current.delete(part.id))
+        const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        if (failures.length) {
+          setStatusMessage(`${missingParts.length - failures.length}/${missingParts.length} selected models loaded; ${failures[0].reason}`)
+        } else {
+          setStatusMessage(`${selectedParts.length} selected model${selectedParts.length === 1 ? '' : 's'} loaded`)
+        }
+        setFitRequest((value) => value + 1)
+      })
+      .catch((err) => {
+        missingParts.forEach((part) => loadingPartIdsRef.current.delete(part.id))
+        setStatusMessage(`Model load failed: ${err.message}`)
+      })
+  }, [loadPartModel, models, parts, selectedIds])
 
   const reloadViewer = useCallback(async () => {
     setStatusMessage('Reloading viewer...')
@@ -539,6 +578,7 @@ export default function App() {
           parts={parts}
           selectedIds={selectedIds}
           activeId={activeName}
+          activeVersion={activeVersion}
           onActivate={handlePartActivate}
           collapsed={partsCollapsed}
           onToggle={() => {

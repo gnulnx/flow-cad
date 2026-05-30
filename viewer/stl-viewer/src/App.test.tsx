@@ -51,16 +51,27 @@ vi.mock('three/examples/jsm/loaders/STLLoader.js', () => ({
 
 const partsPayload = {
   revision: 0,
+  active_version: 'b3_v2',
+  active_assembly_id: 'b3_v2_wheel_box',
+  versions: ['b3_v2'],
   parts: [
     {
       id: 'wheel_box_test_body',
       module_id: 'wheel_box',
+      version: 'b3_v2',
+      family: 'wheel_box',
+      assembly_ids: ['b3_v2_wheel_box'],
+      compatible_versions: [],
       filename: 'b3_wheel_box_test_body.step',
       role: 'printable',
       material: 'PETG',
+      mass_kg: null,
+      center_of_mass_mm: null,
+      inertia_kg_m2: null,
+      mass_source: 'unset',
       is_printable: true,
       artifact_format: 'step',
-      artifact_path: 'b3/exports/step/wheel_box/b3_wheel_box_test_body.step',
+      artifact_path: 'b3/exports/step/b3_v2/wheel_box/b3_wheel_box_test_body.step',
       direct_stl_path: null,
       source_kind: 'flow_python',
       geometry_authority: 'step_kernel',
@@ -174,7 +185,7 @@ describe('App source loading', () => {
     expect(document.querySelector('.source-code')?.textContent).toContain('make_wheel_box_test_body')
     expect(document.querySelector('.source-code')?.textContent).toContain('make_wheel_box_test_top_lid')
     expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/parts/wheel_box_test_body/source')
-    await waitFor(() => expect(screen.getByText('1 models loaded')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('1 selected model loaded')).toBeInTheDocument())
   })
 
   it('shows a mesh-only warning for client-loaded STL files', async () => {
@@ -192,7 +203,7 @@ describe('App source loading', () => {
     vi.useFakeTimers()
     render(<App />)
 
-    await vi.waitFor(() => expect(screen.getByText('1 models loaded')).toBeInTheDocument())
+    await vi.waitFor(() => expect(screen.getByText('1 selected model loaded')).toBeInTheDocument())
     expect(viewerRenderProps.at(-1)?.clearMeasurementsRequest).toBe(0)
 
     partsRevision = 1

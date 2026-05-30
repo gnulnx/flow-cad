@@ -5,7 +5,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from flow_cad.cli import flow
-from flow_cad.core.metadata import PartDefinition
+from flow_cad.core.metadata import PartDefinition, PartRole
 from flow_cad.project import (
     PROJECT_MANIFEST,
     FlowCadProject,
@@ -159,6 +159,104 @@ def test_project_export_paths_can_include_version_and_family(tmp_path: Path) -> 
     )
 
     assert project.expected_printable_export_relative_paths() == {
+        Path("step/b3_v2/wheel_box/body.step"),
+        Path("stl/b3_v2/wheel_box/body.stl"),
+        Path("snapshots/b3_v2/wheel_box/body_front.svg"),
+        Path("snapshots/b3_v2/wheel_box/body_side.svg"),
+        Path("snapshots/b3_v2/wheel_box/body_top.svg"),
+    }
+
+
+def test_project_profiles_filter_by_active_and_explicit_versions(tmp_path: Path) -> None:
+    class Params:
+        project_id = "versioned"
+
+    definitions = (
+        PartDefinition(
+            "wheel_box_test_body",
+            "wheel_box",
+            "body.step",
+            lambda _params: object(),
+            role=PartRole.PRINTABLE,
+            version="b3_v2",
+            family="wheel_box",
+            assembly_ids=("b3_v2_wheel_box",),
+        ),
+        PartDefinition(
+            "reference_wheel_pair",
+            "reference",
+            "wheels.step",
+            lambda _params: object(),
+            role=PartRole.REFERENCE,
+            version="b3_v2",
+            family="reference",
+            compatible_versions=("b3_v1",),
+        ),
+        PartDefinition(
+            "left_side_plate",
+            "lower_chassis",
+            "left.step",
+            lambda _params: object(),
+            role=PartRole.LEGACY,
+            version="b3_v1",
+            family="lower_chassis",
+            assembly_ids=("b3_v1_lower_chassis",),
+        ),
+    )
+
+    def iter_part_definitions(*, include_references: bool = True):
+        for definition in definitions:
+            if include_references or definition.role != PartRole.REFERENCE:
+                yield definition
+
+    def get_assembly_placements(_params, *, include_references: bool = False):
+        _ = include_references
+        return []
+
+    def assembly_definition():
+        return PartDefinition(
+            "assembly",
+            "assembly",
+            "assembly.step",
+            lambda _params: None,
+            role=PartRole.INSPECTION,
+            version="b3_v2",
+            assembly_ids=("b3_v2_wheel_box",),
+        )
+
+    project = FlowCadProject(
+        root=tmp_path,
+        project_id="versioned",
+        name="Versioned",
+        params_factory=Params,
+        part_definitions=iter_part_definitions,
+        assembly_placements=get_assembly_placements,
+        assembly_definition_factory=assembly_definition,
+        paths=ProjectPaths(
+            exports=tmp_path / "exports",
+            reports=tmp_path / "reports",
+            local_state=tmp_path / ".flow",
+            cache=tmp_path / ".flow" / "registry.db",
+        ),
+        docs=ProjectDocs(
+            print_manifest=tmp_path / "docs" / "PRINT_MANIFEST.md",
+            part_interfaces=tmp_path / "docs" / "PART_INTERFACES.md",
+        ),
+        validators={},
+    )
+
+    assert project.active_version == "b3_v2"
+    assert project.active_assembly_id == "b3_v2_wheel_box"
+    assert project.available_versions() == ["b3_v2", "b3_v1"]
+    assert [definition.id for definition in project.iter_part_definitions_for_profile("active")] == [
+        "wheel_box_test_body",
+        "reference_wheel_pair",
+    ]
+    assert [definition.id for definition in project.iter_part_definitions_for_profile("b3_v1")] == [
+        "reference_wheel_pair",
+        "left_side_plate",
+    ]
+    assert project.expected_printable_export_relative_paths("active") == {
         Path("step/b3_v2/wheel_box/body.step"),
         Path("stl/b3_v2/wheel_box/body.stl"),
         Path("snapshots/b3_v2/wheel_box/body_front.svg"),

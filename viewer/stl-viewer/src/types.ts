@@ -6,6 +6,7 @@ export type SnapFeatureKind = 'vertex' | 'line_edge' | 'edge_midpoint' | 'circle
 
 export interface ViewerOccurrence {
   name: string
+  assembly_id?: string
   location: [number, number, number]
   rotation: [number, number, number]
 }
@@ -24,9 +25,17 @@ export interface GeometryCapabilities {
 export interface ViewerPart {
   id: string
   module_id: string
+  version: string
+  family: string
+  assembly_ids: string[]
+  compatible_versions: string[]
   filename: string
   role: string
   material: string
+  mass_kg: number | null
+  center_of_mass_mm: [number, number, number] | null
+  inertia_kg_m2: [number, number, number, number, number, number] | null
+  mass_source: string
   is_printable: boolean
   artifact_format: 'step' | 'stl' | null
   artifact_path: string | null
@@ -42,6 +51,16 @@ export interface ViewerPart {
   occurrences: ViewerOccurrence[]
   in_assembly: boolean
   default_visible: boolean
+}
+
+export interface ViewerPartsPayload {
+  project_id?: string
+  project_name?: string
+  revision: number
+  active_version?: string | null
+  active_assembly_id?: string | null
+  versions?: string[]
+  parts: ViewerPart[]
 }
 
 export interface SnapFeature {

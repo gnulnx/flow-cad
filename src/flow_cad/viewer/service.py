@@ -149,6 +149,8 @@ class ViewerService:
     def list_parts(self) -> dict[str, Any]:
         placement_map = self._placement_map()
         default_visible_ids = self._default_visible_part_keys()
+        active_version = self._active_version(default_visible_ids)
+        active_assembly_id = self._active_assembly_id()
         parts = [
             self._part_payload(
                 definition,
@@ -157,10 +159,14 @@ class ViewerService:
             )
             for definition in self.project.iter_part_definitions()
         ]
+        versions = self._versions(parts, active_version)
         return {
             "project_id": self.project.project_id,
             "project_name": self.project.name,
             "revision": self.revision,
+            "active_version": active_version,
+            "active_assembly_id": active_assembly_id,
+            "versions": versions,
             "parts": parts,
         }
 
@@ -258,7 +264,7 @@ class ViewerService:
             "id": definition.id,
             "module_id": definition.module_id,
             "version": getattr(definition, "version", ""),
-            "family": getattr(definition, "family", definition.module_id),
+            "family": getattr(definition, "family", "") or definition.module_id,
             "assembly_ids": list(getattr(definition, "assembly_ids", ())),
             "compatible_versions": list(getattr(definition, "compatible_versions", ())),
             "filename": definition.filename,
@@ -353,22 +359,98 @@ class ViewerService:
 
     def _placement_map(self) -> dict[str, list[dict[str, Any]]]:
         placement_map: dict[str, list[dict[str, Any]]] = {}
-        for placement in self.project.get_assembly_placements(self.params, include_references=True):
-            part_key = placement["part_key"]
-            placement_map.setdefault(part_key, []).append(
-                {
-                    "name": placement["name"],
+        assembly_ids = self._viewer_assembly_ids()
+        if not self._assembly_supports_assembly_id():
+            assembly_ids = [None]
+
+        seen: set[tuple[str, str | None, str]] = set()
+        for assembly_id in assembly_ids:
+            try:
+                placements = self.project.get_assembly_placements(
+                    self.params,
+                    include_references=True,
+                    assembly_id=assembly_id,
+                )
+            except ValueError:
+                continue
+            for placement in placements:
+                part_key = placement["part_key"]
+                occurrence_name = placement["name"]
+                dedupe_key = (part_key, assembly_id, occurrence_name)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                payload = {
+                    "name": f"{assembly_id}:{occurrence_name}" if assembly_id else occurrence_name,
                     "location": _as_float_tuple(placement["location"]),
                     "rotation": _as_float_tuple(placement["rotation"]),
                 }
-            )
+                if assembly_id:
+                    payload["assembly_id"] = assembly_id
+                placement_map.setdefault(part_key, []).append(payload)
         return placement_map
 
     def _default_visible_part_keys(self) -> set[str]:
         return {
             placement["part_key"]
-            for placement in self.project.get_assembly_placements(self.params, include_references=True)
+            for placement in self.project.get_assembly_placements(
+                self.params,
+                include_references=False,
+                assembly_id=self._active_assembly_id(),
+            )
         }
+
+    def _viewer_assembly_ids(self) -> list[str | None]:
+        active_assembly_id = self._active_assembly_id()
+        assembly_ids = [
+            str(assembly_id)
+            for definition in self.project.iter_part_definitions()
+            for assembly_id in tuple(getattr(definition, "assembly_ids", ()) or ())
+            if assembly_id
+        ]
+        ordered: list[str | None] = []
+        if active_assembly_id:
+            ordered.append(active_assembly_id)
+        for assembly_id in sorted(set(assembly_ids)):
+            if assembly_id not in ordered:
+                ordered.append(assembly_id)
+        return ordered or [None]
+
+    def _assembly_supports_assembly_id(self) -> bool:
+        signature = inspect.signature(self.project.assembly_placements)
+        return (
+            "assembly_id" in signature.parameters
+            or any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+        )
+
+    def _active_version(self, default_visible_ids: set[str]) -> str | None:
+        assembly_version = str(getattr(self.project.assembly_definition, "version", "") or "")
+        if assembly_version:
+            return assembly_version
+
+        definitions = list(self.project.iter_part_definitions())
+        for definition in definitions:
+            if definition.id in default_visible_ids:
+                version = str(getattr(definition, "version", "") or "")
+                if version:
+                    return version
+        for definition in definitions:
+            version = str(getattr(definition, "version", "") or "")
+            if version:
+                return version
+        return None
+
+    def _active_assembly_id(self) -> str | None:
+        assembly_ids = tuple(getattr(self.project.assembly_definition, "assembly_ids", ()) or ())
+        return str(assembly_ids[0]) if assembly_ids else None
+
+    @staticmethod
+    def _versions(parts: list[dict[str, Any]], active_version: str | None) -> list[str]:
+        versions = sorted({str(part.get("version") or "") for part in parts if part.get("version")})
+        if active_version and active_version in versions:
+            versions.remove(active_version)
+            return [active_version, *versions]
+        return versions
 
     @staticmethod
     def _identity_occurrence(component_id: str) -> dict[str, Any]:
