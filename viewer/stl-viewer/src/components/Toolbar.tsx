@@ -10,6 +10,7 @@ interface ToolbarProps {
   tapeMode: boolean
   onTapeModeChange: (enabled: boolean) => void
   onClearMeasurements: () => void
+  projectName?: string | null
 }
 
 const ROTATION_MODE_LABELS: Record<RotationMode, string> = {
@@ -28,37 +29,13 @@ export default function Toolbar({
   tapeMode,
   onTapeModeChange,
   onClearMeasurements,
+  projectName,
 }: ToolbarProps) {
-  const buttonStyle = {
-    background: '#0f3460',
-    color: '#e0e0e0',
-    border: '1px solid #1a5276',
-    padding: '6px 14px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    minWidth: 0,
-  }
-  const activeButtonStyle = {
-    ...buttonStyle,
-    background: '#17466d',
-    borderColor: '#4ecca3',
-    color: '#ffffff',
-  }
-
   return (
-    <div className="viewer-toolbar" style={{
-      padding: '10px 16px',
-      background: '#16213e',
-      borderBottom: '1px solid #0f3460',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      flexWrap: 'wrap',
-      gap: '8px',
-      flexShrink: 0,
-    }}>
-      <h1 style={{ fontSize: '15px', fontWeight: 600, color: '#e94560', flex: '1 1 190px' }}>ErB Balance Bot — 3D Viewer</h1>
+    <div className="viewer-toolbar">
+      <h1 className="viewer-toolbar-title">
+        <span>{projectName || 'FlowCAD'}</span> — 3D Viewer
+      </h1>
       <div className="toolbar-status">{statusMessage}</div>
       <div className="viewer-toolbar-menu">
         <label className="toolbar-field">
@@ -73,20 +50,20 @@ export default function Toolbar({
           </select>
         </label>
       </div>
-      <div className="viewer-toolbar-actions" style={{ display: 'flex', gap: '8px', flex: '1 1 100%', flexWrap: 'wrap', minWidth: 0 }}>
-        <button onClick={onReload} style={buttonStyle}>Reload</button>
-        <button onClick={onFitToView} style={buttonStyle}>Fit to View</button>
-        <button onClick={onFrameSelected} style={buttonStyle}>Frame Selected</button>
+      <div className="viewer-toolbar-actions">
+        <button onClick={onReload} className="btn-tool">Reload</button>
+        <button onClick={onFitToView} className="btn-tool">Fit to View</button>
+        <button onClick={onFrameSelected} className="btn-tool">Frame Selected</button>
         <button
           aria-pressed={tapeMode}
           title="Tape Tool"
           onClick={() => onTapeModeChange(!tapeMode)}
-          style={tapeMode ? activeButtonStyle : buttonStyle}
+          className={`btn-tool ${tapeMode ? 'active' : ''}`}
         >
           Tape
         </button>
-        <button onClick={onClearMeasurements} style={buttonStyle}>Clear Measurements</button>
-        <button style={buttonStyle} onClick={() => {
+        <button onClick={onClearMeasurements} className="btn-tool">Clear Measurements</button>
+        <button className="btn-tool" onClick={() => {
           const input = document.getElementById('file-input') as HTMLInputElement
           input.click()
         }}>Open File</button>

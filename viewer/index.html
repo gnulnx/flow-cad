@@ -397,10 +397,6 @@
         // Scene Helpers (Grid and Axes)
         // ============================================
         function setupHelpers() {
-            // Grid helper
-            state.helpers.grid = new THREE.GridHelper(100, 20, 0x4a5568, 0x2d3748);
-            state.scene.add(state.helpers.grid);
-
             // Axes helper (R=Red=X, G=Green=Y, B=Blue=Z)
             state.helpers.axes = new THREE.AxesHelper(5);
             state.scene.add(state.helpers.axes);
@@ -627,6 +623,27 @@
             document.getElementById('file-input').addEventListener('change', (e) => {
                 if (e.target.files.length > 0) {
                     loadFile(e.target.files[0]);
+                }
+            });
+
+            // Drag and drop files
+            const container = document.getElementById('container');
+            container.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                container.style.boxShadow = 'inset 0 0 40px rgba(233, 69, 96, 0.2)';
+            });
+            container.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                container.style.boxShadow = 'none';
+            });
+            container.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                container.style.boxShadow = 'none';
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    loadFile(e.dataTransfer.files[0]);
                 }
             });
 

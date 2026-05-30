@@ -149,18 +149,31 @@ function HighlightedSource({ context }: { context: SourceContext }) {
 
 export default function SourcePanel({ context, activeId, collapsed, onToggle }: SourcePanelProps) {
   return (
-    <div className={`source-panel ${collapsed ? 'panel-collapsed' : ''}`}>
-      <button type="button" className="panel-title panel-toggle" onClick={onToggle}>Source</button>
-      {collapsed ? null : (
-        context ? (
-          <>
-            <div className="source-file">{context.relative_file_path}</div>
-            <HighlightedSource context={context} />
-          </>
-        ) : (
-          <div className="source-empty">{activeId ?? 'No part selected'}</div>
-        )
-      )}
+    <div className={`sidebar-dock left-dock ${collapsed ? 'collapsed' : ''}`}>
+      <div className="sidebar-icon-strip" onClick={onToggle} title="Expand Source Panel">
+        <button type="button" className="icon-strip-btn">💻</button>
+        <div style={{
+          writingMode: 'vertical-lr',
+          textTransform: 'uppercase',
+          fontSize: '11px',
+          fontWeight: 700,
+          letterSpacing: '0.1em',
+          color: 'var(--text-secondary)'
+        }}>Source</div>
+      </div>
+      <div className="sidebar-content">
+        <button type="button" className="panel-title panel-toggle" onClick={onToggle}>Source</button>
+        {collapsed ? null : (
+          context ? (
+            <>
+              <div className="source-file">{context.relative_file_path}</div>
+              <HighlightedSource context={context} />
+            </>
+          ) : (
+            <div className="source-empty">{activeId ?? 'No part selected'}</div>
+          )
+        )}
+      </div>
     </div>
   )
 }

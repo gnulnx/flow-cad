@@ -62,6 +62,7 @@ export default function App() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
+  const [projectName, setProjectName] = useState<string | null>(null)
 
   const loadStlBuffer = useCallback((
     name: string,
@@ -157,7 +158,10 @@ export default function App() {
     if (!response.ok) {
       throw new Error(await responseDetail(response))
     }
-    const payload = await response.json() as { revision: number; parts: ViewerPart[] }
+    const payload = await response.json() as { revision: number; parts: ViewerPart[]; project_name?: string }
+    if (payload.project_name) {
+      setProjectName(payload.project_name)
+    }
     const previousRevision = backendRevisionRef.current
     if (previousRevision !== null && payload.revision !== previousRevision) {
       setModels((prev) => prev.filter((model) => model.partId.startsWith('file:') || model.partId.startsWith('url:')))
@@ -413,47 +417,68 @@ export default function App() {
         tapeMode={tapeMode}
         onTapeModeChange={handleTapeModeChange}
         onClearMeasurements={handleClearMeasurements}
+        projectName={projectName}
       />
-      <SourcePanel
-        context={sourceContext}
-        activeId={activeName}
-        collapsed={sourceCollapsed}
-        onToggle={() => setSourceCollapsed((value) => !value)}
-      />
-      <ModelList
-        parts={parts}
-        selectedIds={selectedIds}
-        activeId={activeName}
-        onActivate={handlePartActivate}
-        collapsed={partsCollapsed}
-        onToggle={() => setPartsCollapsed((value) => !value)}
-      />
-      <FileDropZone
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onFileSelect={handleFileSelect}
-        isDragOver={isDragOver}
-      >
-        {visibleWarnings.length ? (
-          <div className="geometry-warnings" role="status" aria-label="Geometry capability warnings">
-            {visibleWarnings.map((warning) => (
-              <div key={warning} className="geometry-warning">{warning}</div>
-            ))}
-          </div>
-        ) : null}
-        <Viewer
-          models={visibleModels}
-          activeName={activeName}
-          onActiveNameChange={setActiveName}
-          onModelActivate={handleViewerModelActivate}
-          fitRequest={fitRequest}
-          frameSelectedRequest={frameSelectedRequest}
-          rotationMode={rotationMode}
-          tapeMode={tapeMode}
-          clearMeasurementsRequest={clearMeasurementsRequest}
+      <div className="workspace-container">
+        <SourcePanel
+          context={sourceContext}
+          activeId={activeName}
+          collapsed={sourceCollapsed}
+          onToggle={() => {
+            setSourceCollapsed((value) => !value)
+            setTimeout(() => handleFitToView(), 310)
+          }}
         />
-      </FileDropZone>
+        <div className="workspace-canvas">
+          <FileDropZone
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onFileSelect={handleFileSelect}
+            isDragOver={isDragOver}
+          >
+            {visibleWarnings.length ? (
+              <div className="geometry-warnings" role="status" aria-label="Geometry capability warnings">
+                {visibleWarnings.map((warning) => (
+                  <div key={warning} className="geometry-warning">{warning}</div>
+                ))}
+              </div>
+            ) : null}
+            <Viewer
+              models={visibleModels}
+              activeName={activeName}
+              onActiveNameChange={setActiveName}
+              onModelActivate={handleViewerModelActivate}
+              fitRequest={fitRequest}
+              frameSelectedRequest={frameSelectedRequest}
+              rotationMode={rotationMode}
+              tapeMode={tapeMode}
+              clearMeasurementsRequest={clearMeasurementsRequest}
+              onFitToView={handleFitToView}
+              onFrameSelected={handleFrameSelected}
+              onReload={() => {
+                reloadViewer().catch((err) => {
+                  console.error('Reload failed:', err)
+                  setStatusMessage(`Reload failed: ${err.message}`)
+                })
+              }}
+              onTapeModeChange={handleTapeModeChange}
+              onClearMeasurements={handleClearMeasurements}
+            />
+          </FileDropZone>
+        </div>
+        <ModelList
+          parts={parts}
+          selectedIds={selectedIds}
+          activeId={activeName}
+          onActivate={handlePartActivate}
+          collapsed={partsCollapsed}
+          onToggle={() => {
+            setPartsCollapsed((value) => !value)
+            setTimeout(() => handleFitToView(), 310)
+          }}
+        />
+      </div>
     </div>
   )
 }

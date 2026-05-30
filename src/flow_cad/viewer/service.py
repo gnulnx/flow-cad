@@ -159,6 +159,7 @@ class ViewerService:
         ]
         return {
             "project_id": self.project.project_id,
+            "project_name": self.project.name,
             "revision": self.revision,
             "parts": parts,
         }
