@@ -18,38 +18,6 @@ import rich_click as click
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
-@click.group()
-def viewer() -> None:
-    """Run the source-backed browser CAD viewer."""
-
-
-@viewer.command()
-@click.option("--backend-host", default="127.0.0.1", show_default=True)
-@click.option("--backend-port", default=8000, show_default=True, type=int)
-@click.option("--frontend-host", default="127.0.0.1", show_default=True)
-@click.option("--frontend-port", default=3000, show_default=True, type=int)
-@click.option("--port-search-span", default=50, show_default=True, type=int, help="Number of ports to scan when a preferred port is busy.")
-@click.option("--open-browser/--no-open-browser", default=True, show_default=True)
-def start(
-    backend_host: str,
-    backend_port: int,
-    frontend_host: str,
-    frontend_port: int,
-    port_search_span: int,
-    open_browser: bool,
-) -> None:
-    """Start the viewer API, frontend, and browser."""
-    start_viewer(
-        project_root=PROJECT_ROOT,
-        backend_host=backend_host,
-        backend_port=backend_port,
-        frontend_host=frontend_host,
-        frontend_port=frontend_port,
-        port_search_span=port_search_span,
-        open_browser=open_browser,
-    )
-
-
 def start_viewer(
     *,
     project_root: Path,
@@ -122,9 +90,7 @@ def start_viewer(
         _terminate_process(backend_proc)
 
 
-@viewer.command()
-@click.option("--backend-url", default="http://127.0.0.1:8000", show_default=True)
-def reload(backend_url: str) -> None:
+def reload_viewer(backend_url: str = "http://127.0.0.1:8000") -> dict[str, object]:
     """Ask the running viewer to refresh registry, export, and source state."""
     url = backend_url.rstrip("/") + "/api/reload"
     request = urllib.request.Request(url, method="POST")
@@ -132,8 +98,8 @@ def reload(backend_url: str) -> None:
         with urllib.request.urlopen(request, timeout=5) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.URLError as exc:
-        raise click.ClickException(f"Viewer API is not reachable at {backend_url}. Is `flow viewer start` running?") from exc
-    click.echo(f"Reloaded viewer revision {payload.get('revision')}")
+        raise click.ClickException(f"Viewer API is not reachable at {backend_url}. Is `flow start` running?") from exc
+    return payload
 
 
 def _terminate_process(proc: subprocess.Popen) -> None:

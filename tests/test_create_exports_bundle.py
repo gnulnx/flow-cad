@@ -86,3 +86,17 @@ def test_should_include_filters_non_printable_stl_and_snapshots() -> None:
         Path("exports"),
         active_exports,
     )
+
+
+def test_should_include_filters_empty_stale_export_directories() -> None:
+    active_exports = {
+        Path("step/b3_v2/wheel_box/part.step"),
+        Path("stl/b3_v2/wheel_box/part.stl"),
+        Path("snapshots/b3_v2/wheel_box/part_front.svg"),
+    }
+
+    assert should_include(Path("exports/step/b3_v2"), Path("exports"), active_exports)
+    assert should_include(Path("exports/step/b3_v2/wheel_box"), Path("exports"), active_exports)
+    assert not should_include(Path("exports/step/b3_v1"), Path("exports"), active_exports)
+    assert not should_include(Path("exports/stl/b3_v1"), Path("exports"), active_exports)
+    assert not should_include(Path("exports/snapshots/b3_v1"), Path("exports"), active_exports)

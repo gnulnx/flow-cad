@@ -119,6 +119,54 @@ def test_external_project_viewer_service_uses_manifest_outputs(tmp_path: Path) -
     assert service.viewer_cache_dir == tmp_path / ".flow" / "viewer-cache"
 
 
+def test_project_export_paths_can_include_version_and_family(tmp_path: Path) -> None:
+    class Params:
+        project_id = "versioned"
+
+    def iter_part_definitions(*, include_references: bool = True):
+        _ = include_references
+        yield PartDefinition(
+            "wheel_box_test_body",
+            "wheel_box",
+            "body.step",
+            lambda _params: object(),
+            version="b3_v2",
+            family="wheel_box",
+        )
+
+    def get_assembly_placements(_params, *, include_references: bool = False):
+        _ = include_references
+        return []
+
+    project = FlowCadProject(
+        root=tmp_path,
+        project_id="versioned",
+        name="Versioned",
+        params_factory=Params,
+        part_definitions=iter_part_definitions,
+        assembly_placements=get_assembly_placements,
+        paths=ProjectPaths(
+            exports=tmp_path / "exports",
+            reports=tmp_path / "reports",
+            local_state=tmp_path / ".flow",
+            cache=tmp_path / ".flow" / "registry.db",
+        ),
+        docs=ProjectDocs(
+            print_manifest=tmp_path / "docs" / "PRINT_MANIFEST.md",
+            part_interfaces=tmp_path / "docs" / "PART_INTERFACES.md",
+        ),
+        validators={},
+    )
+
+    assert project.expected_printable_export_relative_paths() == {
+        Path("step/b3_v2/wheel_box/body.step"),
+        Path("stl/b3_v2/wheel_box/body.stl"),
+        Path("snapshots/b3_v2/wheel_box/body_front.svg"),
+        Path("snapshots/b3_v2/wheel_box/body_side.svg"),
+        Path("snapshots/b3_v2/wheel_box/body_top.svg"),
+    }
+
+
 def test_viewer_reload_reloads_project_placements(tmp_path: Path, monkeypatch) -> None:
     class Params:
         project_id = "reloadable"

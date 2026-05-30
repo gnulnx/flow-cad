@@ -35,7 +35,7 @@ class Exporter:
         if self.enable_snapshots:
             self.snapshot_dir.mkdir(parents=True, exist_ok=True)
 
-    def export(self, shape, filename: str, module_id: str | None = None, is_printable: bool = True) -> Path:
+    def export(self, shape, filename: str, module_id: str | Path | None = None, is_printable: bool = True) -> Path:
         if module_id:
             dest_dir = self.step_dir / module_id
             stl_dest_dir = self.stl_dir / module_id
@@ -69,14 +69,21 @@ class Exporter:
         return path
 
     def clear(self):
-        if self.step_dir.exists():
-            for path in self.step_dir.rglob("*.step"):
-                if path.is_file():
+        for directory, suffixes in (
+            (self.step_dir, {".step", ".glb"}),
+            (self.stl_dir, {".stl"}),
+            (self.snapshot_dir, {".svg"}),
+        ):
+            if not directory.exists():
+                continue
+            for path in directory.rglob("*"):
+                if path.is_file() and path.suffix in suffixes:
                     path.unlink()
-        if self.stl_dir.exists():
-            for path in self.stl_dir.rglob("*.stl"):
-                if path.is_file():
-                    path.unlink()
+            for path in sorted((p for p in directory.rglob("*") if p.is_dir()), reverse=True):
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
 
 
 def bbox_dims(shape) -> tuple[float, float, float]:

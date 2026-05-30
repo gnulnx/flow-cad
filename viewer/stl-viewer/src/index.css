@@ -260,6 +260,11 @@ body {
   transition: var(--transition-smooth);
 }
 
+.toolbar-field select option {
+  background: #0c101f;
+  color: var(--text-primary);
+}
+
 .toolbar-field select:hover {
   border-color: var(--border-hover);
   background: rgba(255, 255, 255, 0.07);

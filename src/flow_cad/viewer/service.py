@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from flow_cad.core.metadata import PartDefinition
+from flow_cad.core.metadata import PartDefinition, definition_export_subdir
 from flow_cad.project import FlowCadProject, load_project
 from flow_cad.viewer.geometry_authority import (
     GeometryAuthorityError,
@@ -257,9 +257,17 @@ class ViewerService:
         return {
             "id": definition.id,
             "module_id": definition.module_id,
+            "version": getattr(definition, "version", ""),
+            "family": getattr(definition, "family", definition.module_id),
+            "assembly_ids": list(getattr(definition, "assembly_ids", ())),
+            "compatible_versions": list(getattr(definition, "compatible_versions", ())),
             "filename": definition.filename,
             "role": str(definition.role),
             "material": definition.material,
+            "mass_kg": getattr(definition, "mass_kg", None),
+            "center_of_mass_mm": getattr(definition, "center_of_mass_mm", None),
+            "inertia_kg_m2": getattr(definition, "inertia_kg_m2", None),
+            "mass_source": getattr(definition, "mass_source", "unset"),
             "is_printable": definition.is_printable,
             "artifact_format": source_format,
             "artifact_path": artifact_path,
@@ -278,8 +286,9 @@ class ViewerService:
         }
 
     def _artifact(self, definition: PartDefinition) -> Artifact | None:
-        step_path = self.exports_dir / "step" / definition.module_id / definition.filename
-        stl_path = self.exports_dir / "stl" / definition.module_id / f"{Path(definition.filename).stem}.stl"
+        export_subdir = definition_export_subdir(definition)
+        step_path = self.exports_dir / "step" / export_subdir / definition.filename
+        stl_path = self.exports_dir / "stl" / export_subdir / f"{Path(definition.filename).stem}.stl"
         if step_path.exists():
             return Artifact(step_path, "step", direct_stl_path=stl_path if stl_path.exists() else None)
         if stl_path.exists():
