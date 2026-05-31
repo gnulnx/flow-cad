@@ -36,6 +36,21 @@ describe('measurement helpers', () => {
     expect(measurement.distance).toBeCloseTo(Math.sqrt(29))
   })
 
+  it('can resolve picked points instead of shortest feature distance', () => {
+    const edgeA = targetFromFeature(lineFeature('a', [0, 0, 0], [10, 0, 0]), new Matrix4(), 'part', 'occ')
+    const edgeB = targetFromFeature(lineFeature('b', [5, 5, 2], [5, 5, 10]), new Matrix4(), 'part', 'occ')
+
+    if (!edgeA || !edgeB) throw new Error('expected edge targets')
+    edgeA.point = new Vector3(8, 0, 0)
+    edgeB.point = new Vector3(5, 5, 9)
+    const measurement = resolveMeasurement(edgeA, edgeB, 'picked')
+
+    expect(measurement.label).toBe('Line Edge -> Line Edge')
+    expect(measurement.startPoint.toArray()).toEqual([8, 0, 0])
+    expect(measurement.endPoint.toArray()).toEqual([5, 5, 9])
+    expect(measurement.distance).toBeCloseTo(Math.sqrt(115))
+  })
+
   it('creates edge-length measurements from line edge targets', () => {
     const edge = targetFromFeature(lineFeature('edge', [1, 2, 3], [1, 8, 3]), new Matrix4(), 'part', 'occ')
 

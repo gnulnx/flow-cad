@@ -1,7 +1,16 @@
 import { Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
+import { resolveMeasurement } from '../measurement'
 import type { MeasurementTarget } from '../measurement'
-import { measurementLabelOffsetAfterDrag, shouldPreviewEdgeLength, snapReleaseDistance, snapScore, tapeDragTarget } from './Viewer'
+import {
+  defaultTapeResolveMode,
+  measurementLabelOffsetAfterDrag,
+  measurementResolveModesDiffer,
+  pickedTapeTarget,
+  shouldPreviewEdgeLength,
+  snapReleaseDistance,
+  snapScore,
+} from './Viewer'
 
 function target(overrides: Partial<MeasurementTarget> = {}): MeasurementTarget {
   return {
@@ -54,18 +63,75 @@ describe('viewer snap behavior contract', () => {
     expect(shouldPreviewEdgeLength(false, target({ segment: { start: new Vector3(0, 0, 0), end: new Vector3(0, 10, 0) } }))).toBe(true)
   })
 
-  it('uses the snapped edge point for active tape drags instead of the whole edge segment', () => {
+  it('defaults edge-to-edge tape drags to shortest feature distance', () => {
+    const firstEdge = target({
+      id: 'first-edge',
+      point: new Vector3(4, 0, 0),
+      segment: { start: new Vector3(0, 0, 0), end: new Vector3(0, 10, 0) },
+    })
+    const secondEdge = target({
+      id: 'second-edge',
+      point: new Vector3(6, 12, 4),
+      segment: { start: new Vector3(0, 12, 0), end: new Vector3(0, 12, 10) },
+    })
+
+    const mode = defaultTapeResolveMode(firstEdge, secondEdge)
+    const measurement = resolveMeasurement(firstEdge, secondEdge, mode)
+
+    expect(mode).toBe('shortest')
+    expect(measurement.startPoint.toArray()).toEqual([0, 10, 0])
+    expect(measurement.endPoint.toArray()).toEqual([0, 12, 0])
+    expect(measurement.distance).toBe(2)
+  })
+
+  it('keeps active tape drag previews on picked snap points', () => {
     const edge = target({
       point: new Vector3(4, 0, 0),
       segment: { start: new Vector3(0, 0, 0), end: new Vector3(0, 10, 0) },
       length: 10,
     })
 
-    const dragTarget = tapeDragTarget(edge)
+    const dragTarget = pickedTapeTarget(edge)
 
     expect(dragTarget.label).toBe('Line Edge')
     expect(dragTarget.point.toArray()).toEqual([4, 0, 0])
     expect(dragTarget.segment).toBeUndefined()
     expect(edge.segment).toBeDefined()
+  })
+
+  it('keeps same-edge tape drags in picked mode instead of collapsing to zero shortest distance', () => {
+    const firstPick = target({
+      id: 'same-edge',
+      point: new Vector3(4, 0, 0),
+      segment: { start: new Vector3(0, 0, 0), end: new Vector3(0, 10, 0) },
+    })
+    const secondPick = target({
+      id: 'same-edge',
+      point: new Vector3(4, 6, 0),
+      segment: { start: new Vector3(0, 0, 0), end: new Vector3(0, 10, 0) },
+    })
+
+    const mode = defaultTapeResolveMode(firstPick, secondPick)
+    const measurement = resolveMeasurement(firstPick, secondPick, mode)
+
+    expect(mode).toBe('picked')
+    expect(measurement.startPoint.toArray()).toEqual([4, 0, 0])
+    expect(measurement.endPoint.toArray()).toEqual([4, 6, 0])
+  })
+
+  it('shows a HUD mode toggle when shortest and picked measurements differ', () => {
+    const firstEdge = target({
+      id: 'first-edge',
+      point: new Vector3(4, 0, 0),
+      segment: { start: new Vector3(0, 0, 0), end: new Vector3(0, 10, 0) },
+    })
+    const secondEdge = target({
+      id: 'second-edge',
+      point: new Vector3(6, 12, 4),
+      segment: { start: new Vector3(0, 12, 0), end: new Vector3(0, 12, 10) },
+    })
+
+    expect(measurementResolveModesDiffer(firstEdge, secondEdge)).toBe(true)
+    expect(measurementResolveModesDiffer(target({ kind: 'vertex' }), target({ kind: 'vertex' }))).toBe(false)
   })
 })

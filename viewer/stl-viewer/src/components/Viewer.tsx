@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Grid, Html } from '@react-three/drei'
 import ViewportControls from './ViewportControls'
@@ -10,6 +17,7 @@ import {
   resolveMeasurement,
   SNAP_KIND_PRIORITY,
   targetFromFeature,
+  type MeasurementResolveMode,
   type MeasurementTarget,
   type ResolvedMeasurement,
 } from '../measurement'
@@ -40,13 +48,17 @@ interface MeasurementAnnotation extends ResolvedMeasurement {
   active: boolean
   temporary: boolean
   labelOffset: ScreenOffset
+  source?: TapeMeasurementSource
 }
 
 interface DraftMeasurement {
   start: MeasurementTarget
   current: MeasurementTarget
   resolved: ResolvedMeasurement
+  resolveMode: MeasurementResolveMode
   clickTarget: MeasurementTarget
+  sourceStart: MeasurementTarget
+  sourceCurrent: MeasurementTarget
   startX: number
   startY: number
 }
@@ -68,6 +80,12 @@ interface LabelDragState {
   startClientX: number
   startClientY: number
   startOffset: ScreenOffset
+}
+
+interface TapeMeasurementSource {
+  start: MeasurementTarget
+  end: MeasurementTarget
+  resolveMode: MeasurementResolveMode
 }
 
 function occurrenceRotation(occurrence: ViewerOccurrence): [number, number, number] {
@@ -253,14 +271,21 @@ function MeasurementLabel({
   annotation,
   onDelete,
   onOffsetChange,
+  onResolveModeChange,
 }: {
   annotation: MeasurementAnnotation
   onDelete?: (id: string) => void
   onOffsetChange?: (id: string, offset: ScreenOffset) => void
+  onResolveModeChange?: (id: string, mode: MeasurementResolveMode) => void
 }) {
   const midpoint = annotation.startPoint.clone().add(annotation.endPoint).multiplyScalar(0.5)
   const dragRef = useRef<LabelDragState | null>(null)
   const [dragging, setDragging] = useState(false)
+  const showResolveModeToggle = Boolean(
+    onResolveModeChange &&
+    annotation.source &&
+    measurementResolveModesDiffer(annotation.source.start, annotation.source.end),
+  )
 
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onOffsetChange || event.button !== 0) return
@@ -305,6 +330,16 @@ function MeasurementLabel({
     event.stopPropagation()
   }
 
+  const changeResolveMode = (mode: MeasurementResolveMode) => (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onResolveModeChange?.(annotation.id, mode)
+  }
+
+  const stopButtonPointer = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+  }
+
   return (
     <Html position={midpoint} center className="measurement-html">
       <div
@@ -334,6 +369,26 @@ function MeasurementLabel({
           <div className={`measurement-quality measurement-quality-${annotation.qualityLabel.toLowerCase()}`}>
             {annotation.qualityLabel}
           </div>
+          {showResolveModeToggle && annotation.source ? (
+            <div className="measurement-mode-toggle" aria-label="Measurement mode">
+              <button
+                type="button"
+                className={`measurement-mode-option ${annotation.source.resolveMode === 'shortest' ? 'measurement-mode-option-active' : ''}`}
+                onPointerDown={stopButtonPointer}
+                onClick={changeResolveMode('shortest')}
+              >
+                Shortest
+              </button>
+              <button
+                type="button"
+                className={`measurement-mode-option ${annotation.source.resolveMode === 'picked' ? 'measurement-mode-option-active' : ''}`}
+                onPointerDown={stopButtonPointer}
+                onClick={changeResolveMode('picked')}
+              >
+                Picked
+              </button>
+            </div>
+          ) : null}
           <div className="measurement-distance">{formatMm(annotation.distance)}</div>
           <div className="measurement-deltas" aria-label="Measurement deltas">
             <span className="delta-x">DX {formatMm(annotation.delta.x)}</span>
@@ -350,11 +405,13 @@ function MeasurementAnnotationView({
   annotation,
   onDelete,
   onLabelOffsetChange,
+  onResolveModeChange,
   showMarkers = true,
 }: {
   annotation: MeasurementAnnotation
   onDelete?: (id: string) => void
   onLabelOffsetChange?: (id: string, offset: ScreenOffset) => void
+  onResolveModeChange?: (id: string, mode: MeasurementResolveMode) => void
   showMarkers?: boolean
 }) {
   const color = '#facc15'
@@ -372,6 +429,7 @@ function MeasurementAnnotationView({
         annotation={annotation}
         onDelete={annotation.temporary ? undefined : onDelete}
         onOffsetChange={annotation.temporary ? undefined : onLabelOffsetChange}
+        onResolveModeChange={annotation.temporary ? undefined : onResolveModeChange}
       />
     </group>
   )
@@ -451,9 +509,10 @@ function MeasurementLayer({
 
       const activeDraft = draftRef.current
       if (activeDraft) {
-        const current = tapeDragTarget(nextHover ?? freePointForEvent(event, element, camera, activeDraft.start.point))
-        const resolved = resolveMeasurement(activeDraft.start, current)
-        const nextDraft = { ...activeDraft, current, resolved }
+        const sourceCurrent = nextHover ?? freePointForEvent(event, element, camera, activeDraft.start.point)
+        const current = pickedTapeTarget(sourceCurrent)
+        const resolved = resolveMeasurement(activeDraft.start, current, 'picked')
+        const nextDraft = { ...activeDraft, current, sourceCurrent, resolved, resolveMode: 'picked' as const }
         draftRef.current = nextDraft
         setDraft(nextDraft)
       }
@@ -463,13 +522,16 @@ function MeasurementLayer({
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return
       const clickTarget = hoverRef.current ?? freePointForEvent(event, element, camera, new THREE.Vector3())
-      const start = tapeDragTarget(clickTarget)
-      const resolved = resolveMeasurement(start, start)
+      const start = pickedTapeTarget(clickTarget)
+      const resolved = resolveMeasurement(start, start, 'picked')
       const nextDraft = {
         start,
         current: start,
         resolved,
+        resolveMode: 'picked' as const,
         clickTarget,
+        sourceStart: clickTarget,
+        sourceCurrent: clickTarget,
         startX: event.clientX,
         startY: event.clientY,
       }
@@ -487,8 +549,15 @@ function MeasurementLayer({
       const edgeLength = pointerDelta <= 4 && activeDraft.clickTarget.segment
         ? resolveEdgeLength(activeDraft.clickTarget)
         : null
-      const resolved = edgeLength ?? activeDraft.resolved
-      const annotation = annotationFromResolved(resolved, modeRef.current === 'quick')
+      const resolveMode = defaultTapeResolveMode(activeDraft.sourceStart, activeDraft.sourceCurrent)
+      const resolved = edgeLength ?? resolveMeasurement(activeDraft.sourceStart, activeDraft.sourceCurrent, resolveMode)
+      const annotation = edgeLength
+        ? annotationFromResolved(resolved, modeRef.current === 'quick')
+        : annotationFromResolved(resolved, modeRef.current === 'quick', {
+            start: activeDraft.sourceStart,
+            end: activeDraft.sourceCurrent,
+            resolveMode,
+          })
 
       if (modeRef.current === 'tape') {
         activeAnnotationRef.current = annotation.id
@@ -517,7 +586,13 @@ function MeasurementLayer({
   }, [camera, gl.domElement, invalidate, meshFeatures, mode, models, raycaster, scene])
 
   const visibleDraft = draft ?? draftRef.current
-  const draftPreview = visibleDraft ? annotationFromResolved(visibleDraft.resolved, true) : null
+  const draftPreview = visibleDraft
+    ? annotationFromResolved(visibleDraft.resolved, true, {
+        start: visibleDraft.start,
+        end: visibleDraft.current,
+        resolveMode: visibleDraft.resolveMode,
+      })
+    : null
   const edgeHoverTarget = shouldPreviewEdgeLength(Boolean(visibleDraft), hoverTarget) ? hoverTarget : null
   const edgeHoverPreview = edgeHoverTarget
     ? annotationFromResolved(resolveEdgeLength(edgeHoverTarget) ?? resolveMeasurement(edgeHoverTarget, edgeHoverTarget), true)
@@ -540,6 +615,14 @@ function MeasurementLayer({
     )))
   }
 
+  const changeAnnotationResolveMode = (id: string, resolveMode: MeasurementResolveMode) => {
+    activeAnnotationRef.current = id
+    setAnnotations((prev) => prev.map((annotation) => {
+      if (annotation.id !== id || !annotation.source) return { ...annotation, active: annotation.id === id }
+      return annotationWithResolveMode(annotation, resolveMode)
+    }))
+  }
+
   return (
     <group>
       {annotations.map((annotation) => (
@@ -548,6 +631,7 @@ function MeasurementLayer({
           annotation={annotation}
           onDelete={deleteAnnotation}
           onLabelOffsetChange={moveAnnotationLabel}
+          onResolveModeChange={changeAnnotationResolveMode}
         />
       ))}
       {quickAnnotation ? <MeasurementAnnotationView annotation={quickAnnotation} /> : null}
@@ -760,7 +844,11 @@ export default function Viewer(props: ViewerProps) {
   )
 }
 
-function annotationFromResolved(resolved: ResolvedMeasurement, temporary: boolean): MeasurementAnnotation {
+function annotationFromResolved(
+  resolved: ResolvedMeasurement,
+  temporary: boolean,
+  source?: TapeMeasurementSource,
+): MeasurementAnnotation {
   return {
     id: `measurement:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     active: !temporary,
@@ -772,6 +860,24 @@ function annotationFromResolved(resolved: ResolvedMeasurement, temporary: boolea
     delta: resolved.delta.clone(),
     qualityLabel: resolved.qualityLabel,
     labelOffset: DEFAULT_MEASUREMENT_LABEL_OFFSET,
+    source: source ? cloneTapeMeasurementSource(source) : undefined,
+  }
+}
+
+function annotationWithResolveMode(annotation: MeasurementAnnotation, resolveMode: MeasurementResolveMode): MeasurementAnnotation {
+  if (!annotation.source) return annotation
+  const source = cloneTapeMeasurementSource({ ...annotation.source, resolveMode })
+  const resolved = resolveMeasurement(source.start, source.end, resolveMode)
+  return {
+    ...annotation,
+    active: true,
+    label: resolved.label,
+    startPoint: resolved.startPoint.clone(),
+    endPoint: resolved.endPoint.clone(),
+    distance: resolved.distance,
+    delta: resolved.delta.clone(),
+    qualityLabel: resolved.qualityLabel,
+    source,
   }
 }
 
@@ -790,7 +896,21 @@ export function shouldPreviewEdgeLength(hasActiveDraft: boolean, hoverTarget: Me
   return !hasActiveDraft && Boolean(hoverTarget?.segment)
 }
 
-export function tapeDragTarget(target: MeasurementTarget): MeasurementTarget {
+export function defaultTapeResolveMode(start: MeasurementTarget, end: MeasurementTarget): MeasurementResolveMode {
+  if (start.id === end.id && (start.segment || end.segment)) return 'picked'
+  return 'shortest'
+}
+
+export function measurementResolveModesDiffer(start: MeasurementTarget, end: MeasurementTarget) {
+  const shortest = resolveMeasurement(start, end, 'shortest')
+  const picked = resolveMeasurement(start, end, 'picked')
+  return (
+    !vectorsNear(shortest.startPoint, picked.startPoint) ||
+    !vectorsNear(shortest.endPoint, picked.endPoint)
+  )
+}
+
+export function pickedTapeTarget(target: MeasurementTarget): MeasurementTarget {
   if (!target.segment) return target
   return {
     ...target,
@@ -798,6 +918,32 @@ export function tapeDragTarget(target: MeasurementTarget): MeasurementTarget {
     segment: undefined,
     length: undefined,
   }
+}
+
+function cloneTapeMeasurementSource(source: TapeMeasurementSource): TapeMeasurementSource {
+  return {
+    start: cloneMeasurementTarget(source.start),
+    end: cloneMeasurementTarget(source.end),
+    resolveMode: source.resolveMode,
+  }
+}
+
+function cloneMeasurementTarget(target: MeasurementTarget): MeasurementTarget {
+  return {
+    ...target,
+    point: target.point.clone(),
+    segment: target.segment
+      ? {
+          start: target.segment.start.clone(),
+          end: target.segment.end.clone(),
+        }
+      : undefined,
+    ringPoints: target.ringPoints?.map((point) => point.clone()),
+  }
+}
+
+function vectorsNear(a: THREE.Vector3, b: THREE.Vector3) {
+  return a.distanceToSquared(b) < 1e-8
 }
 
 function isTextEntryTarget(target: EventTarget | null) {
