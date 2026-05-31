@@ -652,6 +652,14 @@ body {
   z-index: 1000;
 }
 
+.measurement-label-positioner {
+  pointer-events: none;
+}
+
+.measurement-label-positioner-draggable {
+  pointer-events: auto;
+}
+
 .measurement-label {
   position: relative;
   min-width: 140px;
@@ -668,6 +676,16 @@ body {
   user-select: none;
   transition: var(--transition-smooth);
   pointer-events: none;
+}
+
+.measurement-label-draggable {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.measurement-label-dragging {
+  cursor: grabbing;
 }
 
 .measurement-label-active {

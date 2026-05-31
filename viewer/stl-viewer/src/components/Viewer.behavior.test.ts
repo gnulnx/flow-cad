@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { MeasurementTarget } from '../measurement'
-import { snapReleaseDistance, snapScore } from './Viewer'
+import { measurementLabelOffsetAfterDrag, shouldPreviewEdgeLength, snapReleaseDistance, snapScore, tapeDragTarget } from './Viewer'
 
 function target(overrides: Partial<MeasurementTarget> = {}): MeasurementTarget {
   return {
@@ -37,5 +37,35 @@ describe('viewer snap behavior contract', () => {
 
     expect(snapReleaseDistance(current, 'edge')).toBeGreaterThan(snapReleaseDistance(newFeature, 'edge'))
     expect(snapReleaseDistance(newFeature, 'edge')).toBeGreaterThan(snapReleaseDistance(face, 'edge'))
+  })
+
+  it('moves measurement HUD labels by pointer drag delta', () => {
+    expect(
+      measurementLabelOffsetAfterDrag(
+        { x: 28, y: -88 },
+        { x: 100, y: 140 },
+        { x: 132, y: 109 },
+      ),
+    ).toEqual({ x: 60, y: -119 })
+  })
+
+  it('does not switch to edge-length preview during an active tape drag', () => {
+    expect(shouldPreviewEdgeLength(true, target({ segment: { start: new Vector3(0, 0, 0), end: new Vector3(0, 10, 0) } }))).toBe(false)
+    expect(shouldPreviewEdgeLength(false, target({ segment: { start: new Vector3(0, 0, 0), end: new Vector3(0, 10, 0) } }))).toBe(true)
+  })
+
+  it('uses the snapped edge point for active tape drags instead of the whole edge segment', () => {
+    const edge = target({
+      point: new Vector3(4, 0, 0),
+      segment: { start: new Vector3(0, 0, 0), end: new Vector3(0, 10, 0) },
+      length: 10,
+    })
+
+    const dragTarget = tapeDragTarget(edge)
+
+    expect(dragTarget.label).toBe('Line Edge')
+    expect(dragTarget.point.toArray()).toEqual([4, 0, 0])
+    expect(dragTarget.segment).toBeUndefined()
+    expect(edge.segment).toBeDefined()
   })
 })

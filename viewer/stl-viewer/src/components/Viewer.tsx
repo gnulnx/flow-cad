@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Grid, Html } from '@react-three/drei'
 import ViewportControls from './ViewportControls'
@@ -39,12 +39,14 @@ interface MeasurementAnnotation extends ResolvedMeasurement {
   id: string
   active: boolean
   temporary: boolean
+  labelOffset: ScreenOffset
 }
 
 interface DraftMeasurement {
   start: MeasurementTarget
   current: MeasurementTarget
   resolved: ResolvedMeasurement
+  clickTarget: MeasurementTarget
   startX: number
   startY: number
 }
@@ -54,6 +56,18 @@ interface SnapCandidate {
   screenDistance: number
   depth: number
   visibilityPoints: THREE.Vector3[]
+}
+
+interface ScreenOffset {
+  x: number
+  y: number
+}
+
+interface LabelDragState {
+  pointerId: number
+  startClientX: number
+  startClientY: number
+  startOffset: ScreenOffset
 }
 
 function occurrenceRotation(occurrence: ViewerOccurrence): [number, number, number] {
@@ -127,6 +141,7 @@ const LOCK_COLOR = '#10b981'
 const MUTED_TARGET_COLOR = '#475569'
 const SNAP_VISIBILITY_TOLERANCE_MM = 3
 const SILHOUETTE_SCREEN_TOLERANCE_PX = 10
+const DEFAULT_MEASUREMENT_LABEL_OFFSET = { x: 28, y: -88 }
 
 function isLockedTarget(target: MeasurementTarget | null) {
   return Boolean(target && target.kind !== 'face_point' && target.kind !== 'free_point')
@@ -237,29 +252,94 @@ function FeatureHighlight({ target, subtle = false }: { target: MeasurementTarge
 function MeasurementLabel({
   annotation,
   onDelete,
+  onOffsetChange,
 }: {
   annotation: MeasurementAnnotation
   onDelete?: (id: string) => void
+  onOffsetChange?: (id: string, offset: ScreenOffset) => void
 }) {
   const midpoint = annotation.startPoint.clone().add(annotation.endPoint).multiplyScalar(0.5)
+  const dragRef = useRef<LabelDragState | null>(null)
+  const [dragging, setDragging] = useState(false)
+
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!onOffsetChange || event.button !== 0) return
+    if ((event.target as HTMLElement).closest('button')) return
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startOffset: annotation.labelOffset,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setDragging(true)
+    onOffsetChange(annotation.id, annotation.labelOffset)
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  const dragLabel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId || !onOffsetChange) return
+    onOffsetChange(
+      annotation.id,
+      measurementLabelOffsetAfterDrag(
+        drag.startOffset,
+        { x: drag.startClientX, y: drag.startClientY },
+        { x: event.clientX, y: event.clientY },
+      ),
+    )
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    setDragging(false)
+    event.preventDefault()
+    event.stopPropagation()
+  }
 
   return (
     <Html position={midpoint} center className="measurement-html">
-      <div className={`measurement-label ${annotation.active ? 'measurement-label-active' : ''}`}>
-        {onDelete ? (
-          <button className="measurement-delete" aria-label="Delete measurement" onClick={() => onDelete(annotation.id)}>
-            X
-          </button>
-        ) : null}
-        <div className="measurement-kind">{annotation.label}</div>
-        <div className={`measurement-quality measurement-quality-${annotation.qualityLabel.toLowerCase()}`}>
-          {annotation.qualityLabel}
-        </div>
-        <div className="measurement-distance">{formatMm(annotation.distance)}</div>
-        <div className="measurement-deltas" aria-label="Measurement deltas">
-          <span className="delta-x">DX {formatMm(annotation.delta.x)}</span>
-          <span className="delta-y">DY {formatMm(annotation.delta.y)}</span>
-          <span className="delta-z">DZ {formatMm(annotation.delta.z)}</span>
+      <div
+        className={`measurement-label-positioner ${onOffsetChange ? 'measurement-label-positioner-draggable' : ''}`}
+        style={{ transform: `translate3d(${annotation.labelOffset.x}px, ${annotation.labelOffset.y}px, 0)` }}
+      >
+        <div
+          className={[
+            'measurement-label',
+            annotation.active ? 'measurement-label-active' : '',
+            onOffsetChange ? 'measurement-label-draggable' : '',
+            dragging ? 'measurement-label-dragging' : '',
+          ].filter(Boolean).join(' ')}
+          aria-label={onOffsetChange ? 'Drag measurement label' : undefined}
+          title={onOffsetChange ? 'Drag measurement label' : undefined}
+          onPointerDown={startDrag}
+          onPointerMove={dragLabel}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
+          {onDelete ? (
+            <button className="measurement-delete" aria-label="Delete measurement" onClick={() => onDelete(annotation.id)}>
+              X
+            </button>
+          ) : null}
+          <div className="measurement-kind">{annotation.label}</div>
+          <div className={`measurement-quality measurement-quality-${annotation.qualityLabel.toLowerCase()}`}>
+            {annotation.qualityLabel}
+          </div>
+          <div className="measurement-distance">{formatMm(annotation.distance)}</div>
+          <div className="measurement-deltas" aria-label="Measurement deltas">
+            <span className="delta-x">DX {formatMm(annotation.delta.x)}</span>
+            <span className="delta-y">DY {formatMm(annotation.delta.y)}</span>
+            <span className="delta-z">DZ {formatMm(annotation.delta.z)}</span>
+          </div>
         </div>
       </div>
     </Html>
@@ -269,10 +349,12 @@ function MeasurementLabel({
 function MeasurementAnnotationView({
   annotation,
   onDelete,
+  onLabelOffsetChange,
   showMarkers = true,
 }: {
   annotation: MeasurementAnnotation
   onDelete?: (id: string) => void
+  onLabelOffsetChange?: (id: string, offset: ScreenOffset) => void
   showMarkers?: boolean
 }) {
   const color = '#facc15'
@@ -286,7 +368,11 @@ function MeasurementAnnotationView({
           <MeasurementMarker point={annotation.endPoint} locked={!annotation.label.includes('Free Point')} />
         </>
       ) : null}
-      <MeasurementLabel annotation={annotation} onDelete={annotation.temporary ? undefined : onDelete} />
+      <MeasurementLabel
+        annotation={annotation}
+        onDelete={annotation.temporary ? undefined : onDelete}
+        onOffsetChange={annotation.temporary ? undefined : onLabelOffsetChange}
+      />
     </group>
   )
 }
@@ -365,7 +451,7 @@ function MeasurementLayer({
 
       const activeDraft = draftRef.current
       if (activeDraft) {
-        const current = nextHover ?? freePointForEvent(event, element, camera, activeDraft.start.point)
+        const current = tapeDragTarget(nextHover ?? freePointForEvent(event, element, camera, activeDraft.start.point))
         const resolved = resolveMeasurement(activeDraft.start, current)
         const nextDraft = { ...activeDraft, current, resolved }
         draftRef.current = nextDraft
@@ -376,12 +462,14 @@ function MeasurementLayer({
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return
-      const start = hoverRef.current ?? freePointForEvent(event, element, camera, new THREE.Vector3())
+      const clickTarget = hoverRef.current ?? freePointForEvent(event, element, camera, new THREE.Vector3())
+      const start = tapeDragTarget(clickTarget)
       const resolved = resolveMeasurement(start, start)
       const nextDraft = {
         start,
         current: start,
         resolved,
+        clickTarget,
         startX: event.clientX,
         startY: event.clientY,
       }
@@ -396,8 +484,8 @@ function MeasurementLayer({
       const activeDraft = draftRef.current
       if (!activeDraft) return
       const pointerDelta = Math.hypot(event.clientX - activeDraft.startX, event.clientY - activeDraft.startY)
-      const edgeLength = pointerDelta <= 4 && activeDraft.start.segment
-        ? resolveEdgeLength(activeDraft.start)
+      const edgeLength = pointerDelta <= 4 && activeDraft.clickTarget.segment
+        ? resolveEdgeLength(activeDraft.clickTarget)
         : null
       const resolved = edgeLength ?? activeDraft.resolved
       const annotation = annotationFromResolved(resolved, modeRef.current === 'quick')
@@ -428,9 +516,11 @@ function MeasurementLayer({
     }
   }, [camera, gl.domElement, invalidate, meshFeatures, mode, models, raycaster, scene])
 
-  const draftPreview = draft ? annotationFromResolved(draft.resolved, true) : null
-  const edgeHoverPreview = !draft && hoverTarget?.segment
-    ? annotationFromResolved(resolveEdgeLength(hoverTarget) ?? resolveMeasurement(hoverTarget, hoverTarget), true)
+  const visibleDraft = draft ?? draftRef.current
+  const draftPreview = visibleDraft ? annotationFromResolved(visibleDraft.resolved, true) : null
+  const edgeHoverTarget = shouldPreviewEdgeLength(Boolean(visibleDraft), hoverTarget) ? hoverTarget : null
+  const edgeHoverPreview = edgeHoverTarget
+    ? annotationFromResolved(resolveEdgeLength(edgeHoverTarget) ?? resolveMeasurement(edgeHoverTarget, edgeHoverTarget), true)
     : null
 
   const deleteAnnotation = (id: string) => {
@@ -441,10 +531,24 @@ function MeasurementLayer({
     })
   }
 
+  const moveAnnotationLabel = (id: string, labelOffset: ScreenOffset) => {
+    activeAnnotationRef.current = id
+    setAnnotations((prev) => prev.map((annotation) => (
+      annotation.id === id
+        ? { ...annotation, active: true, labelOffset }
+        : { ...annotation, active: false }
+    )))
+  }
+
   return (
     <group>
       {annotations.map((annotation) => (
-        <MeasurementAnnotationView key={annotation.id} annotation={annotation} onDelete={deleteAnnotation} />
+        <MeasurementAnnotationView
+          key={annotation.id}
+          annotation={annotation}
+          onDelete={deleteAnnotation}
+          onLabelOffsetChange={moveAnnotationLabel}
+        />
       ))}
       {quickAnnotation ? <MeasurementAnnotationView annotation={quickAnnotation} /> : null}
       {draftPreview ? <MeasurementAnnotationView annotation={draftPreview} /> : null}
@@ -667,6 +771,32 @@ function annotationFromResolved(resolved: ResolvedMeasurement, temporary: boolea
     distance: resolved.distance,
     delta: resolved.delta.clone(),
     qualityLabel: resolved.qualityLabel,
+    labelOffset: DEFAULT_MEASUREMENT_LABEL_OFFSET,
+  }
+}
+
+export function measurementLabelOffsetAfterDrag(
+  startOffset: ScreenOffset,
+  startPointer: ScreenOffset,
+  currentPointer: ScreenOffset,
+) {
+  return {
+    x: startOffset.x + currentPointer.x - startPointer.x,
+    y: startOffset.y + currentPointer.y - startPointer.y,
+  }
+}
+
+export function shouldPreviewEdgeLength(hasActiveDraft: boolean, hoverTarget: MeasurementTarget | null) {
+  return !hasActiveDraft && Boolean(hoverTarget?.segment)
+}
+
+export function tapeDragTarget(target: MeasurementTarget): MeasurementTarget {
+  if (!target.segment) return target
+  return {
+    ...target,
+    point: target.point.clone(),
+    segment: undefined,
+    length: undefined,
   }
 }
 
