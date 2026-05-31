@@ -29,6 +29,8 @@ export interface ResolvedMeasurement {
   qualityLabel: string
 }
 
+export type MeasurementResolveMode = 'shortest' | 'picked'
+
 const EPSILON = 1e-9
 const MAX_MESH_VERTICES = 1200
 const MAX_MESH_EDGES = 1800
@@ -102,8 +104,12 @@ export function freePointTarget(point: THREE.Vector3): MeasurementTarget {
   }
 }
 
-export function resolveMeasurement(start: MeasurementTarget, end: MeasurementTarget): ResolvedMeasurement {
-  const closest = closestMeasurementPoints(start, end)
+export function resolveMeasurement(
+  start: MeasurementTarget,
+  end: MeasurementTarget,
+  mode: MeasurementResolveMode = 'shortest',
+): ResolvedMeasurement {
+  const closest = mode === 'picked' ? pickedMeasurementPoints(start, end) : closestMeasurementPoints(start, end)
   const delta = closest.end.clone().sub(closest.start)
   return {
     label: `${start.label} -> ${end.label}`,
@@ -256,6 +262,13 @@ function closestMeasurementPoints(start: MeasurementTarget, end: MeasurementTarg
       end: closestPointOnSegment(end.segment.start, end.segment.end, start.point),
     }
   }
+  return {
+    start: start.point.clone(),
+    end: end.point.clone(),
+  }
+}
+
+function pickedMeasurementPoints(start: MeasurementTarget, end: MeasurementTarget) {
   return {
     start: start.point.clone(),
     end: end.point.clone(),

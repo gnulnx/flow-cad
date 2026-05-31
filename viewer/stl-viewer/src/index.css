@@ -652,6 +652,14 @@ body {
   z-index: 1000;
 }
 
+.measurement-label-positioner {
+  pointer-events: none;
+}
+
+.measurement-label-positioner-draggable {
+  pointer-events: auto;
+}
+
 .measurement-label {
   position: relative;
   min-width: 140px;
@@ -668,6 +676,16 @@ body {
   user-select: none;
   transition: var(--transition-smooth);
   pointer-events: none;
+}
+
+.measurement-label-draggable {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.measurement-label-dragging {
+  cursor: grabbing;
 }
 
 .measurement-label-active {
@@ -708,6 +726,41 @@ body {
 
 .measurement-quality-approximate {
   color: var(--warning-gold);
+}
+
+.measurement-mode-toggle {
+  display: inline-flex;
+  margin-top: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  border-radius: 6px;
+  pointer-events: auto;
+}
+
+.measurement-mode-option {
+  border: 0;
+  padding: 3px 7px;
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  transition: var(--transition-smooth);
+}
+
+.measurement-mode-option + .measurement-mode-option {
+  border-left: 1px solid rgba(34, 211, 238, 0.2);
+}
+
+.measurement-mode-option:hover {
+  color: var(--text-primary);
+  background: rgba(34, 211, 238, 0.14);
+}
+
+.measurement-mode-option-active {
+  background: rgba(34, 211, 238, 0.22);
+  color: var(--text-accent);
 }
 
 .measurement-deltas {
