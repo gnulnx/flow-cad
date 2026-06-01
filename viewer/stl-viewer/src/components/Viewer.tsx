@@ -1087,8 +1087,8 @@ export function snapScore(target: MeasurementTarget, screenDistance: number, pre
 }
 
 export function snapReleaseDistance(target: MeasurementTarget, previousTargetId: string | null) {
-  if (target.id === previousTargetId) return 74
-  return isLockedTarget(target) ? 56 : 34
+  if (target.id === previousTargetId) return 24
+  return isLockedTarget(target) ? 24 : 24
 }
 
 function projectToScreen(point: THREE.Vector3, rect: DOMRect, camera: THREE.Camera) {

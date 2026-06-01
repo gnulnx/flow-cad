@@ -39,13 +39,14 @@ describe('viewer snap behavior contract', () => {
     expect(snapScore(previous, 30, 'same-edge')).toBeLessThan(snapScore(candidate, 30, 'same-edge'))
   })
 
-  it('allows the current snap target to release later than a newly entered target', () => {
+  it('uses a close-only snap release radius for all target types', () => {
     const current = target({ id: 'edge' })
     const newFeature = target({ id: 'other-edge' })
     const face = target({ id: 'face', kind: 'face_point', label: 'Face Point', quality: 'approximate', qualityLabel: 'Approximate' })
 
-    expect(snapReleaseDistance(current, 'edge')).toBeGreaterThan(snapReleaseDistance(newFeature, 'edge'))
-    expect(snapReleaseDistance(newFeature, 'edge')).toBeGreaterThan(snapReleaseDistance(face, 'edge'))
+    expect(snapReleaseDistance(current, 'edge')).toBe(24)
+    expect(snapReleaseDistance(newFeature, 'edge')).toBe(24)
+    expect(snapReleaseDistance(face, 'edge')).toBe(24)
   })
 
   it('moves measurement HUD labels by pointer drag delta', () => {
