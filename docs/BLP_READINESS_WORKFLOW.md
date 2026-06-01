@@ -18,10 +18,13 @@ Provide a trustworthy CAD/STL analysis layer that a customer-facing BLP site can
    - Keep this logic in a reusable TypeScript helper under `viewer/stl-viewer/src/` so another app can copy or package it.
    - Treat volume as reliable only when the mesh is closed enough for signed tetrahedron volume to be meaningful.
 
-3. **Standalone Viewer Health**
-   - `viewer/index.html` remains a zero-install sanity viewer.
-   - It must report physical dimensions from original geometry, not the scaled render geometry.
-   - It is allowed to keep its own inline browser code, but behavior should track the reusable helper contract.
+3. **Viewer Metrics Health**
+   - The active viewer is `viewer/stl-viewer/`; the old zero-install standalone
+     viewer has been removed from this repo.
+   - Physical dimensions must come from original geometry metrics, not scaled
+     render geometry.
+   - Keep metric behavior in reusable helpers so another app can copy or package
+     it without depending on the whole Flow CAD workbench.
 
 4. **Estimator V1**
    - Use mesh volume, material density, selected material, infill assumption, setup fee, and a simple machine-time heuristic.
@@ -43,7 +46,7 @@ Provide a trustworthy CAD/STL analysis layer that a customer-facing BLP site can
 - `npm --prefix viewer/stl-viewer test`
 - `npm --prefix viewer/stl-viewer run build`
 - `python -m pytest`
-- Manual smoke check of `viewer/index.html` after a standalone viewer change.
+- Focused metric/helper tests when changing mesh analysis behavior.
 
 ## Open Decisions
 

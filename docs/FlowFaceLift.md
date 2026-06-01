@@ -111,7 +111,7 @@ To ensure zero regressions in Python backend code and vitest logic, we will exec
 - [ ] Re-engineer the Drag-and-Drop UI with a beautiful, full-screen blur transition.
 - [ ] Overhaul the snaps and highlights in `Viewer.tsx` to add electric cyan ring pulses.
 - [ ] Design a beautiful "Empty State" component for when no part is active.
-- [ ] Add the missing Drag-and-Drop event handlers inside the legacy `viewer/index.html` file to align it with project claims.
+- [ ] Keep drag-and-drop behavior in the active `viewer/stl-viewer/` workbench; the legacy standalone viewer has been removed.
 
 ### Phase 4: Validation & Quality Control
 - [ ] Ensure all 28 Vitest tests in the viewer workspace pass without any issues.

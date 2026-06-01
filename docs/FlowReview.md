@@ -168,10 +168,9 @@ Severity: Medium
 
 Evidence:
 
-- `viewer/README.md` describes a no-server viewer with OBJ/GLTF support and says measurement tools are future work.
-- `viewer/stl-viewer/README.md` describes the React viewer as an STL viewer, not the source-backed Flow CAD viewer.
-- `scripts/serve_viewer.py`, `scripts/convert_step_to_stl.py`, and `viewer/step_converter.py` are separate legacy paths.
-- `viewer/step_converter.py` returns converted STL bytes with STEP media type `application/vnd.ms-pki.stp`.
+- Historical note: this finding covered the removed standalone viewer,
+  standalone converter scripts, and stale viewer docs. The active path is now
+  `flow start` with `src/flow_cad/viewer/` plus `viewer/stl-viewer/`.
 
 Impact:
 
@@ -179,7 +178,9 @@ Agents and users have several plausible but conflicting ways to start or reason 
 
 Recommendation:
 
-Make `flow start` / `flow viewer start` the documented primary path. Mark `viewer/index.html` as legacy smoke viewer. Move or delete dead converter scripts after checking whether any handoff workflow still depends on them.
+Keep `flow start` as the documented primary path and avoid reintroducing
+parallel standalone viewer/converter entry points unless they are covered by
+tests and current docs.
 
 ### 10. `flow viewer start` and `flow start` do not target projects the same way
 
