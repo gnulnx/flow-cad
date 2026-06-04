@@ -6,9 +6,19 @@ import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import SourcePanel from './components/SourcePanel'
 import { calculateMeshMetrics } from './meshMetrics'
+import {
+  MODEL_WIREFRAME_COLOR,
+  WORKBENCH_PART_COLOR,
+  WORKBENCH_WIREFRAME_COLOR,
+  displayColorForPart,
+  draftFromPart,
+  mergePartDraft,
+  type ViewerColorMode,
+} from './partMetadata'
 import type {
   GeometryCapabilities,
   ModelData,
+  PartMetadataDraft,
   RotationMode,
   SnapFeature,
   SnapFeaturePayload,
@@ -74,11 +84,13 @@ export default function App() {
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
   const [projectName, setProjectName] = useState<string | null>(null)
   const [activeVersion, setActiveVersion] = useState<string | null>(null)
+  const [colorMode, setColorMode] = useState<ViewerColorMode>('workbench')
+  const [partMetadataDrafts, setPartMetadataDrafts] = useState<Record<string, PartMetadataDraft>>({})
   const loadingPartIdsRef = useRef<Set<string>>(new Set())
 
   // Resizing state hooks
   const [sourceWidth, setSourceWidth] = useState(380)
-  const [partsWidth, setPartsWidth] = useState(320)
+  const [partsWidth, setPartsWidth] = useState(380)
   const [isResizingSource, setIsResizingSource] = useState(false)
   const [isResizingParts, setIsResizingParts] = useState(false)
 
@@ -202,12 +214,41 @@ export default function App() {
     setStatusMessage(`${payload.parts.length} parts indexed`)
   }, [apiBase])
 
+  const viewerParts = useMemo(
+    () => parts.map((part) => mergePartDraft(part, partMetadataDrafts[part.id])),
+    [partMetadataDrafts, parts],
+  )
+
+  const handlePartMetadataChange = useCallback((partId: string, patch: Partial<PartMetadataDraft>) => {
+    setPartMetadataDrafts((current) => {
+      const part = parts.find((candidate) => candidate.id === partId)
+      if (!part) return current
+      return {
+        ...current,
+        [partId]: {
+          ...draftFromPart(part),
+          ...current[partId],
+          ...patch,
+        },
+      }
+    })
+  }, [parts])
+
+  const handlePartMetadataReset = useCallback((partId: string) => {
+    setPartMetadataDrafts((current) => {
+      if (!(partId in current)) return current
+      const next = { ...current }
+      delete next[partId]
+      return next
+    })
+  }, [])
+
   useEffect(() => {
-    if (!parts.length || !selectedIds.length) return
+    if (!viewerParts.length || !selectedIds.length) return
 
     const loadedIds = new Set(models.map((model) => model.partId))
     const selectedParts = selectedIds
-      .map((id) => parts.find((part) => part.id === id))
+      .map((id) => viewerParts.find((part) => part.id === id))
       .filter((part): part is ViewerPart => Boolean(part))
     const missingParts = selectedParts.filter((part) => {
       if (!part.artifact_format) return false
@@ -234,7 +275,7 @@ export default function App() {
         missingParts.forEach((part) => loadingPartIdsRef.current.delete(part.id))
         setStatusMessage(`Model load failed: ${err.message}`)
       })
-  }, [loadPartModel, models, parts, selectedIds])
+  }, [loadPartModel, models, selectedIds, viewerParts])
 
   const reloadViewer = useCallback(async () => {
     setStatusMessage('Reloading viewer...')
@@ -332,7 +373,7 @@ export default function App() {
       return
     }
 
-    const part = parts.find((candidate) => candidate.id === activeName)
+    const part = viewerParts.find((candidate) => candidate.id === activeName)
     if (!part) {
       setSourceContext(null)
       return
@@ -350,7 +391,7 @@ export default function App() {
       console.error(`Failed to load source for ${activeName}:`, err)
       setSourceContext(null)
     })
-  }, [activeName, apiBase, parts])
+  }, [activeName, apiBase, viewerParts])
 
   const handleFiles = useCallback((files: FileList) => {
     const stlFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.stl'))
@@ -485,8 +526,21 @@ export default function App() {
   }, [handlePartActivate])
 
   const visibleModels = useMemo(
-    () => models.filter((model) => selectedIds.includes(model.partId)),
-    [models, selectedIds],
+    () => {
+      const partById = new Map(viewerParts.map((part) => [part.id, part]))
+      return models
+        .filter((model) => selectedIds.includes(model.partId))
+        .map((model) => {
+          const part = partById.get(model.partId)
+          const modelColor = part ? displayColorForPart(part) : model.color
+          return {
+            ...model,
+            color: colorMode === 'model' ? modelColor : WORKBENCH_PART_COLOR,
+            wireframeColor: colorMode === 'model' ? MODEL_WIREFRAME_COLOR : WORKBENCH_WIREFRAME_COLOR,
+          }
+        })
+    },
+    [colorMode, models, selectedIds, viewerParts],
   )
   const visibleWarnings = useMemo(
     () => Array.from(new Set(visibleModels.flatMap((model) => model.warnings))).slice(0, 3),
@@ -575,11 +629,16 @@ export default function App() {
           />
         )}
         <ModelList
-          parts={parts}
+          parts={viewerParts}
           selectedIds={selectedIds}
           activeId={activeName}
           activeVersion={activeVersion}
           onActivate={handlePartActivate}
+          metadataDrafts={partMetadataDrafts}
+          onMetadataChange={handlePartMetadataChange}
+          onMetadataReset={handlePartMetadataReset}
+          colorMode={colorMode}
+          onColorModeChange={setColorMode}
           collapsed={partsCollapsed}
           onToggle={() => {
             setPartsCollapsed((value) => !value)

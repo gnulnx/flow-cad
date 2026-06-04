@@ -138,7 +138,7 @@ function ModelComponent({
             }}
           >
             <meshStandardMaterial
-              color={isActive ? '#94a3b8' : '#8b949e'}
+              color={model.color}
               metalness={0.1}
               roughness={0.7}
               emissive={isActive ? '#22d3ee' : '#000000'}
@@ -146,7 +146,7 @@ function ModelComponent({
             />
           </mesh>
           <lineSegments geometry={edgeGeometry}>
-            <lineBasicMaterial color={isActive ? '#22d3ee' : '#475569'} />
+            <lineBasicMaterial color={isActive ? '#22d3ee' : model.wireframeColor} />
           </lineSegments>
         </group>
       ))}

@@ -32,6 +32,7 @@ export interface ViewerPart {
   filename: string
   role: string
   material: string
+  display_color?: string | null
   mass_kg: number | null
   center_of_mass_mm: [number, number, number] | null
   inertia_kg_m2: [number, number, number, number, number, number] | null
@@ -122,4 +123,13 @@ export interface ModelData {
     center: Vector3
   }
   metrics: MeshMetrics
+}
+
+export interface PartMetadataDraft {
+  material: string
+  display_color: string
+  mass_kg: string
+  center_of_mass_mm: [string, string, string]
+  inertia_kg_m2: [string, string, string, string, string, string]
+  mass_source: string
 }
