@@ -227,6 +227,28 @@ describe('App source loading', () => {
     expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/parts/wheel_box_test_body/snap-features')
   })
 
+  it('passes model color mode and part color edits through to viewer models', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await vi.waitFor(() => {
+      expect(viewerRenderProps.at(-1)?.models[0]?.color).toBe('#8b949e')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Model' }))
+    await vi.waitFor(() => {
+      expect(viewerRenderProps.at(-1)?.models[0]?.color).toBe('#38bdf8')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Show details for wheel_box_test_body' }))
+    await user.clear(screen.getByLabelText('wheel_box_test_body display color'))
+    await user.type(screen.getByLabelText('wheel_box_test_body display color'), '#ff0000')
+
+    await vi.waitFor(() => {
+      expect(viewerRenderProps.at(-1)?.models[0]?.color).toBe('#ff0000')
+    })
+  })
+
   it('does not request exact snap features for mesh-only backend models', async () => {
     activeParts = [
       {

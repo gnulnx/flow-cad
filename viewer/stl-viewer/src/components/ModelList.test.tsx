@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import ModelList from './ModelList'
@@ -173,5 +173,79 @@ describe('ModelList', () => {
 
     await user.click(screen.getByRole('button', { name: 'Legacy' }))
     expect(screen.getByText('left_side_plate')).toBeInTheDocument()
+  })
+
+  it('opens details for multiple selected parts and emits metadata edits', async () => {
+    const user = userEvent.setup()
+    const onMetadataChange = vi.fn()
+
+    render(
+      <ModelList
+        parts={[part('wheel_box_test_body'), part('wheel_box_tight_insert')]}
+        selectedIds={['wheel_box_test_body', 'wheel_box_tight_insert']}
+        activeId="wheel_box_test_body"
+        activeVersion="b3_v2"
+        onActivate={vi.fn()}
+        metadataDrafts={{}}
+        onMetadataChange={onMetadataChange}
+        collapsed={false}
+        onToggle={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Open selected' }))
+
+    expect(screen.getByLabelText('wheel_box_test_body material')).toBeInTheDocument()
+    expect(screen.getByLabelText('wheel_box_tight_insert material')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('wheel_box_test_body material'), { target: { value: 'TPU' } })
+    expect(onMetadataChange).toHaveBeenLastCalledWith('wheel_box_test_body', { material: 'TPU' })
+
+    fireEvent.change(screen.getByLabelText('wheel_box_tight_insert mass kg'), { target: { value: '0.125' } })
+    expect(onMetadataChange).toHaveBeenLastCalledWith('wheel_box_tight_insert', { mass_kg: '0.125' })
+  })
+
+  it('toggles color mode from the parts panel', async () => {
+    const user = userEvent.setup()
+    const onColorModeChange = vi.fn()
+
+    render(
+      <ModelList
+        parts={[part('wheel_box_test_body')]}
+        selectedIds={['wheel_box_test_body']}
+        activeId="wheel_box_test_body"
+        activeVersion="b3_v2"
+        onActivate={vi.fn()}
+        colorMode="workbench"
+        onColorModeChange={onColorModeChange}
+        collapsed={false}
+        onToggle={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Model' }))
+    expect(onColorModeChange).toHaveBeenCalledWith('model')
+  })
+
+  it('shows and hides a single part detail panel from the row control', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <ModelList
+        parts={[part('wheel_box_test_body')]}
+        selectedIds={['wheel_box_test_body']}
+        activeId="wheel_box_test_body"
+        activeVersion="b3_v2"
+        onActivate={vi.fn()}
+        collapsed={false}
+        onToggle={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Show details for wheel_box_test_body' }))
+    expect(screen.getByLabelText('wheel_box_test_body material')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Hide details for wheel_box_test_body' }))
+    expect(screen.queryByLabelText('wheel_box_test_body material')).not.toBeInTheDocument()
   })
 })

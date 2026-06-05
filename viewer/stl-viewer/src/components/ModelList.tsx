@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { ViewerPart } from '../types'
+import { draftFromPart, type ViewerColorMode } from '../partMetadata'
+import type { PartMetadataDraft, ViewerPart } from '../types'
 
 interface ModelListProps {
   parts: ViewerPart[]
@@ -7,6 +8,11 @@ interface ModelListProps {
   activeId: string | null
   activeVersion?: string | null
   onActivate: (partId: string, additive: boolean) => void
+  metadataDrafts?: Record<string, PartMetadataDraft>
+  onMetadataChange?: (partId: string, patch: Partial<PartMetadataDraft>) => void
+  onMetadataReset?: (partId: string) => void
+  colorMode?: ViewerColorMode
+  onColorModeChange?: (mode: ViewerColorMode) => void
   collapsed: boolean
   onToggle: () => void
   width?: number
@@ -32,6 +38,10 @@ const DEFAULT_ROLE_VISIBILITY: Record<RoleKey, boolean> = {
   reference: false,
   inspection: false,
 }
+
+const MASS_SOURCE_OPTIONS = ['unset', 'estimated_material', 'cad_density', 'measured_scale', 'vendor_datasheet']
+const COM_LABELS = ['X', 'Y', 'Z'] as const
+const INERTIA_LABELS = ['IXX', 'IXY', 'IXZ', 'IYY', 'IYZ', 'IZZ'] as const
 
 interface FamilyGroup {
   family: string
@@ -98,12 +108,179 @@ function groupParts(parts: ViewerPart[], activeVersion?: string | null): Version
     .filter((group) => group.roles.some((role) => role.families.some((family) => family.parts.length > 0)))
 }
 
+function replaceTupleValue<T extends readonly string[]>(values: T, index: number, value: string): T {
+  const next = [...values]
+  next[index] = value
+  return next as unknown as T
+}
+
+function joinedList(values: readonly string[]) {
+  return values.length ? values.join(', ') : 'none'
+}
+
+function colorPickerValue(value: string) {
+  return /^#[0-9a-fA-F]{6}$/.test(value.trim()) ? value : '#5ec4ff'
+}
+
+function PartDetails({
+  part,
+  draft,
+  onChange,
+  onReset,
+}: {
+  part: ViewerPart
+  draft: PartMetadataDraft
+  onChange?: (patch: Partial<PartMetadataDraft>) => void
+  onReset?: () => void
+}) {
+  const editable = Boolean(onChange)
+  return (
+    <div className="part-details" onClick={(event) => event.stopPropagation()}>
+      <div className="part-detail-grid">
+        <label className="part-detail-field">
+          <span>Material</span>
+          <input
+            aria-label={`${part.id} material`}
+            value={draft.material}
+            disabled={!editable}
+            onChange={(event) => onChange?.({ material: event.target.value })}
+          />
+        </label>
+        <label className="part-detail-field">
+          <span>Color</span>
+          <div className="part-color-field">
+            <input
+              type="color"
+              aria-label={`${part.id} color picker`}
+              value={colorPickerValue(draft.display_color)}
+              disabled={!editable}
+              onChange={(event) => onChange?.({ display_color: event.target.value })}
+            />
+            <input
+              aria-label={`${part.id} display color`}
+              value={draft.display_color}
+              disabled={!editable}
+              onChange={(event) => onChange?.({ display_color: event.target.value })}
+            />
+          </div>
+        </label>
+        <label className="part-detail-field">
+          <span>Mass kg</span>
+          <input
+            type="number"
+            aria-label={`${part.id} mass kg`}
+            min="0"
+            step="0.001"
+            value={draft.mass_kg}
+            disabled={!editable}
+            onChange={(event) => onChange?.({ mass_kg: event.target.value })}
+          />
+        </label>
+        <label className="part-detail-field">
+          <span>Mass source</span>
+          <select
+            aria-label={`${part.id} mass source`}
+            value={draft.mass_source}
+            disabled={!editable}
+            onChange={(event) => onChange?.({ mass_source: event.target.value })}
+          >
+            {MASS_SOURCE_OPTIONS.includes(draft.mass_source) ? null : (
+              <option value={draft.mass_source}>{draft.mass_source}</option>
+            )}
+            {MASS_SOURCE_OPTIONS.map((source) => (
+              <option key={source} value={source}>{source}</option>
+            ))}
+          </select>
+        </label>
+        <div className="part-detail-field part-detail-wide">
+          <span>COM mm</span>
+          <div className="part-vector-inputs part-vector-3">
+            {COM_LABELS.map((label, index) => (
+              <input
+                key={label}
+                type="number"
+                step="0.1"
+                aria-label={`${part.id} COM ${label}`}
+                placeholder={label}
+                value={draft.center_of_mass_mm[index]}
+                disabled={!editable}
+                onChange={(event) => onChange?.({
+                  center_of_mass_mm: replaceTupleValue(draft.center_of_mass_mm, index, event.target.value),
+                })}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="part-detail-field part-detail-wide">
+          <span>Inertia kg m2</span>
+          <div className="part-vector-inputs part-vector-6">
+            {INERTIA_LABELS.map((label, index) => (
+              <input
+                key={label}
+                type="number"
+                step="0.000001"
+                aria-label={`${part.id} inertia ${label}`}
+                placeholder={label}
+                value={draft.inertia_kg_m2[index]}
+                disabled={!editable}
+                onChange={(event) => onChange?.({
+                  inertia_kg_m2: replaceTupleValue(draft.inertia_kg_m2, index, event.target.value),
+                })}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      <dl className="part-readonly-details">
+        <div>
+          <dt>Version</dt>
+          <dd>{versionLabel(part)}</dd>
+        </div>
+        <div>
+          <dt>Role</dt>
+          <dd>{roleLabel(part.role)}</dd>
+        </div>
+        <div>
+          <dt>Family</dt>
+          <dd>{familyLabel(part)}</dd>
+        </div>
+        <div>
+          <dt>Artifact</dt>
+          <dd>{part.artifact_format ?? 'missing'}</dd>
+        </div>
+        <div>
+          <dt>Assembly IDs</dt>
+          <dd>{joinedList(part.assembly_ids)}</dd>
+        </div>
+        <div>
+          <dt>Compatible</dt>
+          <dd>{joinedList(part.compatible_versions)}</dd>
+        </div>
+        <div>
+          <dt>Occurrences</dt>
+          <dd>{part.occurrences.map((occurrence) => occurrence.name).join(', ') || 'none'}</dd>
+        </div>
+      </dl>
+      {editable && onReset ? (
+        <div className="part-detail-actions">
+          <button type="button" className="part-detail-reset" onClick={onReset}>Reset</button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function ModelList({
   parts,
   selectedIds,
   activeId,
   activeVersion,
   onActivate,
+  metadataDrafts = {},
+  onMetadataChange,
+  onMetadataReset,
+  colorMode = 'workbench',
+  onColorModeChange,
   collapsed,
   onToggle,
   width,
@@ -112,10 +289,16 @@ export default function ModelList({
   const versions = useMemo(() => uniqueVersions(parts, activeVersion), [activeVersion, parts])
   const [versionFilter, setVersionFilter] = useState(ACTIVE_FILTER)
   const [roleVisibility, setRoleVisibility] = useState(DEFAULT_ROLE_VISIBILITY)
+  const [expandedIds, setExpandedIds] = useState<string[]>([])
 
   useEffect(() => {
     setVersionFilter(ACTIVE_FILTER)
   }, [activeVersion])
+
+  useEffect(() => {
+    const partIds = new Set(parts.map((part) => part.id))
+    setExpandedIds((current) => current.filter((id) => partIds.has(id)))
+  }, [parts])
 
   const visibleParts = useMemo(() => {
     const resolvedVersion = versionFilter === ACTIVE_FILTER ? activeVersion : versionFilter
@@ -129,6 +312,18 @@ export default function ModelList({
 
   const toggleRole = (role: RoleKey) => {
     setRoleVisibility((current) => ({ ...current, [role]: !current[role] }))
+  }
+
+  const toggleExpanded = (partId: string) => {
+    setExpandedIds((current) => (
+      current.includes(partId)
+        ? current.filter((id) => id !== partId)
+        : [...current, partId]
+    ))
+  }
+
+  const openSelectedDetails = () => {
+    setExpandedIds((current) => Array.from(new Set([...current, ...selectedIds])))
   }
 
   if (parts.length === 0) return null
@@ -181,6 +376,42 @@ export default function ModelList({
                   </button>
                 ))}
               </div>
+              <div className="parts-color-toggles" aria-label="Color mode">
+                <button
+                  type="button"
+                  className={`part-filter-toggle ${colorMode === 'workbench' ? 'active' : ''}`}
+                  aria-pressed={colorMode === 'workbench'}
+                  onClick={() => onColorModeChange?.('workbench')}
+                >
+                  Workbench
+                </button>
+                <button
+                  type="button"
+                  className={`part-filter-toggle ${colorMode === 'model' ? 'active' : ''}`}
+                  aria-pressed={colorMode === 'model'}
+                  onClick={() => onColorModeChange?.('model')}
+                >
+                  Model
+                </button>
+              </div>
+              <div className="parts-detail-controls">
+                <button
+                  type="button"
+                  className="part-detail-control"
+                  onClick={openSelectedDetails}
+                  disabled={!selectedIds.length}
+                >
+                  Open selected
+                </button>
+                <button
+                  type="button"
+                  className="part-detail-control"
+                  onClick={() => setExpandedIds([])}
+                  disabled={!expandedIds.length}
+                >
+                  Close details
+                </button>
+              </div>
             </div>
             <div className="parts-tree">
               {groups.length ? groups.map((versionGroup) => (
@@ -199,17 +430,45 @@ export default function ModelList({
                             {familyGroup.parts.map((part) => {
                               const isSelected = selectedIds.includes(part.id)
                               const isActive = part.id === activeId
+                              const isExpanded = expandedIds.includes(part.id)
+                              const draft = metadataDrafts[part.id] ?? draftFromPart(part)
                               return (
                                 <li
                                   key={part.id}
                                   className={`part-row ${isSelected ? 'selected' : ''} ${isActive ? 'active' : ''}`}
-                                  onClick={(event) => onActivate(part.id, event.ctrlKey || event.metaKey)}
                                 >
-                                  <div className="part-name">{part.id}</div>
-                                  <div className="part-meta">
-                                    {familyLabel(part)} / {part.artifact_format ?? 'missing'}
+                                  <div
+                                    className="part-row-main"
+                                    onClick={(event) => onActivate(part.id, event.ctrlKey || event.metaKey)}
+                                  >
+                                    <button
+                                      type="button"
+                                      className="part-expand-toggle"
+                                      aria-expanded={isExpanded}
+                                      aria-label={`${isExpanded ? 'Hide' : 'Show'} details for ${part.id}`}
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        toggleExpanded(part.id)
+                                      }}
+                                    >
+                                      {isExpanded ? '-' : '+'}
+                                    </button>
+                                    <div className="part-row-copy">
+                                      <div className="part-name">{part.id}</div>
+                                      <div className="part-meta">
+                                        {familyLabel(part)} / {part.artifact_format ?? 'missing'}
+                                      </div>
+                                    </div>
                                   </div>
                                   {part.capabilities.mesh_only ? <div className="part-warning">Mesh-only approximate</div> : null}
+                                  {isExpanded ? (
+                                    <PartDetails
+                                      part={part}
+                                      draft={draft}
+                                      onChange={(patch) => onMetadataChange?.(part.id, patch)}
+                                      onReset={() => onMetadataReset?.(part.id)}
+                                    />
+                                  ) : null}
                                 </li>
                               )
                             })}

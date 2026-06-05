@@ -138,7 +138,7 @@ function ModelComponent({
             }}
           >
             <meshStandardMaterial
-              color={isActive ? '#94a3b8' : '#8b949e'}
+              color={model.color}
               metalness={0.1}
               roughness={0.7}
               emissive={isActive ? '#22d3ee' : '#000000'}
@@ -146,7 +146,7 @@ function ModelComponent({
             />
           </mesh>
           <lineSegments geometry={edgeGeometry}>
-            <lineBasicMaterial color={isActive ? '#22d3ee' : '#475569'} />
+            <lineBasicMaterial color={isActive ? '#22d3ee' : model.wireframeColor} />
           </lineSegments>
         </group>
       ))}
@@ -1087,8 +1087,8 @@ export function snapScore(target: MeasurementTarget, screenDistance: number, pre
 }
 
 export function snapReleaseDistance(target: MeasurementTarget, previousTargetId: string | null) {
-  if (target.id === previousTargetId) return 74
-  return isLockedTarget(target) ? 56 : 34
+  if (target.id === previousTargetId) return 24
+  return isLockedTarget(target) ? 24 : 24
 }
 
 function projectToScreen(point: THREE.Vector3, rect: DOMRect, camera: THREE.Camera) {
