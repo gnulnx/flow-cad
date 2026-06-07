@@ -102,6 +102,41 @@ def test_transform_and_resize_operations_persist_entity_updates(tmp_path: Path) 
     ]
 
 
+def test_delete_entity_operation_removes_entity_and_undo_restores_it(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "box_custom", "size_mm": [10, 20, 30]})
+
+    deleted = service.delete_entity("edit:box_custom")
+
+    assert deleted["document_revision"] == 2
+    assert deleted["operation"]["type"] == "delete_entity"
+    assert deleted["deleted_entity_id"] == "box_custom"
+    assert "box_custom" not in deleted["document"]["entities"]
+
+    undo = service.undo()
+    assert undo["document_revision"] == 3
+    assert undo["undone_operation"]["type"] == "delete_entity"
+    assert undo["document"]["entities"]["box_custom"]["size_mm"] == [10.0, 20.0, 30.0]
+    assert [operation["type"] for operation in undo["document"]["operations"]] == ["create_box"]
+
+
+def test_delete_entity_rejects_referenced_boolean_tools_and_split_sources(tmp_path: Path) -> None:
+    boolean_service = EditService(bundled_example_project(tmp_path / "boolean"))
+    boolean_service.append_operation({"type": "create_box", "entity_id": "target"})
+    boolean_service.append_operation({"type": "create_box", "entity_id": "tool"})
+    boolean_service.create_boolean({"operation": "cut", "target_entity_id": "target", "tool_entity_id": "tool"})
+
+    with pytest.raises(EditServiceError, match="referenced by target"):
+        boolean_service.delete_entity("tool")
+
+    split_service = EditService(bundled_example_project(tmp_path / "split"))
+    split_service.append_operation({"type": "create_box", "entity_id": "target"})
+    split_service.create_split({"target_entity_id": "target"})
+
+    with pytest.raises(EditServiceError, match="referenced by"):
+        split_service.delete_entity("target")
+
+
 def test_create_and_update_points_preserves_quality_and_source(tmp_path: Path) -> None:
     service = EditService(bundled_example_project(tmp_path))
 
@@ -425,6 +460,27 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert sorted(reloaded["points"]) == ["point_001"]
     assert reloaded["entities"]["box_001"]["holes"][0]["preset"] == "m5_clearance"
     assert reloaded["entities"]["box_001"]["booleans"][0]["type"] == "cut"
+
+
+def test_edit_api_delete_entity_removes_viewer_part_and_bumps_revision(tmp_path: Path) -> None:
+    viewer_service = ViewerService(tmp_path)
+    app = create_app(service=viewer_service)
+    edit_create = _endpoint(app, "/api/edit/operations", "POST")
+    edit_delete = _endpoint(app, "/api/edit/entities/{entity_id}", "DELETE")
+    parts = _endpoint(app, "/api/parts", "GET")
+    health = _endpoint(app, "/api/health", "GET")
+
+    edit_create({"type": "create_box", "entity_id": "delete_me"})
+    assert any(part["id"] == "edit:delete_me" for part in parts()["parts"])
+    assert health()["revision"] == 1
+
+    deleted = edit_delete("edit:delete_me")
+
+    assert deleted["document_revision"] == 2
+    assert deleted["deleted_entity_id"] == "delete_me"
+    assert "delete_me" not in deleted["document"]["entities"]
+    assert all(part["id"] != "edit:delete_me" for part in parts()["parts"])
+    assert health()["revision"] == 2
 
 
 def test_viewer_service_lists_edit_entities_as_exact_parts(tmp_path: Path) -> None:

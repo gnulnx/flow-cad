@@ -96,6 +96,13 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
         except EditServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
+    @app.delete("/api/edit/entities/{entity_id}")
+    def delete_edit_entity(entity_id: str) -> dict[str, object]:
+        try:
+            return viewer_service.delete_edit_entity(entity_id)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
     @app.post("/api/edit/points")
     def edit_points(point: dict[str, object]) -> dict[str, object]:
         try:

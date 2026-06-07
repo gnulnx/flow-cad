@@ -81,6 +81,11 @@ class EditService:
             return self._append_boolean(document, payload, operation_type=operation_type)
         if operation_type == "split":
             return self._append_split(document, payload)
+        if operation_type == "delete_entity":
+            entity_id = str(payload.get("entity_id") or "")
+            if not entity_id:
+                raise EditServiceError("`entity_id` is required for delete_entity")
+            return self.delete_entity(entity_id, payload)
         raise EditServiceError(f"Unsupported edit operation type: {operation_type or '<missing>'}")
 
     def patch_entity(self, entity_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -156,6 +161,46 @@ class EditService:
             raise EditServiceError("Edit split payload must be an object")
         document = self._load_document(create=True)
         return self._append_split(document, {**payload, "type": "split"})
+
+    def delete_entity(self, entity_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = payload or {}
+        document = self._load_document(create=True)
+        normalized_entity_id = entity_id_from_component_id(entity_id) if is_edit_component_id(entity_id) else entity_id
+        try:
+            current = document.entities[normalized_entity_id]
+        except KeyError as exc:
+            raise EditServiceError(f"Edit entity is not registered: {normalized_entity_id}") from exc
+
+        self._ensure_entity_can_be_deleted(document, normalized_entity_id)
+        operation_id = str(payload.get("id") or payload.get("operation_id") or self._next_operation_id(document))
+        self._ensure_operation_id_available(document, operation_id)
+        operation = {
+            "id": operation_id,
+            "type": "delete_entity",
+            "entity_id": current.id,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "previous_entity": current.to_payload(),
+        }
+        entities = {**document.entities}
+        entities.pop(current.id)
+        next_document = EditDocument(
+            schema_version=document.schema_version,
+            document_id=document.document_id,
+            units=document.units,
+            revision=document.revision + 1,
+            entities=entities,
+            points=document.points,
+            operations=[*document.operations, operation],
+        )
+        self.store.save(next_document)
+        return {
+            "ok": True,
+            "document_revision": next_document.revision,
+            "operation": operation,
+            "deleted_entity_id": current.id,
+            "changed_entity_ids": [current.id],
+            "document": normalized_document_payload(self.store, next_document),
+        }
 
     def undo(self) -> dict[str, Any]:
         document = self._load_document(create=True)
@@ -586,6 +631,12 @@ class EditService:
 
         if operation_type == "create_box":
             entities.pop(str(operation.get("entity_id") or ""), None)
+        elif operation_type == "delete_entity":
+            entity_id = str(operation.get("entity_id") or "")
+            previous = operation.get("previous_entity")
+            if not entity_id or not isinstance(previous, dict):
+                raise EditServiceError("Cannot undo malformed delete_entity operation")
+            entities[entity_id] = EditEntity.from_payload(entity_id, previous)
         elif operation_type in {"set_transform", "resize_box"}:
             entity_id = str(operation.get("entity_id") or "")
             previous = operation.get("previous_entity")
@@ -764,6 +815,21 @@ class EditService:
     def _ensure_operation_id_available(document: EditDocument, operation_id: str) -> None:
         if any(operation.get("id") == operation_id for operation in document.operations):
             raise EditServiceError(f"Edit operation already exists: {operation_id}")
+
+    @staticmethod
+    def _ensure_entity_can_be_deleted(document: EditDocument, entity_id: str) -> None:
+        referencing_entities = sorted(
+            other_entity.id
+            for other_entity in document.entities.values()
+            if other_entity.id != entity_id
+            and (
+                any(operation.tool_entity_id == entity_id for operation in other_entity.booleans)
+                or other_entity.source_entity_id == entity_id
+            )
+        )
+        if referencing_entities:
+            refs = ", ".join(referencing_entities)
+            raise EditServiceError(f"Cannot delete edit entity {entity_id}: referenced by {refs}")
 
 
 def _next_numbered_id(existing: Any, prefix: str) -> str:

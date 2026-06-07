@@ -79,6 +79,10 @@ interface EditPatchResponse {
   document?: EditDocumentPayload
 }
 
+interface EditDeleteResponse {
+  document?: EditDocumentPayload
+}
+
 interface EditPointResponse {
   point?: {
     id?: string
@@ -420,6 +424,34 @@ export default function App() {
       const message = err instanceof Error ? err.message : String(err)
       console.error(`Edit update failed for ${entityId}:`, err)
       setStatusMessage(`Update failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
+  const deleteEditEntity = useCallback(async (componentId: string) => {
+    const entityId = editEntityIdFromComponentId(componentId)
+    try {
+      setStatusMessage(`Deleting ${entityId}...`)
+      const response = await fetch(apiUrl(apiBase, `/api/edit/entities/${encodeURIComponent(componentId)}`), {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditDeleteResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      await loadViewerState()
+      setSelectedIds((prev) => prev.filter((id) => id !== componentId))
+      setActiveName(null)
+      setStatusMessage(`Deleted ${entityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Edit delete failed for ${entityId}:`, err)
+      setStatusMessage(`Delete failed: ${message}`)
     }
   }, [apiBase, loadEditDocument, loadViewerState])
 
@@ -927,6 +959,17 @@ export default function App() {
             setStatusMessage(`Undo failed: ${err.message}`)
           })
         }}
+        onDeleteSelected={() => {
+          if (!activeEditEntity) {
+            setStatusMessage('Select an edit entity to delete')
+            return
+          }
+          deleteEditEntity(activeEditEntity.componentId).catch((err) => {
+            console.error('Delete failed:', err)
+            setStatusMessage(`Delete failed: ${err.message}`)
+          })
+        }}
+        canDeleteSelected={Boolean(activeEditEntity)}
         statusMessage={statusMessage}
         rotationMode={rotationMode}
         onRotationModeChange={setRotationMode}

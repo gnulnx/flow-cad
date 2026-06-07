@@ -379,6 +379,19 @@ describe('App source loading', () => {
         activeParts = partsPayload.parts
         return jsonResponse({ ok: true, document_revision: partsRevision, document: editDocumentPayload() })
       }
+      if (url.includes('/api/edit/entities/') && init?.method === 'DELETE') {
+        partsRevision += 1
+        healthRevision = partsRevision
+        const entityId = decodeURIComponent(url.split('/').pop() ?? '').replace(/^edit:/, '')
+        if (entityId === 'box_001') {
+          editBoxAvailable = false
+          editToolAvailable = false
+          editBoxHoles = []
+          editBoxBooleans = []
+          activeParts = partsPayload.parts
+        }
+        return jsonResponse({ ok: true, document_revision: partsRevision, deleted_entity_id: entityId, document: editDocumentPayload() })
+      }
       if (url.includes('/api/edit/entities/')) {
         partsRevision += 1
         healthRevision = partsRevision
@@ -548,6 +561,33 @@ describe('App source loading', () => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://127.0.0.1:8000/api/edit/undo',
         expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    await waitFor(() => {
+      const latestModels = viewerRenderProps.at(-1)?.models ?? []
+      expect(latestModels.some((model) => model.partId === 'edit:box_001')).toBe(false)
+    })
+  })
+
+  it('deletes the selected edit entity from the toolbar', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Cube' }))
+    await waitFor(() => {
+      const latestModels = viewerRenderProps.at(-1)?.models ?? []
+      expect(latestModels.some((model) => model.partId === 'edit:box_001')).toBe(true)
+    })
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/entities/edit%3Abox_001',
+        expect.objectContaining({ method: 'DELETE' }),
       )
     })
     await waitFor(() => {

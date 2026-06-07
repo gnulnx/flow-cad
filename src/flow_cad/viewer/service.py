@@ -169,6 +169,11 @@ class ViewerService:
         self.revision += 1
         return result
 
+    def delete_edit_entity(self, entity_id: str) -> dict[str, Any]:
+        result = self.edit_service.delete_entity(entity_id)
+        self.revision += 1
+        return result
+
     def create_edit_point(self, payload: dict[str, Any]) -> dict[str, Any]:
         result = self.edit_service.create_point(payload)
         self.revision += 1
