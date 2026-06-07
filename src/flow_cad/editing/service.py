@@ -26,6 +26,7 @@ class EditService:
     def __init__(self, project: FlowCadProject, document_path: Path | None = None):
         self.project = project
         self.store = EditDocumentStore(project.root, document_path=document_path)
+        self._redo_operations: list[dict[str, Any]] = []
 
     def status(self) -> dict[str, Any]:
         document = self._load_document(create=False)
@@ -36,7 +37,7 @@ class EditService:
             "document_revision": document.revision,
             "active_session_id": None,
             "can_undo": bool(document.operations),
-            "can_redo": False,
+            "can_redo": bool(self._redo_operations),
             "tool_presets": {
                 "holes": hole_presets_payload(),
             },
@@ -67,20 +68,20 @@ class EditService:
         document = self._load_document(create=True)
         operation_type = str(payload.get("type") or "")
         if operation_type == "create_box":
-            return self._append_create_box(document, payload)
+            return self._operation_result(self._append_create_box(document, payload))
         if operation_type == "create_point":
-            return self._append_create_point(document, payload)
+            return self._operation_result(self._append_create_point(document, payload))
         if operation_type in {"set_transform", "resize_box"}:
             entity_id = str(payload.get("entity_id") or "")
             if not entity_id:
                 raise EditServiceError(f"`entity_id` is required for {operation_type}")
-            return self._append_update_entity(document, entity_id, payload, operation_type=operation_type)
+            return self._operation_result(self._append_update_entity(document, entity_id, payload, operation_type=operation_type))
         if operation_type == "cut_hole":
-            return self._append_cut_hole(document, payload)
+            return self._operation_result(self._append_cut_hole(document, payload))
         if operation_type in {"fuse", "cut"}:
-            return self._append_boolean(document, payload, operation_type=operation_type)
+            return self._operation_result(self._append_boolean(document, payload, operation_type=operation_type))
         if operation_type == "split":
-            return self._append_split(document, payload)
+            return self._operation_result(self._append_split(document, payload))
         if operation_type == "delete_entity":
             entity_id = str(payload.get("entity_id") or "")
             if not entity_id:
@@ -98,16 +99,16 @@ class EditService:
         if has_size and has_transform:
             raise EditServiceError("Patch either size or transform in one operation, not both")
         if has_size:
-            return self._append_update_entity(document, normalized_entity_id, payload, operation_type="resize_box")
+            return self._operation_result(self._append_update_entity(document, normalized_entity_id, payload, operation_type="resize_box"))
         if has_transform:
-            return self._append_update_entity(document, normalized_entity_id, payload, operation_type="set_transform")
+            return self._operation_result(self._append_update_entity(document, normalized_entity_id, payload, operation_type="set_transform"))
         raise EditServiceError("Edit entity patch requires `size_mm`, `transform`, `translation_mm`, or `rotation_deg`")
 
     def create_point(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise EditServiceError("Edit point payload must be an object")
         document = self._load_document(create=True)
-        return self._append_create_point(document, payload)
+        return self._operation_result(self._append_create_point(document, payload))
 
     def patch_point(self, point_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
@@ -139,13 +140,13 @@ class EditService:
         }
         next_document = document.with_point_and_operation(point, operation)
         self.store.save(next_document)
-        return self._point_result(next_document, point, operation)
+        return self._operation_result(self._point_result(next_document, point, operation))
 
     def create_hole(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise EditServiceError("Edit hole payload must be an object")
         document = self._load_document(create=True)
-        return self._append_cut_hole(document, {**payload, "type": "cut_hole"})
+        return self._operation_result(self._append_cut_hole(document, {**payload, "type": "cut_hole"}))
 
     def create_boolean(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
@@ -154,13 +155,13 @@ class EditService:
         if operation_type not in {"fuse", "cut"}:
             raise EditServiceError("Edit boolean operation must be `fuse` or `cut`")
         document = self._load_document(create=True)
-        return self._append_boolean(document, {**payload, "type": operation_type}, operation_type=operation_type)
+        return self._operation_result(self._append_boolean(document, {**payload, "type": operation_type}, operation_type=operation_type))
 
     def create_split(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise EditServiceError("Edit split payload must be an object")
         document = self._load_document(create=True)
-        return self._append_split(document, {**payload, "type": "split"})
+        return self._operation_result(self._append_split(document, {**payload, "type": "split"}))
 
     def delete_entity(self, entity_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = payload or {}
@@ -193,14 +194,14 @@ class EditService:
             operations=[*document.operations, operation],
         )
         self.store.save(next_document)
-        return {
+        return self._operation_result({
             "ok": True,
             "document_revision": next_document.revision,
             "operation": operation,
             "deleted_entity_id": current.id,
             "changed_entity_ids": [current.id],
             "document": normalized_document_payload(self.store, next_document),
-        }
+        })
 
     def undo(self) -> dict[str, Any]:
         document = self._load_document(create=True)
@@ -209,10 +210,25 @@ class EditService:
         operation = document.operations[-1]
         next_document = self._document_after_undo(document, operation)
         self.store.save(next_document)
+        self._redo_operations.append(operation)
         return {
             "ok": True,
             "document_revision": next_document.revision,
             "undone_operation": operation,
+            "document": normalized_document_payload(self.store, next_document),
+        }
+
+    def redo(self) -> dict[str, Any]:
+        document = self._load_document(create=True)
+        if not self._redo_operations:
+            raise EditServiceError("No edit operation is available to redo")
+        operation = self._redo_operations.pop()
+        next_document = self._document_after_redo(document, operation)
+        self.store.save(next_document)
+        return {
+            "ok": True,
+            "document_revision": next_document.revision,
+            "redone_operation": operation,
             "document": normalized_document_payload(self.store, next_document),
         }
 
@@ -704,6 +720,162 @@ class EditService:
             operations=document.operations[:-1],
         )
 
+    def _document_after_redo(self, document: EditDocument, operation: dict[str, Any]) -> EditDocument:
+        entities = {**document.entities}
+        points = {**document.points}
+        operation_type = str(operation.get("type") or "")
+
+        if operation_type == "create_box":
+            entity_id = str(operation.get("entity_id") or "")
+            if not entity_id:
+                raise EditServiceError("Cannot redo malformed create_box operation")
+            entities[entity_id] = EditEntity.from_payload(
+                entity_id,
+                {
+                    "kind": "primitive_box",
+                    "name": operation.get("name") or entity_id,
+                    "size_mm": operation.get("size_mm", (20.0, 20.0, 20.0)),
+                    "transform": operation.get("transform", {}),
+                    "role": operation.get("role") or "inspection",
+                },
+            )
+        elif operation_type == "delete_entity":
+            entities.pop(str(operation.get("entity_id") or ""), None)
+        elif operation_type in {"set_transform", "resize_box"}:
+            entity_id = str(operation.get("entity_id") or "")
+            entity = operation.get("entity")
+            if not entity_id or not isinstance(entity, dict):
+                raise EditServiceError(f"Cannot redo malformed {operation_type} operation")
+            entities[entity_id] = EditEntity.from_payload(entity_id, entity)
+        elif operation_type in {"create_point", "update_point"}:
+            point_id = str(operation.get("point_id") or "")
+            point = operation.get("point")
+            if not point_id or not isinstance(point, dict):
+                raise EditServiceError(f"Cannot redo malformed {operation_type} operation")
+            points[point_id] = EditPoint.from_payload(point_id, point)
+        elif operation_type == "cut_hole":
+            entity_id = str(operation.get("target_entity_id") or "")
+            point_id = str(operation.get("point_id") or "")
+            hole_id = str(operation.get("hole_id") or "")
+            current = entities.get(entity_id)
+            point = points.get(point_id)
+            if current is None or point is None or not hole_id:
+                raise EditServiceError("Cannot redo malformed cut_hole operation")
+            try:
+                hole = EditHoleCut.from_payload(
+                    hole_id,
+                    {
+                        "point_id": point.id,
+                        "position_mm": point.position_mm,
+                        "axis": operation.get("axis", (0.0, 0.0, 1.0)),
+                        "preset": operation.get("preset") or "m4_clearance",
+                        "diameter_mm": operation.get("diameter_mm", 4.5),
+                        "through": operation.get("through", True),
+                    },
+                )
+                entities[entity_id] = EditEntity.from_payload(
+                    entity_id,
+                    {
+                        **current.to_payload(),
+                        "holes": [existing.to_payload() for existing in (*current.holes, hole)],
+                    },
+                )
+            except ValueError as exc:
+                raise EditServiceError(str(exc)) from exc
+        elif operation_type in {"fuse", "cut"}:
+            entity_id = str(operation.get("target_entity_id") or "")
+            tool_entity_id = str(operation.get("tool_entity_id") or "")
+            boolean_id = str(operation.get("boolean_id") or "")
+            current = entities.get(entity_id)
+            current_tool = entities.get(tool_entity_id)
+            if current is None or current_tool is None or not boolean_id:
+                raise EditServiceError(f"Cannot redo malformed {operation_type} operation")
+            try:
+                boolean = EditBooleanOperation.from_payload(
+                    boolean_id,
+                    {
+                        "type": operation_type,
+                        "tool_entity_id": tool_entity_id,
+                        "keep_tool": operation.get("keep_tool", True),
+                    },
+                )
+                entities[entity_id] = EditEntity.from_payload(
+                    entity_id,
+                    {
+                        **current.to_payload(),
+                        "booleans": [existing.to_payload() for existing in (*current.booleans, boolean)],
+                    },
+                )
+                entities[tool_entity_id] = EditEntity.from_payload(
+                    tool_entity_id,
+                    {
+                        **current_tool.to_payload(),
+                        "role": str(operation.get("tool_role") or "construction"),
+                    },
+                )
+            except ValueError as exc:
+                raise EditServiceError(str(exc)) from exc
+        elif operation_type == "split":
+            source_id = str(operation.get("target_entity_id") or "")
+            result_ids = operation.get("result_entity_ids")
+            current = entities.get(source_id)
+            if current is None or not isinstance(result_ids, dict):
+                raise EditServiceError("Cannot redo malformed split operation")
+            try:
+                current_bounds = bounding_box_payload(current, document=document)
+                plane_origin = _vector3_payload(operation.get("plane_origin_mm"), field_name="plane_origin_mm")
+                plane_normal = _normalized_vector3_payload(operation.get("plane_normal"), field_name="plane_normal")
+                source = EditEntity.from_payload(source_id, {**current.to_payload(), "role": "construction"})
+                top = EditEntity.from_payload(
+                    str(result_ids.get("top") or f"{source_id}_split_top"),
+                    {
+                        "kind": "derived_split",
+                        "name": str(result_ids.get("top") or f"{source_id}_split_top"),
+                        "source_entity_id": source_id,
+                        "split_plane": {
+                            "origin_mm": plane_origin,
+                            "normal": plane_normal,
+                        },
+                        "split_keep": "top",
+                        "size_mm": current_bounds["size_mm"],
+                        "role": current.role,
+                    },
+                )
+                bottom = EditEntity.from_payload(
+                    str(result_ids.get("bottom") or f"{source_id}_split_bottom"),
+                    {
+                        "kind": "derived_split",
+                        "name": str(result_ids.get("bottom") or f"{source_id}_split_bottom"),
+                        "source_entity_id": source_id,
+                        "split_plane": {
+                            "origin_mm": plane_origin,
+                            "normal": plane_normal,
+                        },
+                        "split_keep": "bottom",
+                        "size_mm": current_bounds["size_mm"],
+                        "role": current.role,
+                    },
+                )
+            except ValueError as exc:
+                raise EditServiceError(str(exc)) from exc
+            except EditKernelError as exc:
+                raise EditServiceUnavailableError(str(exc)) from exc
+            entities[source.id] = source
+            entities[top.id] = top
+            entities[bottom.id] = bottom
+        else:
+            raise EditServiceError(f"Cannot redo unsupported edit operation type: {operation_type or '<missing>'}")
+
+        return EditDocument(
+            schema_version=document.schema_version,
+            document_id=document.document_id,
+            units=document.units,
+            revision=document.revision + 1,
+            entities=entities,
+            points=points,
+            operations=[*document.operations, operation],
+        )
+
     def _append_update_entity(
         self,
         document: EditDocument,
@@ -769,6 +941,10 @@ class EditService:
             return self.store.load_or_create() if create else self.store.load()
         except EditDocumentError as exc:
             raise EditServiceError(str(exc)) from exc
+
+    def _operation_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        self._redo_operations.clear()
+        return result
 
     @staticmethod
     def _merged_transform_payload(entity: EditEntity, payload: dict[str, Any]) -> dict[str, Any]:

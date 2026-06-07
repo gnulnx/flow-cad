@@ -120,6 +120,28 @@ def test_delete_entity_operation_removes_entity_and_undo_restores_it(tmp_path: P
     assert [operation["type"] for operation in undo["document"]["operations"]] == ["create_box"]
 
 
+def test_redo_reapplies_entity_delete_and_new_edits_clear_redo(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "box_custom"})
+    service.delete_entity("box_custom")
+
+    service.undo()
+    assert service.status()["can_redo"] is True
+
+    redone = service.redo()
+    assert redone["document_revision"] == 4
+    assert redone["redone_operation"]["type"] == "delete_entity"
+    assert "box_custom" not in redone["document"]["entities"]
+    assert service.status()["can_redo"] is False
+
+    service.undo()
+    service.append_operation({"type": "create_box", "entity_id": "second_box"})
+
+    assert service.status()["can_redo"] is False
+    with pytest.raises(EditServiceError, match="No edit operation is available to redo"):
+        service.redo()
+
+
 def test_delete_entity_rejects_referenced_boolean_tools_and_split_sources(tmp_path: Path) -> None:
     boolean_service = EditService(bundled_example_project(tmp_path / "boolean"))
     boolean_service.append_operation({"type": "create_box", "entity_id": "target"})
@@ -356,6 +378,26 @@ def test_undo_reverts_create_point_and_hole_operations(tmp_path: Path) -> None:
     assert undo_box["document"]["operations"] == []
 
 
+def test_redo_reapplies_point_and_hole_operations(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "target"})
+    service.create_point({"point_id": "point_center", "position_mm": [0, 0, 0], "quality": "exact"})
+    service.create_hole({"target_entity_id": "target", "point_id": "point_center"})
+
+    service.undo()
+    redo_hole = service.redo()
+
+    assert redo_hole["redone_operation"]["type"] == "cut_hole"
+    assert redo_hole["document"]["entities"]["target"]["holes"][0]["id"] == "hole_001"
+
+    service.undo()
+    service.undo()
+    redo_point = service.redo()
+
+    assert redo_point["redone_operation"]["type"] == "create_point"
+    assert redo_point["document"]["points"]["point_center"]["position_mm"] == [0.0, 0.0, 0.0]
+
+
 def test_undo_reverts_boolean_and_split_operations(tmp_path: Path) -> None:
     service = EditService(bundled_example_project(tmp_path))
     service.append_operation({"type": "create_box", "entity_id": "target"})
@@ -373,6 +415,28 @@ def test_undo_reverts_boolean_and_split_operations(tmp_path: Path) -> None:
     assert undo_split["document"]["entities"]["target"]["role"] == "inspection"
 
 
+def test_redo_reapplies_boolean_and_split_operations(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "target"})
+    service.append_operation({"type": "create_box", "entity_id": "tool", "translation_mm": [10, 0, 0]})
+    service.create_boolean({"operation": "fuse", "target_entity_id": "target", "tool_entity_id": "tool"})
+
+    service.undo()
+    redo_boolean = service.redo()
+    assert redo_boolean["redone_operation"]["type"] == "fuse"
+    assert redo_boolean["document"]["entities"]["target"]["booleans"][0]["type"] == "fuse"
+    assert redo_boolean["document"]["entities"]["tool"]["role"] == "construction"
+
+    service.create_split({"target_entity_id": "target"})
+    service.undo()
+    redo_split = service.redo()
+    assert redo_split["redone_operation"]["type"] == "split"
+    assert sorted(entity_id for entity_id in redo_split["document"]["entities"] if entity_id.startswith("target_split_")) == [
+        "target_split_bottom",
+        "target_split_top",
+    ]
+
+
 def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> None:
     viewer_service = ViewerService(tmp_path)
     app = create_app(service=viewer_service)
@@ -386,6 +450,7 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     edit_booleans = _endpoint(app, "/api/edit/booleans", "POST")
     edit_splits = _endpoint(app, "/api/edit/splits", "POST")
     edit_undo = _endpoint(app, "/api/edit/undo", "POST")
+    edit_redo = _endpoint(app, "/api/edit/redo", "POST")
     health = _endpoint(app, "/api/health", "GET")
 
     status = edit_status()
@@ -454,8 +519,18 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert undo["undone_operation"]["type"] == "split"
     assert health()["revision"] == 9
 
+    status_after_undo = edit_status()
+    assert status_after_undo["can_redo"] is True
+
+    redo = edit_redo()
+    assert redo["document_revision"] == 10
+    assert redo["redone_operation"]["type"] == "split"
+    assert health()["revision"] == 10
+
+    edit_undo()
+
     reloaded = edit_document()
-    assert reloaded["revision"] == 9
+    assert reloaded["revision"] == 11
     assert sorted(reloaded["entities"]) == ["box_001", "tool"]
     assert sorted(reloaded["points"]) == ["point_001"]
     assert reloaded["entities"]["box_001"]["holes"][0]["preset"] == "m5_clearance"

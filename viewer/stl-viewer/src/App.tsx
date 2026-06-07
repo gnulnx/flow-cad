@@ -106,6 +106,19 @@ interface EditUndoResponse {
   document?: EditDocumentPayload
 }
 
+interface EditRedoResponse {
+  redone_operation?: {
+    type?: string
+    entity_id?: string
+    target_entity_id?: string
+  }
+  document?: EditDocumentPayload
+}
+
+interface EditStatusResponse {
+  can_redo: boolean
+}
+
 function isEditComponentId(value: string | null) {
   return Boolean(value?.startsWith('edit:'))
 }
@@ -137,6 +150,7 @@ export default function App() {
   const [partMetadataDrafts, setPartMetadataDrafts] = useState<Record<string, PartMetadataDraft>>({})
   const [editDocument, setEditDocument] = useState<EditDocumentPayload | null>(null)
   const [activePointId, setActivePointId] = useState<string | null>(null)
+  const [canRedoEdit, setCanRedoEdit] = useState(false)
   const loadingPartIdsRef = useRef<Set<string>>(new Set())
 
   // Resizing state hooks
@@ -347,6 +361,16 @@ export default function App() {
     return payload
   }, [apiBase])
 
+  const refreshEditStatus = useCallback(async () => {
+    const response = await fetch(apiUrl(apiBase, '/api/edit/status'))
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as EditStatusResponse
+    setCanRedoEdit(Boolean(payload.can_redo))
+    return payload
+  }, [apiBase])
+
   const handleAddCube = useCallback(async () => {
     setStatusMessage('Adding cube...')
     const response = await fetch(apiUrl(apiBase, '/api/edit/operations'), {
@@ -364,6 +388,7 @@ export default function App() {
     } else {
       await loadEditDocument()
     }
+    setCanRedoEdit(false)
     await loadViewerState()
     const entityId = payload.entity?.id
     if (entityId) {
@@ -389,13 +414,50 @@ export default function App() {
         await loadEditDocument()
       }
       await loadViewerState()
+      await refreshEditStatus()
       setStatusMessage('Undid edit')
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error('Undo failed:', err)
       setStatusMessage(`Undo failed: ${message}`)
     }
-  }, [apiBase, loadEditDocument, loadViewerState])
+  }, [apiBase, loadEditDocument, loadViewerState, refreshEditStatus])
+
+  const redoEditOperation = useCallback(async () => {
+    try {
+      setStatusMessage('Redoing edit...')
+      const response = await fetch(apiUrl(apiBase, '/api/edit/redo'), { method: 'POST' })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      const payload = await response.json() as EditRedoResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      await loadViewerState()
+      const redoneOperation = payload.redone_operation
+      const redoneEntityId = redoneOperation?.type === 'delete_entity'
+        ? null
+        : redoneOperation?.entity_id ?? redoneOperation?.target_entity_id ?? null
+      if (redoneEntityId) {
+        const componentId = `edit:${redoneEntityId}`
+        setSelectedIds([componentId])
+        setActiveName(componentId)
+      } else if (redoneOperation?.type === 'delete_entity' && redoneOperation.entity_id) {
+        const componentId = `edit:${redoneOperation.entity_id}`
+        setSelectedIds((prev) => prev.filter((id) => id !== componentId))
+        setActiveName(null)
+      }
+      await refreshEditStatus()
+      setStatusMessage('Redid edit')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('Redo failed:', err)
+      setStatusMessage(`Redo failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState, refreshEditStatus])
 
   const patchEditEntity = useCallback(async (componentId: string, patch: Record<string, unknown>) => {
     const entityId = editEntityIdFromComponentId(componentId)
@@ -416,6 +478,7 @@ export default function App() {
       } else {
         await loadEditDocument()
       }
+      setCanRedoEdit(false)
       await loadViewerState()
       setSelectedIds([componentId])
       setActiveName(componentId)
@@ -444,6 +507,7 @@ export default function App() {
       } else {
         await loadEditDocument()
       }
+      setCanRedoEdit(false)
       await loadViewerState()
       setSelectedIds((prev) => prev.filter((id) => id !== componentId))
       setActiveName(null)
@@ -481,6 +545,7 @@ export default function App() {
       } else {
         await loadEditDocument()
       }
+      setCanRedoEdit(false)
       const pointId = payload.point?.id
       if (pointId) {
         setActivePointId(pointId)
@@ -513,6 +578,7 @@ export default function App() {
       } else {
         await loadEditDocument()
       }
+      setCanRedoEdit(false)
       setActivePointId(pointId)
       setStatusMessage(`Updated ${pointId}`)
     } catch (err) {
@@ -551,6 +617,7 @@ export default function App() {
       } else {
         await loadEditDocument()
       }
+      setCanRedoEdit(false)
       await loadViewerState()
       setSelectedIds([componentId])
       setActiveName(componentId)
@@ -591,6 +658,7 @@ export default function App() {
       } else {
         await loadEditDocument()
       }
+      setCanRedoEdit(false)
       await loadViewerState()
       setSelectedIds([targetComponentId])
       setActiveName(targetComponentId)
@@ -627,6 +695,7 @@ export default function App() {
       } else {
         await loadEditDocument()
       }
+      setCanRedoEdit(false)
       await loadViewerState()
       setSelectedIds([targetComponentId])
       setActiveName(targetComponentId)
@@ -959,6 +1028,13 @@ export default function App() {
             setStatusMessage(`Undo failed: ${err.message}`)
           })
         }}
+        onRedo={() => {
+          redoEditOperation().catch((err) => {
+            console.error('Redo failed:', err)
+            setStatusMessage(`Redo failed: ${err.message}`)
+          })
+        }}
+        canRedo={canRedoEdit}
         onDeleteSelected={() => {
           if (!activeEditEntity) {
             setStatusMessage('Select an edit entity to delete')

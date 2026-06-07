@@ -163,6 +163,7 @@ let editBoxHoles: Array<Record<string, unknown>> = []
 let editBoxBooleans: Array<Record<string, unknown>> = []
 let editBoxAvailable = false
 let editToolAvailable = false
+let redoAvailable = false
 
 function editDocumentPayload() {
   const entities: Record<string, {
@@ -278,6 +279,7 @@ describe('App source loading', () => {
     editBoxBooleans = []
     editBoxAvailable = false
     editToolAvailable = false
+    redoAvailable = false
     snapFeaturesPayload = {
       ...snapFeaturesPayload,
       features: [...snapFeaturesPayload.features],
@@ -286,9 +288,22 @@ describe('App source loading', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString()
       if (url.endsWith('/api/parts')) return jsonResponse({ ...partsPayload, revision: partsRevision, parts: activeParts })
+      if (url.endsWith('/api/edit/status')) {
+        return jsonResponse({
+          editing_available: true,
+          document_path: 'flow/document.json',
+          document_exists: true,
+          document_revision: partsRevision,
+          active_session_id: null,
+          can_undo: partsRevision > 0,
+          can_redo: redoAvailable,
+          tool_presets: { holes: [] },
+        })
+      }
       if (url.endsWith('/api/edit/operations')) {
         partsRevision += 1
         healthRevision = partsRevision
+        redoAvailable = false
         editBoxAvailable = true
         activeParts = [...partsPayload.parts, editBoxPart]
         return jsonResponse({ ok: true, document_revision: partsRevision, entity: { id: 'box_001' }, document: editDocumentPayload() })
@@ -297,6 +312,7 @@ describe('App source loading', () => {
       if (url.endsWith('/api/edit/points') && init?.method === 'POST') {
         partsRevision += 1
         healthRevision = partsRevision
+        redoAvailable = false
         const payload = JSON.parse(String(init?.body ?? '{}'))
         editPoints = {
           ...editPoints,
@@ -312,6 +328,7 @@ describe('App source loading', () => {
       if (url.includes('/api/edit/points/') && init?.method === 'PATCH') {
         partsRevision += 1
         healthRevision = partsRevision
+        redoAvailable = false
         const pointId = decodeURIComponent(url.split('/').pop() ?? '')
         const payload = JSON.parse(String(init?.body ?? '{}'))
         editPoints = {
@@ -326,6 +343,7 @@ describe('App source loading', () => {
       if (url.endsWith('/api/edit/holes') && init?.method === 'POST') {
         partsRevision += 1
         healthRevision = partsRevision
+        redoAvailable = false
         editBoxAvailable = true
         const payload = JSON.parse(String(init?.body ?? '{}'))
         editBoxHoles = [
@@ -346,6 +364,7 @@ describe('App source loading', () => {
       if (url.endsWith('/api/edit/booleans') && init?.method === 'POST') {
         partsRevision += 1
         healthRevision = partsRevision
+        redoAvailable = false
         editBoxAvailable = true
         const payload = JSON.parse(String(init?.body ?? '{}'))
         editBoxBooleans = [
@@ -364,6 +383,7 @@ describe('App source loading', () => {
       if (url.endsWith('/api/edit/splits') && init?.method === 'POST') {
         partsRevision += 1
         healthRevision = partsRevision
+        redoAvailable = false
         editBoxAvailable = true
         activeParts = [...partsPayload.parts, editBoxPart]
         return jsonResponse({ ok: true, document_revision: partsRevision, document: editDocumentPayload() })
@@ -371,6 +391,7 @@ describe('App source loading', () => {
       if (url.endsWith('/api/edit/undo') && init?.method === 'POST') {
         partsRevision += 1
         healthRevision = partsRevision
+        redoAvailable = true
         editBoxAvailable = false
         editToolAvailable = false
         editPoints = {}
@@ -379,9 +400,18 @@ describe('App source loading', () => {
         activeParts = partsPayload.parts
         return jsonResponse({ ok: true, document_revision: partsRevision, document: editDocumentPayload() })
       }
+      if (url.endsWith('/api/edit/redo') && init?.method === 'POST') {
+        partsRevision += 1
+        healthRevision = partsRevision
+        redoAvailable = false
+        editBoxAvailable = true
+        activeParts = [...partsPayload.parts, editBoxPart]
+        return jsonResponse({ ok: true, document_revision: partsRevision, redone_operation: { type: 'create_box', entity_id: 'box_001' }, document: editDocumentPayload() })
+      }
       if (url.includes('/api/edit/entities/') && init?.method === 'DELETE') {
         partsRevision += 1
         healthRevision = partsRevision
+        redoAvailable = false
         const entityId = decodeURIComponent(url.split('/').pop() ?? '').replace(/^edit:/, '')
         if (entityId === 'box_001') {
           editBoxAvailable = false
@@ -395,6 +425,7 @@ describe('App source loading', () => {
       if (url.includes('/api/edit/entities/')) {
         partsRevision += 1
         healthRevision = partsRevision
+        redoAvailable = false
         const patch = JSON.parse(String(init?.body ?? '{}'))
         const document = editDocumentPayload()
         document.revision = partsRevision
@@ -567,6 +598,36 @@ describe('App source loading', () => {
       const latestModels = viewerRenderProps.at(-1)?.models ?? []
       expect(latestModels.some((model) => model.partId === 'edit:box_001')).toBe(false)
     })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled())
+  })
+
+  it('redoes an undone edit operation from the toolbar', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Cube' }))
+    await waitFor(() => {
+      const latestModels = viewerRenderProps.at(-1)?.models ?? []
+      expect(latestModels.some((model) => model.partId === 'edit:box_001')).toBe(true)
+    })
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled())
+
+    await user.click(screen.getByRole('button', { name: 'Redo' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/redo',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    await waitFor(() => {
+      const latestModels = viewerRenderProps.at(-1)?.models ?? []
+      expect(latestModels.some((model) => model.partId === 'edit:box_001')).toBe(true)
+    })
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled()
   })
 
   it('deletes the selected edit entity from the toolbar', async () => {

@@ -6,6 +6,8 @@ interface ToolbarProps {
   onReload: () => void
   onAddCube: () => void
   onUndo: () => void
+  onRedo: () => void
+  canRedo: boolean
   onDeleteSelected: () => void
   canDeleteSelected: boolean
   statusMessage: string
@@ -29,6 +31,8 @@ export default function Toolbar({
   onReload,
   onAddCube,
   onUndo,
+  onRedo,
+  canRedo,
   onDeleteSelected,
   canDeleteSelected,
   statusMessage,
@@ -61,6 +65,7 @@ export default function Toolbar({
       <div className="viewer-toolbar-actions">
         <button onClick={onReload} className="btn-tool">Reload</button>
         <button onClick={onUndo} className="btn-tool">Undo</button>
+        <button onClick={onRedo} disabled={!canRedo} className="btn-tool">Redo</button>
         <button onClick={onDeleteSelected} disabled={!canDeleteSelected} className="btn-tool">Delete</button>
         <button onClick={onAddCube} className="btn-tool">Cube</button>
         <button onClick={onFitToView} className="btn-tool">Fit to View</button>
