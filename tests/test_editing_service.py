@@ -101,6 +101,57 @@ def test_transform_and_resize_operations_persist_entity_updates(tmp_path: Path) 
     ]
 
 
+def test_create_and_update_points_preserves_quality_and_source(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+
+    created = service.create_point(
+        {
+            "position_mm": [1, 2, 3],
+            "quality": "approximate",
+            "source": {
+                "kind": "mesh_pick",
+                "part_id": "loose_stl",
+            },
+        }
+    )
+
+    assert created["document_revision"] == 1
+    assert created["operation"]["type"] == "create_point"
+    assert created["point"]["id"] == "point_001"
+    assert created["point"]["position_mm"] == [1.0, 2.0, 3.0]
+    assert created["point"]["quality"] == "approximate"
+    assert created["point"]["source"]["kind"] == "mesh_pick"
+
+    updated = service.patch_point(
+        "point_001",
+        {
+            "position_mm": [4, 5, 6],
+            "quality": "exact",
+            "source": {
+                "kind": "typed_coordinates",
+            },
+        },
+    )
+
+    assert updated["document_revision"] == 2
+    assert updated["operation"]["type"] == "update_point"
+    assert updated["operation"]["previous_point"]["quality"] == "approximate"
+    assert updated["point"]["position_mm"] == [4.0, 5.0, 6.0]
+    assert updated["point"]["quality"] == "exact"
+
+    reloaded = EditService(bundled_example_project(tmp_path)).document()
+    assert reloaded["revision"] == 2
+    assert reloaded["points"]["point_001"]["position_mm"] == [4.0, 5.0, 6.0]
+    assert reloaded["points"]["point_001"]["quality"] == "exact"
+
+
+def test_create_point_requires_coordinates(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+
+    with pytest.raises(EditServiceError, match="`position_mm` is required"):
+        service.create_point({"quality": "exact"})
+
+
 def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> None:
     viewer_service = ViewerService(tmp_path)
     app = create_app(service=viewer_service)
@@ -108,6 +159,8 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     edit_document = _endpoint(app, "/api/edit/document", "GET")
     edit_operations = _endpoint(app, "/api/edit/operations", "POST")
     edit_entity = _endpoint(app, "/api/edit/entities/{entity_id}", "PATCH")
+    edit_points = _endpoint(app, "/api/edit/points", "POST")
+    edit_point = _endpoint(app, "/api/edit/points/{point_id}", "PATCH")
     health = _endpoint(app, "/api/health", "GET")
 
     status = edit_status()
@@ -139,9 +192,20 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert moved["operation"]["type"] == "set_transform"
     assert health()["revision"] == 2
 
+    point = edit_points({"position_mm": [9, 8, 7], "quality": "exact"})
+    assert point["document_revision"] == 3
+    assert point["point"]["id"] == "point_001"
+    assert health()["revision"] == 3
+
+    point_update = edit_point("point_001", {"position_mm": [3, 2, 1]})
+    assert point_update["document_revision"] == 4
+    assert point_update["point"]["position_mm"] == [3.0, 2.0, 1.0]
+    assert health()["revision"] == 4
+
     reloaded = edit_document()
-    assert reloaded["revision"] == 2
+    assert reloaded["revision"] == 4
     assert sorted(reloaded["entities"]) == ["box_001"]
+    assert sorted(reloaded["points"]) == ["point_001"]
 
 
 def test_viewer_service_lists_edit_entities_as_exact_parts(tmp_path: Path) -> None:

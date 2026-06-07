@@ -6,7 +6,7 @@ from typing import Any
 
 from flow_cad.editing.document import EditDocumentError, EditDocumentStore, normalized_document_payload
 from flow_cad.editing.kernel import EditKernelError, bounding_box_payload
-from flow_cad.editing.models import EditDocument, EditEntity
+from flow_cad.editing.models import EditDocument, EditEntity, EditPoint
 from flow_cad.project import FlowCadProject
 
 
@@ -67,6 +67,8 @@ class EditService:
         operation_type = str(payload.get("type") or "")
         if operation_type == "create_box":
             return self._append_create_box(document, payload)
+        if operation_type == "create_point":
+            return self._append_create_point(document, payload)
         if operation_type in {"set_transform", "resize_box"}:
             entity_id = str(payload.get("entity_id") or "")
             if not entity_id:
@@ -88,6 +90,44 @@ class EditService:
         if has_transform:
             return self._append_update_entity(document, normalized_entity_id, payload, operation_type="set_transform")
         raise EditServiceError("Edit entity patch requires `size_mm`, `transform`, `translation_mm`, or `rotation_deg`")
+
+    def create_point(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise EditServiceError("Edit point payload must be an object")
+        document = self._load_document(create=True)
+        return self._append_create_point(document, payload)
+
+    def patch_point(self, point_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise EditServiceError("Edit point patch payload must be an object")
+        document = self._load_document(create=True)
+        try:
+            current = document.points[point_id]
+        except KeyError as exc:
+            raise EditServiceError(f"Edit point is not registered: {point_id}") from exc
+
+        point_payload = {
+            **current.to_payload(),
+            **payload,
+        }
+        try:
+            point = EditPoint.from_payload(point_id, point_payload)
+        except ValueError as exc:
+            raise EditServiceError(str(exc)) from exc
+
+        operation_id = str(payload.get("id") or self._next_operation_id(document))
+        self._ensure_operation_id_available(document, operation_id)
+        operation = {
+            "id": operation_id,
+            "type": "update_point",
+            "point_id": point.id,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "previous_point": current.to_payload(),
+            "point": point.to_payload(),
+        }
+        next_document = document.with_point_and_operation(point, operation)
+        self.store.save(next_document)
+        return self._point_result(next_document, point, operation)
 
     def _append_create_box(self, document: EditDocument, payload: dict[str, Any]) -> dict[str, Any]:
         entity_id = str(payload.get("entity_id") or self._next_entity_id(document, "box"))
@@ -148,6 +188,52 @@ class EditService:
             },
             "changed_entity_ids": [entity.id],
             "document": normalized_document_payload(self.store, next_document),
+        }
+
+    def _append_create_point(self, document: EditDocument, payload: dict[str, Any]) -> dict[str, Any]:
+        point_id = str(payload.get("point_id") or payload.get("id") or self._next_point_id(document))
+        if point_id in document.points:
+            raise EditServiceError(f"Edit point already exists: {point_id}")
+        if "position_mm" not in payload:
+            raise EditServiceError("`position_mm` is required for create_point")
+
+        try:
+            point = EditPoint.from_payload(
+                point_id,
+                {
+                    "position_mm": payload.get("position_mm"),
+                    "coordinate_space": payload.get("coordinate_space", "world"),
+                    "quality": payload.get("quality", "exact"),
+                    "source": payload.get("source", {}),
+                },
+            )
+        except ValueError as exc:
+            raise EditServiceError(str(exc)) from exc
+
+        operation_id = str(payload.get("operation_id") or self._next_operation_id(document))
+        self._ensure_operation_id_available(document, operation_id)
+        operation = {
+            "id": operation_id,
+            "type": "create_point",
+            "point_id": point.id,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "point": point.to_payload(),
+        }
+        next_document = document.with_point_and_operation(point, operation)
+        self.store.save(next_document)
+        return self._point_result(next_document, point, operation)
+
+    def _point_result(self, document: EditDocument, point: EditPoint, operation: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "document_revision": document.revision,
+            "operation": operation,
+            "point": {
+                "id": point.id,
+                **point.to_payload(),
+            },
+            "changed_point_ids": [point.id],
+            "document": normalized_document_payload(self.store, document),
         }
 
     def _append_update_entity(
@@ -237,6 +323,15 @@ class EditService:
     @staticmethod
     def _next_operation_id(document: EditDocument) -> str:
         return _next_numbered_id((str(operation.get("id", "")) for operation in document.operations), "op")
+
+    @staticmethod
+    def _next_point_id(document: EditDocument) -> str:
+        return _next_numbered_id(document.points.keys(), "point")
+
+    @staticmethod
+    def _ensure_operation_id_available(document: EditDocument, operation_id: str) -> None:
+        if any(operation.get("id") == operation_id for operation in document.operations):
+            raise EditServiceError(f"Edit operation already exists: {operation_id}")
 
 
 def _next_numbered_id(existing: Any, prefix: str) -> str:

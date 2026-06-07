@@ -7,6 +7,7 @@ from typing import Any, Literal
 SCHEMA_VERSION = 1
 Vector3 = tuple[float, float, float]
 EditEntityKind = Literal["primitive_box"]
+PointQuality = Literal["exact", "approximate"]
 
 
 @dataclass(frozen=True)
@@ -63,13 +64,47 @@ class EditEntity:
 
 
 @dataclass(frozen=True)
+class EditPoint:
+    id: str
+    position_mm: Vector3
+    coordinate_space: str = "world"
+    quality: PointQuality = "exact"
+    source: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_payload(cls, point_id: str, payload: dict[str, Any]) -> "EditPoint":
+        quality = str(payload.get("quality") or "exact")
+        if quality not in {"exact", "approximate"}:
+            raise ValueError(f"Unsupported point quality for {point_id}: {quality!r}")
+        quality_value: PointQuality = "exact" if quality == "exact" else "approximate"
+        source = payload.get("source", {})
+        if source is not None and not isinstance(source, dict):
+            raise ValueError("`source` must be an object")
+        return cls(
+            id=point_id,
+            position_mm=_vector3(payload.get("position_mm"), default=(0.0, 0.0, 0.0), field_name="position_mm"),
+            coordinate_space=str(payload.get("coordinate_space") or "world"),
+            quality=quality_value,
+            source=source or {},
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "position_mm": list(self.position_mm),
+            "coordinate_space": self.coordinate_space,
+            "quality": self.quality,
+            "source": self.source,
+        }
+
+
+@dataclass(frozen=True)
 class EditDocument:
     schema_version: int = SCHEMA_VERSION
     document_id: str = "main"
     units: str = "mm"
     revision: int = 0
     entities: dict[str, EditEntity] = field(default_factory=dict)
-    points: dict[str, Any] = field(default_factory=dict)
+    points: dict[str, EditPoint] = field(default_factory=dict)
     operations: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
@@ -99,13 +134,18 @@ class EditDocument:
             if not isinstance(entity_payload, dict):
                 raise ValueError(f"Edit entity `{entity_id}` must be an object")
             entities[str(entity_id)] = EditEntity.from_payload(str(entity_id), entity_payload)
+        points: dict[str, EditPoint] = {}
+        for point_id, point_payload in raw_points.items():
+            if not isinstance(point_payload, dict):
+                raise ValueError(f"Edit point `{point_id}` must be an object")
+            points[str(point_id)] = EditPoint.from_payload(str(point_id), point_payload)
         return cls(
             schema_version=schema_version,
             document_id=str(payload.get("document_id") or "main"),
             units=str(payload.get("units") or "mm"),
             revision=int(payload.get("revision", 0)),
             entities=entities,
-            points=raw_points,
+            points=points,
             operations=[operation for operation in raw_operations if isinstance(operation, dict)],
         )
 
@@ -119,7 +159,10 @@ class EditDocument:
                 entity_id: entity.to_payload()
                 for entity_id, entity in self.entities.items()
             },
-            "points": self.points,
+            "points": {
+                point_id: point.to_payload()
+                for point_id, point in self.points.items()
+            },
             "operations": self.operations,
         }
 
@@ -131,6 +174,17 @@ class EditDocument:
             revision=self.revision + 1,
             entities={**self.entities, entity.id: entity},
             points=self.points,
+            operations=[*self.operations, operation],
+        )
+
+    def with_point_and_operation(self, point: EditPoint, operation: dict[str, Any]) -> "EditDocument":
+        return EditDocument(
+            schema_version=self.schema_version,
+            document_id=self.document_id,
+            units=self.units,
+            revision=self.revision + 1,
+            entities=self.entities,
+            points={**self.points, point.id: point},
             operations=[*self.operations, operation],
         )
 

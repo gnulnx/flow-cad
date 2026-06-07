@@ -1,5 +1,5 @@
 from flow_cad.editing.document import DEFAULT_DOCUMENT_RELATIVE_PATH, EditDocumentStore
-from flow_cad.editing.models import EditDocument, EditEntity, EditTransform
+from flow_cad.editing.models import EditDocument, EditEntity, EditPoint, EditTransform
 from flow_cad.editing.service import (
     EDIT_COMPONENT_PREFIX,
     EditService,
@@ -15,6 +15,7 @@ __all__ = [
     "EditDocument",
     "EditDocumentStore",
     "EditEntity",
+    "EditPoint",
     "EditService",
     "EditServiceError",
     "EditTransform",
