@@ -41,7 +41,7 @@ export interface ViewerPart {
   artifact_format: 'step' | 'stl' | null
   artifact_path: string | null
   direct_stl_path: string | null
-  source_kind: 'flow_python' | 'step' | 'stl' | 'missing'
+  source_kind: 'flow_python' | 'flow_document' | 'flow_python_with_edits' | 'step' | 'stl' | 'missing'
   geometry_authority: 'step_kernel' | 'mesh' | 'missing'
   quality_label: 'exact' | 'approximate' | 'missing'
   capabilities: GeometryCapabilities
