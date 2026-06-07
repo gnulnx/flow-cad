@@ -344,6 +344,12 @@ describe('App source loading', () => {
         activeParts = [...partsPayload.parts, editBoxPart, editToolPart]
         return jsonResponse({ ok: true, document_revision: partsRevision, boolean: editBoxBooleans.at(-1), document: editDocumentPayload() })
       }
+      if (url.endsWith('/api/edit/splits') && init?.method === 'POST') {
+        partsRevision += 1
+        healthRevision = partsRevision
+        activeParts = [...partsPayload.parts, editBoxPart]
+        return jsonResponse({ ok: true, document_revision: partsRevision, document: editDocumentPayload() })
+      }
       if (url.includes('/api/edit/entities/')) {
         partsRevision += 1
         healthRevision = partsRevision
@@ -606,6 +612,33 @@ describe('App source loading', () => {
             operation: 'cut',
             target_entity_id: 'edit:box_001',
             tool_entity_id: 'edit:tool',
+          }),
+        }),
+      )
+    })
+  })
+
+  it('applies a plane split from the active edit entity controls', async () => {
+    const user = userEvent.setup()
+    activeParts = [...partsPayload.parts, editBoxPart]
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.selectOptions(screen.getByLabelText('Version filter'), '__all__')
+    await user.click(screen.getByRole('button', { name: 'Inspect' }))
+    await user.click(await screen.findByText('edit:box_001'))
+
+    await user.selectOptions(await screen.findByLabelText('box_001 split axis'), 'x')
+    await user.click(screen.getByRole('button', { name: 'Split Body' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/splits',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            target_entity_id: 'edit:box_001',
+            plane_normal: [1, 0, 0],
           }),
         }),
       )

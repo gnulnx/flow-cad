@@ -94,6 +94,10 @@ interface EditBooleanResponse {
   document?: EditDocumentPayload
 }
 
+interface EditSplitResponse {
+  document?: EditDocumentPayload
+}
+
 function isEditComponentId(value: string | null) {
   return Boolean(value?.startsWith('edit:'))
 }
@@ -540,6 +544,42 @@ export default function App() {
     }
   }, [apiBase, loadEditDocument, loadViewerState])
 
+  const createEditSplit = useCallback(async (
+    targetComponentId: string,
+    axis: [number, number, number],
+  ) => {
+    const targetEntityId = editEntityIdFromComponentId(targetComponentId)
+    try {
+      setStatusMessage(`Splitting ${targetEntityId}...`)
+      const response = await fetch(apiUrl(apiBase, '/api/edit/splits'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_entity_id: targetComponentId,
+          plane_normal: axis,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditSplitResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      await loadViewerState()
+      setSelectedIds([targetComponentId])
+      setActiveName(targetComponentId)
+      setStatusMessage(`Split ${targetEntityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Split failed for ${targetEntityId}:`, err)
+      setStatusMessage(`Split failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
   const loadStlFile = useCallback((file: File) => {
     const reader = new FileReader()
 
@@ -910,6 +950,7 @@ export default function App() {
                 onPatchPoint={patchEditPoint}
                 onCreateHole={createEditHole}
                 onCreateBoolean={createEditBoolean}
+                onCreateSplit={createEditSplit}
               />
             ) : null}
             <Viewer

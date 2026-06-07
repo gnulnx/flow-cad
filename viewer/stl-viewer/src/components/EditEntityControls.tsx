@@ -19,6 +19,7 @@ interface EditEntityControlsProps {
     axis: [number, number, number],
   ) => Promise<void>
   onCreateBoolean: (operation: 'fuse' | 'cut', targetComponentId: string, toolComponentId: string) => Promise<void>
+  onCreateSplit: (targetComponentId: string, axis: [number, number, number]) => Promise<void>
 }
 
 const AXES = ['X', 'Y', 'Z'] as const
@@ -60,6 +61,7 @@ export default function EditEntityControls({
   onPatchPoint,
   onCreateHole,
   onCreateBoolean,
+  onCreateSplit,
 }: EditEntityControlsProps) {
   const [centerDraft, setCenterDraft] = useState(vectorDraft(entity.transform.translation_mm))
   const [sizeDraft, setSizeDraft] = useState(vectorDraft(entity.size_mm))
@@ -67,8 +69,9 @@ export default function EditEntityControls({
   const [activePointDraft, setActivePointDraft] = useState<[string, string, string]>(['0', '0', '0'])
   const [holePreset, setHolePreset] = useState('m4_clearance')
   const [holeAxisId, setHoleAxisId] = useState('z')
+  const [splitAxisId, setSplitAxisId] = useState('z')
   const [booleanToolComponentId, setBooleanToolComponentId] = useState('')
-  const [saving, setSaving] = useState<'center' | 'size' | 'point' | 'activePoint' | 'hole' | 'boolean' | null>(null)
+  const [saving, setSaving] = useState<'center' | 'size' | 'point' | 'activePoint' | 'hole' | 'boolean' | 'split' | null>(null)
   const pointEntries = Object.entries(points)
   const activePoint = activePointId ? points[activePointId] : null
 
@@ -161,6 +164,16 @@ export default function EditEntityControls({
     setSaving('boolean')
     try {
       await onCreateBoolean(operation, componentId, booleanToolComponentId)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const splitBody = async () => {
+    const axis = HOLE_AXES.find((candidate) => candidate.id === splitAxisId)?.axis ?? [0, 0, 1]
+    setSaving('split')
+    try {
+      await onCreateSplit(componentId, axis)
     } finally {
       setSaving(null)
     }
@@ -320,6 +333,23 @@ export default function EditEntityControls({
             Cut Body
           </button>
         </div>
+      </div>
+      <div className="edit-controls-section">
+        <label className="edit-select-field">
+          <span>Split Axis</span>
+          <select
+            aria-label={`${entityId} split axis`}
+            value={splitAxisId}
+            onChange={(event) => setSplitAxisId(event.target.value)}
+          >
+            {HOLE_AXES.map((axis) => (
+              <option key={axis.id} value={axis.id}>{axis.label}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="edit-apply-button" disabled={Boolean(saving)} onClick={splitBody}>
+          Split Body
+        </button>
       </div>
     </div>
   )
