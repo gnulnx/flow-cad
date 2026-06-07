@@ -24,6 +24,11 @@ const STEP_CAPABILITIES = {
   mesh_only: false,
 }
 
+const EDIT_CAPABILITIES = {
+  ...STEP_CAPABILITIES,
+  exact_editing: true,
+}
+
 const MESH_ONLY_CAPABILITIES = {
   display_mesh: true,
   mesh_metrics: true,
@@ -94,6 +99,43 @@ const partsPayload = {
   ],
 }
 
+const editBoxPart = {
+  id: 'edit:box_001',
+  module_id: 'flow_document',
+  version: '',
+  family: 'flow_document',
+  assembly_ids: [],
+  compatible_versions: [],
+  filename: 'box_001.step',
+  role: 'inspection',
+  material: '',
+  mass_kg: null,
+  center_of_mass_mm: null,
+  inertia_kg_m2: null,
+  mass_source: 'unset',
+  is_printable: false,
+  artifact_format: 'step',
+  artifact_path: 'example/viewer-cache/edit-step/box_001.step',
+  direct_stl_path: null,
+  source_kind: 'flow_document',
+  geometry_authority: 'step_kernel',
+  quality_label: 'exact',
+  capabilities: EDIT_CAPABILITIES,
+  warnings: [],
+  model_url: '/api/parts/edit:box_001/model',
+  source_url: '/api/parts/edit:box_001/source',
+  snap_features_url: '/api/parts/edit:box_001/snap-features',
+  occurrences: [
+    {
+      name: 'box_001',
+      location: [0, 0, 0],
+      rotation: [0, 0, 0],
+    },
+  ],
+  in_assembly: false,
+  default_visible: true,
+}
+
 const sourcePayload = {
   component_id: 'wheel_box_test_body',
   symbol: 'make_wheel_box_test_body',
@@ -158,6 +200,12 @@ describe('App source loading', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = input.toString()
       if (url.endsWith('/api/parts')) return jsonResponse({ ...partsPayload, revision: partsRevision, parts: activeParts })
+      if (url.endsWith('/api/edit/operations')) {
+        partsRevision += 1
+        healthRevision = partsRevision
+        activeParts = [...partsPayload.parts, editBoxPart]
+        return jsonResponse({ ok: true, document_revision: partsRevision, entity: { id: 'box_001' } })
+      }
       if (url.endsWith('/source')) return jsonResponse(sourcePayload)
       if (url.endsWith('/snap-features')) return jsonResponse(snapFeaturesPayload)
       if (url.endsWith('/model')) {
@@ -273,5 +321,27 @@ describe('App source loading', () => {
       expect(model?.warnings).toEqual(['STL-only mesh: exact CAD editing is disabled.'])
     })
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => String(url).endsWith('/snap-features'))).toBe(false)
+  })
+
+  it('creates a cube edit operation and selects the returned edit entity', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByRole('button', { name: 'Cube' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/operations',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ type: 'create_box' }),
+        }),
+      )
+    })
+    await waitFor(() => {
+      const latestModels = viewerRenderProps.at(-1)?.models ?? []
+      expect(latestModels.some((model) => model.partId === 'edit:box_001')).toBe(true)
+    })
   })
 })

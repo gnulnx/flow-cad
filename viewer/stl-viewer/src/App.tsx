@@ -65,6 +65,12 @@ async function responseDetail(response: Response) {
   }
 }
 
+interface EditOperationResponse {
+  entity?: {
+    id?: string
+  }
+}
+
 export default function App() {
   const apiBase = useMemo(() => backendBaseUrl(), [])
   const [parts, setParts] = useState<ViewerPart[]>([])
@@ -284,6 +290,29 @@ export default function App() {
       throw new Error(await responseDetail(reloadResponse))
     }
     await loadViewerState()
+  }, [apiBase, loadViewerState])
+
+  const handleAddCube = useCallback(async () => {
+    setStatusMessage('Adding cube...')
+    const response = await fetch(apiUrl(apiBase, '/api/edit/operations'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'create_box' }),
+    })
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+
+    const payload = await response.json() as EditOperationResponse
+    await loadViewerState()
+    const entityId = payload.entity?.id
+    if (entityId) {
+      const componentId = `edit:${entityId}`
+      setSelectedIds([componentId])
+      setActiveName(componentId)
+      setTapeMode(false)
+      setStatusMessage(`Added ${entityId}`)
+    }
   }, [apiBase, loadViewerState])
 
   const loadStlFile = useCallback((file: File) => {
@@ -556,6 +585,12 @@ export default function App() {
           reloadViewer().catch((err) => {
             console.error('Reload failed:', err)
             setStatusMessage(`Reload failed: ${err.message}`)
+          })
+        }}
+        onAddCube={() => {
+          handleAddCube().catch((err) => {
+            console.error('Add cube failed:', err)
+            setStatusMessage(`Add cube failed: ${err.message}`)
           })
         }}
         statusMessage={statusMessage}
