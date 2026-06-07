@@ -5,6 +5,7 @@ interface EditEntityControlsProps {
   componentId: string
   entityId: string
   entity: EditEntity
+  booleanToolOptions: Array<{ componentId: string; entityId: string; label: string }>
   points: Record<string, EditPoint>
   activePointId: string | null
   onActivePointChange: (pointId: string | null) => void
@@ -17,6 +18,7 @@ interface EditEntityControlsProps {
     preset: string,
     axis: [number, number, number],
   ) => Promise<void>
+  onCreateBoolean: (operation: 'fuse' | 'cut', targetComponentId: string, toolComponentId: string) => Promise<void>
 }
 
 const AXES = ['X', 'Y', 'Z'] as const
@@ -49,6 +51,7 @@ export default function EditEntityControls({
   componentId,
   entityId,
   entity,
+  booleanToolOptions,
   points,
   activePointId,
   onActivePointChange,
@@ -56,6 +59,7 @@ export default function EditEntityControls({
   onCreatePoint,
   onPatchPoint,
   onCreateHole,
+  onCreateBoolean,
 }: EditEntityControlsProps) {
   const [centerDraft, setCenterDraft] = useState(vectorDraft(entity.transform.translation_mm))
   const [sizeDraft, setSizeDraft] = useState(vectorDraft(entity.size_mm))
@@ -63,7 +67,8 @@ export default function EditEntityControls({
   const [activePointDraft, setActivePointDraft] = useState<[string, string, string]>(['0', '0', '0'])
   const [holePreset, setHolePreset] = useState('m4_clearance')
   const [holeAxisId, setHoleAxisId] = useState('z')
-  const [saving, setSaving] = useState<'center' | 'size' | 'point' | 'activePoint' | 'hole' | null>(null)
+  const [booleanToolComponentId, setBooleanToolComponentId] = useState('')
+  const [saving, setSaving] = useState<'center' | 'size' | 'point' | 'activePoint' | 'hole' | 'boolean' | null>(null)
   const pointEntries = Object.entries(points)
   const activePoint = activePointId ? points[activePointId] : null
 
@@ -78,6 +83,13 @@ export default function EditEntityControls({
     }
   }, [activePoint])
 
+  useEffect(() => {
+    setBooleanToolComponentId((current) => {
+      if (current && booleanToolOptions.some((option) => option.componentId === current)) return current
+      return booleanToolOptions[0]?.componentId ?? ''
+    })
+  }, [booleanToolOptions])
+
   const centerVector = parsedVector(centerDraft)
   const sizeVector = parsedVector(sizeDraft)
   const newPointVector = parsedVector(newPointDraft)
@@ -87,6 +99,7 @@ export default function EditEntityControls({
   const canCreatePoint = Boolean(newPointVector) && !saving
   const canApplyActivePoint = Boolean(activePoint && activePointVector) && !saving
   const canCutHole = Boolean(activePoint && activePoint.quality === 'exact') && !saving
+  const canApplyBoolean = Boolean(booleanToolComponentId) && !saving
 
   const applyCenter = async () => {
     if (!centerVector) return
@@ -138,6 +151,16 @@ export default function EditEntityControls({
     setSaving('hole')
     try {
       await onCreateHole(componentId, activePointId, holePreset, axis)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const applyBoolean = (operation: 'fuse' | 'cut') => async () => {
+    if (!booleanToolComponentId) return
+    setSaving('boolean')
+    try {
+      await onCreateBoolean(operation, componentId, booleanToolComponentId)
     } finally {
       setSaving(null)
     }
@@ -273,6 +296,30 @@ export default function EditEntityControls({
         <button type="button" className="edit-apply-button" disabled={!canCutHole} onClick={cutHole}>
           Cut Through Hole
         </button>
+      </div>
+      <div className="edit-controls-section">
+        <label className="edit-select-field">
+          <span>Tool Body</span>
+          <select
+            aria-label={`${entityId} boolean tool`}
+            value={booleanToolComponentId}
+            disabled={!booleanToolOptions.length}
+            onChange={(event) => setBooleanToolComponentId(event.target.value)}
+          >
+            {booleanToolOptions.length ? null : <option value="">None</option>}
+            {booleanToolOptions.map((option) => (
+              <option key={option.componentId} value={option.componentId}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <div className="edit-boolean-actions">
+          <button type="button" className="edit-apply-button" disabled={!canApplyBoolean} onClick={applyBoolean('fuse')}>
+            Fuse Body
+          </button>
+          <button type="button" className="edit-apply-button" disabled={!canApplyBoolean} onClick={applyBoolean('cut')}>
+            Cut Body
+          </button>
+        </div>
       </div>
     </div>
   )

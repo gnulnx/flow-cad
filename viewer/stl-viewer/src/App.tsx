@@ -90,6 +90,10 @@ interface EditHoleResponse {
   document?: EditDocumentPayload
 }
 
+interface EditBooleanResponse {
+  document?: EditDocumentPayload
+}
+
 function isEditComponentId(value: string | null) {
   return Boolean(value?.startsWith('edit:'))
 }
@@ -493,6 +497,45 @@ export default function App() {
     }
   }, [apiBase, loadEditDocument, loadViewerState])
 
+  const createEditBoolean = useCallback(async (
+    operation: 'fuse' | 'cut',
+    targetComponentId: string,
+    toolComponentId: string,
+  ) => {
+    const targetEntityId = editEntityIdFromComponentId(targetComponentId)
+    const toolEntityId = editEntityIdFromComponentId(toolComponentId)
+    try {
+      setStatusMessage(`${operation === 'fuse' ? 'Fusing' : 'Cutting'} ${targetEntityId} with ${toolEntityId}...`)
+      const response = await fetch(apiUrl(apiBase, '/api/edit/booleans'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation,
+          target_entity_id: targetComponentId,
+          tool_entity_id: toolComponentId,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditBooleanResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      await loadViewerState()
+      setSelectedIds([targetComponentId])
+      setActiveName(targetComponentId)
+      setStatusMessage(`${operation === 'fuse' ? 'Fused' : 'Cut'} ${targetEntityId} with ${toolEntityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Boolean ${operation} failed for ${targetEntityId}:`, err)
+      setStatusMessage(`Boolean failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
   const loadStlFile = useCallback((file: File) => {
     const reader = new FileReader()
 
@@ -780,6 +823,16 @@ export default function App() {
     return entity ? { componentId: activeName, entityId, entity } : null
   }, [activeName, editDocument])
   const editPoints = useMemo<Record<string, EditPoint>>(() => editDocument?.points ?? {}, [editDocument])
+  const booleanToolOptions = useMemo(() => {
+    if (!editDocument || !activeEditEntity) return []
+    return Object.keys(editDocument.entities)
+      .filter((entityId) => entityId !== activeEditEntity.entityId)
+      .map((entityId) => ({
+        entityId,
+        componentId: `edit:${entityId}`,
+        label: entityId,
+      }))
+  }, [activeEditEntity, editDocument])
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -844,6 +897,7 @@ export default function App() {
                 componentId={activeEditEntity.componentId}
                 entityId={activeEditEntity.entityId}
                 entity={activeEditEntity.entity}
+                booleanToolOptions={booleanToolOptions}
                 points={editPoints}
                 activePointId={activePointId}
                 onActivePointChange={setActivePointId}
@@ -851,6 +905,7 @@ export default function App() {
                 onCreatePoint={createEditPoint}
                 onPatchPoint={patchEditPoint}
                 onCreateHole={createEditHole}
+                onCreateBoolean={createEditBoolean}
               />
             ) : null}
             <Viewer

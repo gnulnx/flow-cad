@@ -79,6 +79,13 @@ export interface EditHoleCut {
   through: boolean
 }
 
+export interface EditBooleanOperation {
+  id: string
+  type: 'fuse' | 'cut'
+  tool_entity_id: string
+  keep_tool: boolean
+}
+
 export interface EditEntity {
   kind: 'primitive_box'
   name: string
@@ -86,6 +93,7 @@ export interface EditEntity {
   transform: EditTransform
   role: string
   holes?: EditHoleCut[]
+  booleans?: EditBooleanOperation[]
 }
 
 export interface EditPoint {

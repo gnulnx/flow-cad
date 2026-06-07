@@ -136,6 +136,23 @@ const editBoxPart = {
   default_visible: true,
 }
 
+const editToolPart = {
+  ...editBoxPart,
+  id: 'edit:tool',
+  filename: 'tool.step',
+  artifact_path: 'example/viewer-cache/edit-step/tool.step',
+  model_url: '/api/parts/edit:tool/model',
+  source_url: '/api/parts/edit:tool/source',
+  snap_features_url: '/api/parts/edit:tool/snap-features',
+  occurrences: [
+    {
+      name: 'tool',
+      location: [0, 0, 0],
+      rotation: [0, 0, 0],
+    },
+  ],
+}
+
 let editPoints: Record<string, {
   position_mm: [number, number, number]
   coordinate_space: string
@@ -143,27 +160,45 @@ let editPoints: Record<string, {
   source: Record<string, unknown>
 }> = {}
 let editBoxHoles: Array<Record<string, unknown>> = []
+let editBoxBooleans: Array<Record<string, unknown>> = []
+let editToolAvailable = false
 
 function editDocumentPayload() {
+  const entities = {
+    box_001: {
+      kind: 'primitive_box',
+      name: 'box_001',
+      size_mm: [20, 20, 20],
+      transform: {
+        translation_mm: [0, 0, 0],
+        rotation_deg: [0, 0, 0],
+      },
+      role: 'inspection',
+      holes: editBoxHoles,
+      booleans: editBoxBooleans,
+    },
+    ...(editToolAvailable ? {
+      tool: {
+        kind: 'primitive_box',
+        name: 'tool',
+        size_mm: [10, 10, 10],
+        transform: {
+          translation_mm: [0, 0, 0],
+          rotation_deg: [0, 0, 0],
+        },
+        role: 'inspection',
+        holes: [],
+        booleans: [],
+      },
+    } : {}),
+  }
   return {
     schema_version: 1,
     document_id: 'main',
     units: 'mm',
     revision: partsRevision,
     document_path: 'flow/document.json',
-    entities: {
-      box_001: {
-        kind: 'primitive_box',
-        name: 'box_001',
-        size_mm: [20, 20, 20],
-        transform: {
-          translation_mm: [0, 0, 0],
-          rotation_deg: [0, 0, 0],
-        },
-        role: 'inspection',
-        holes: editBoxHoles,
-      },
-    },
+    entities,
     points: editPoints,
     operations: [],
   }
@@ -227,6 +262,8 @@ describe('App source loading', () => {
     activeParts = partsPayload.parts
     editPoints = {}
     editBoxHoles = []
+    editBoxBooleans = []
+    editToolAvailable = false
     snapFeaturesPayload = {
       ...snapFeaturesPayload,
       features: [...snapFeaturesPayload.features],
@@ -289,6 +326,23 @@ describe('App source loading', () => {
         ]
         activeParts = [...partsPayload.parts, editBoxPart]
         return jsonResponse({ ok: true, document_revision: partsRevision, hole: editBoxHoles.at(-1), document: editDocumentPayload() })
+      }
+      if (url.endsWith('/api/edit/booleans') && init?.method === 'POST') {
+        partsRevision += 1
+        healthRevision = partsRevision
+        const payload = JSON.parse(String(init?.body ?? '{}'))
+        editBoxBooleans = [
+          ...editBoxBooleans,
+          {
+            id: 'boolean_001',
+            type: payload.operation,
+            tool_entity_id: 'tool',
+            keep_tool: true,
+          },
+        ]
+        editToolAvailable = true
+        activeParts = [...partsPayload.parts, editBoxPart, editToolPart]
+        return jsonResponse({ ok: true, document_revision: partsRevision, boolean: editBoxBooleans.at(-1), document: editDocumentPayload() })
       }
       if (url.includes('/api/edit/entities/')) {
         partsRevision += 1
@@ -523,6 +577,35 @@ describe('App source loading', () => {
             point_id: 'point_001',
             preset: 'm5_clearance',
             axis: [0, 0, 1],
+          }),
+        }),
+      )
+    })
+  })
+
+  it('applies a boolean cut from the active edit entity controls', async () => {
+    const user = userEvent.setup()
+    editToolAvailable = true
+    activeParts = [...partsPayload.parts, editBoxPart, editToolPart]
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.selectOptions(screen.getByLabelText('Version filter'), '__all__')
+    await user.click(screen.getByRole('button', { name: 'Inspect' }))
+    await user.click(await screen.findByText('edit:box_001'))
+
+    await user.selectOptions(await screen.findByLabelText('box_001 boolean tool'), 'edit:tool')
+    await user.click(screen.getByRole('button', { name: 'Cut Body' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/booleans',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            operation: 'cut',
+            target_entity_id: 'edit:box_001',
+            tool_entity_id: 'edit:tool',
           }),
         }),
       )
