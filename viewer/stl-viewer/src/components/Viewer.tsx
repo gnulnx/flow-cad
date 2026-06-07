@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Grid, Html } from '@react-three/drei'
-import ViewportControls from './ViewportControls'
+import ViewportControls, { EDIT_DRAG_LOCK_ATTRIBUTE } from './ViewportControls'
 import {
   formatMm,
   freePointTarget,
@@ -706,6 +706,14 @@ const EDIT_AXIS_VECTORS: Record<AxisName, THREE.Vector3> = {
 
 const MIN_EDIT_SIZE_MM = 0.1
 
+function setEditDragLock(element: HTMLCanvasElement, active: boolean) {
+  if (active) {
+    element.setAttribute(EDIT_DRAG_LOCK_ATTRIBUTE, 'true')
+  } else {
+    element.removeAttribute(EDIT_DRAG_LOCK_ATTRIBUTE)
+  }
+}
+
 function EditMoveHandle({
   model,
   previewOffset,
@@ -733,6 +741,7 @@ function EditMoveHandle({
       startCenter: center.clone(),
       startPointerPoint,
     }
+    setEditDragLock(gl.domElement, true)
     event.target?.setPointerCapture?.(event.pointerId)
     onDragActiveChange(true)
     event.stopPropagation()
@@ -761,6 +770,7 @@ function EditMoveHandle({
       ? editMoveCenterAfterDrag(drag.startCenter, drag.startPointerPoint, currentPointerPoint)
       : drag.startCenter
     event.target?.releasePointerCapture?.(event.pointerId)
+    setEditDragLock(gl.domElement, false)
     onPreviewOffsetChange(model.partId, null)
     onDragActiveChange(false)
     void onCommit?.(model.partId, { translation_mm: vectorToMmTuple(nextCenter) })
@@ -819,6 +829,7 @@ function EditResizeHandles({
       startSize: previewSize.clone(),
       startPointerPoint,
     }
+    setEditDragLock(gl.domElement, true)
     event.target?.setPointerCapture?.(event.pointerId)
     onDragActiveChange(true)
     event.stopPropagation()
@@ -865,6 +876,7 @@ function EditResizeHandles({
       ? editResizeSizeAfterDrag(drag.startSize, drag.axis, drag.direction, drag.startPointerPoint, currentPointerPoint)
       : drag.startSize
     event.target?.releasePointerCapture?.(event.pointerId)
+    setEditDragLock(gl.domElement, false)
     onPreviewSizeChange(model.partId, null)
     onDragActiveChange(false)
     void onCommit?.(model.partId, { size_mm: vectorToMmTuple(nextSize) })
