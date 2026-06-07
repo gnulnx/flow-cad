@@ -10,6 +10,9 @@ from flow_cad.editing.models import EditDocument, EditEntity
 from flow_cad.project import FlowCadProject
 
 
+EDIT_COMPONENT_PREFIX = "edit:"
+
+
 class EditServiceError(RuntimeError):
     status_code = 400
 
@@ -41,6 +44,20 @@ class EditService:
     def document(self) -> dict[str, Any]:
         document = self._load_document(create=True)
         return normalized_document_payload(self.store, document)
+
+    def document_model(self) -> EditDocument:
+        return self._load_document(create=False)
+
+    def iter_entities(self) -> list[EditEntity]:
+        return list(self.document_model().entities.values())
+
+    def entity_for_component_id(self, component_id: str) -> EditEntity:
+        entity_id = entity_id_from_component_id(component_id)
+        document = self.document_model()
+        try:
+            return document.entities[entity_id]
+        except KeyError as exc:
+            raise EditServiceError(f"Edit entity is not registered: {entity_id}") from exc
 
     def append_operation(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
@@ -136,3 +153,20 @@ def _next_numbered_id(existing: Any, prefix: str) -> str:
         if candidate not in taken:
             return candidate
         index += 1
+
+
+def component_id_for_entity(entity_id: str) -> str:
+    return f"{EDIT_COMPONENT_PREFIX}{entity_id}"
+
+
+def is_edit_component_id(component_id: str) -> bool:
+    return component_id.startswith(EDIT_COMPONENT_PREFIX)
+
+
+def entity_id_from_component_id(component_id: str) -> str:
+    if not is_edit_component_id(component_id):
+        raise EditServiceError(f"Not an edit entity component id: {component_id}")
+    entity_id = component_id.removeprefix(EDIT_COMPONENT_PREFIX)
+    if not entity_id:
+        raise EditServiceError("Edit entity component id is missing an entity id")
+    return entity_id

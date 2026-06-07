@@ -95,6 +95,84 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert sorted(reloaded["entities"]) == ["box_001"]
 
 
+def test_viewer_service_lists_edit_entities_as_exact_parts(tmp_path: Path) -> None:
+    viewer_service = ViewerService(tmp_path)
+    viewer_service.append_edit_operation(
+        {
+            "type": "create_box",
+            "size_mm": [10, 20, 30],
+            "translation_mm": [0, 0, 15],
+        }
+    )
+
+    payload = viewer_service.list_parts()
+    edit_part = next(part for part in payload["parts"] if part["id"] == "edit:box_001")
+
+    assert edit_part["module_id"] == "flow_document"
+    assert edit_part["role"] == "inspection"
+    assert edit_part["source_kind"] == "flow_document"
+    assert edit_part["geometry_authority"] == "step_kernel"
+    assert edit_part["capabilities"]["exact_editing"] is True
+    assert edit_part["artifact_format"] == "step"
+    assert edit_part["artifact_path"] == "example/viewer-cache/edit-step/box_001.step"
+    assert edit_part["model_url"] == "/api/parts/edit:box_001/model"
+    assert edit_part["source_url"] == "/api/parts/edit:box_001/source"
+    assert edit_part["snap_features_url"] == "/api/parts/edit:box_001/snap-features"
+    assert edit_part["occurrences"] == [
+        {
+            "name": "box_001",
+            "location": [0.0, 0.0, 0.0],
+            "rotation": [0.0, 0.0, 0.0],
+        }
+    ]
+    assert edit_part["default_visible"] is True
+
+    context = viewer_service.source_context("edit:box_001")
+    assert context["relative_file_path"] == "flow/document.json"
+    assert context["language"] == "json"
+    assert context["symbol"] == "box_001"
+    assert '"box_001"' in context["content"]
+
+
+def test_viewer_service_lazily_exports_edit_entity_model(tmp_path: Path) -> None:
+    calls: list[tuple[Path, Path]] = []
+
+    def converter(source: Path, dest: Path) -> Path:
+        calls.append((source, dest))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("solid edit\nendsolid edit\n")
+        return dest
+
+    viewer_service = ViewerService(tmp_path, converter=converter)
+    viewer_service.append_edit_operation(
+        {
+            "type": "create_box",
+            "size_mm": [10, 20, 30],
+            "translation_mm": [0, 0, 15],
+        }
+    )
+
+    model_path, source_format = viewer_service.model_path("edit:box_001")
+
+    expected_step_path = tmp_path / "example" / "viewer-cache" / "edit-step" / "box_001.step"
+    expected_stl_path = tmp_path / "example" / "viewer-cache" / "stl-from-edit" / "box_001.stl"
+    assert source_format == "step"
+    assert model_path == expected_stl_path
+    assert expected_step_path.exists()
+    assert calls == [(expected_step_path, expected_stl_path)]
+
+    viewer_service.model_path("edit:box_001")
+    assert calls == [(expected_step_path, expected_stl_path)]
+
+    snap_payload = viewer_service.snap_features("edit:box_001")
+    assert snap_payload["component_id"] == "edit:box_001"
+    assert snap_payload["source_format"] == "step"
+    assert snap_payload["artifact_path"] == "example/viewer-cache/edit-step/box_001.step"
+    assert snap_payload["capabilities"]["exact_snap"] is True
+    assert snap_payload["capabilities"]["exact_editing"] is True
+    assert {feature["kind"] for feature in snap_payload["features"]} >= {"vertex", "line_edge", "edge_midpoint"}
+
+
 def _endpoint(app: Any, path: str, method: str) -> Callable[..., dict[str, Any]]:
     for route in app.routes:
         if getattr(route, "path", "") == path and method in getattr(route, "methods", set()):

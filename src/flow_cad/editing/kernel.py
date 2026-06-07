@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from flow_cad.editing.models import EditEntity
+from flow_cad.step_io import normalize_step_file
 
 
 class EditKernelError(RuntimeError):
@@ -21,6 +23,22 @@ def shape_for_entity(entity: EditEntity) -> Any:
 
     shape = Box(*entity.size_mm)
     return shape.moved(Location(entity.transform.translation_mm, entity.transform.rotation_deg))
+
+
+def export_entity_step(entity: EditEntity, path: Path) -> Path:
+    try:
+        from build123d import export_step
+    except Exception as exc:  # pragma: no cover - depends on local CAD install
+        raise EditKernelError(
+            "Edit STEP export requires build123d/OCP. Install project dependencies or configure the CAD environment."
+        ) from exc
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ok = export_step(shape_for_entity(entity), path)
+    if not ok:
+        raise EditKernelError(f"STEP export failed for edit entity: {entity.id}")
+    normalize_step_file(path)
+    return path
 
 
 def bounding_box_payload(entity: EditEntity) -> dict[str, Any]:
