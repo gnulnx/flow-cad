@@ -6,7 +6,7 @@ from typing import Any
 
 from flow_cad.editing.document import EditDocumentError, EditDocumentStore, normalized_document_payload
 from flow_cad.editing.kernel import EditKernelError, bounding_box_payload
-from flow_cad.editing.models import EditDocument, EditEntity, EditHoleCut, EditPoint, Vector3
+from flow_cad.editing.models import EditBooleanOperation, EditDocument, EditEntity, EditHoleCut, EditPoint, Vector3
 from flow_cad.editing.presets import hole_preset, hole_presets_payload
 from flow_cad.project import FlowCadProject
 
@@ -77,6 +77,8 @@ class EditService:
             return self._append_update_entity(document, entity_id, payload, operation_type=operation_type)
         if operation_type == "cut_hole":
             return self._append_cut_hole(document, payload)
+        if operation_type in {"fuse", "cut"}:
+            return self._append_boolean(document, payload, operation_type=operation_type)
         raise EditServiceError(f"Unsupported edit operation type: {operation_type or '<missing>'}")
 
     def patch_entity(self, entity_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -137,6 +139,15 @@ class EditService:
             raise EditServiceError("Edit hole payload must be an object")
         document = self._load_document(create=True)
         return self._append_cut_hole(document, {**payload, "type": "cut_hole"})
+
+    def create_boolean(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise EditServiceError("Edit boolean payload must be an object")
+        operation_type = str(payload.get("operation") or payload.get("type") or "")
+        if operation_type not in {"fuse", "cut"}:
+            raise EditServiceError("Edit boolean operation must be `fuse` or `cut`")
+        document = self._load_document(create=True)
+        return self._append_boolean(document, {**payload, "type": operation_type}, operation_type=operation_type)
 
     def _append_create_box(self, document: EditDocument, payload: dict[str, Any]) -> dict[str, Any]:
         entity_id = str(payload.get("entity_id") or self._next_entity_id(document, "box"))
@@ -299,11 +310,8 @@ class EditService:
                     "holes": [hole.to_payload() for hole in (*current.holes, hole)],
                 },
             )
-            bounds = bounding_box_payload(updated)
         except ValueError as exc:
             raise EditServiceError(str(exc)) from exc
-        except EditKernelError as exc:
-            raise EditServiceUnavailableError(str(exc)) from exc
 
         operation_id = str(payload.get("id") or payload.get("operation_id") or self._next_operation_id(document))
         self._ensure_operation_id_available(document, operation_id)
@@ -320,6 +328,10 @@ class EditService:
             "through": True,
         }
         next_document = document.with_entity_and_operation(updated, operation)
+        try:
+            bounds = bounding_box_payload(updated, document=next_document)
+        except EditKernelError as exc:
+            raise EditServiceUnavailableError(str(exc)) from exc
         self.store.save(next_document)
         return {
             "ok": True,
@@ -332,6 +344,95 @@ class EditService:
                 "bounds": bounds,
             },
             "changed_entity_ids": [updated.id],
+            "document": normalized_document_payload(self.store, next_document),
+        }
+
+    def _append_boolean(self, document: EditDocument, payload: dict[str, Any], *, operation_type: str) -> dict[str, Any]:
+        target_entity_id = str(payload.get("target_entity_id") or "")
+        tool_entity_id = str(payload.get("tool_entity_id") or "")
+        if is_edit_component_id(target_entity_id):
+            target_entity_id = entity_id_from_component_id(target_entity_id)
+        if is_edit_component_id(tool_entity_id):
+            tool_entity_id = entity_id_from_component_id(tool_entity_id)
+        if not target_entity_id:
+            raise EditServiceError("`target_entity_id` is required for boolean operations")
+        if not tool_entity_id:
+            raise EditServiceError("`tool_entity_id` is required for boolean operations")
+        if target_entity_id == tool_entity_id:
+            raise EditServiceError("Boolean target and tool must be different edit entities")
+
+        try:
+            current_target = document.entities[target_entity_id]
+        except KeyError as exc:
+            raise EditServiceError(f"Edit entity is not registered: {target_entity_id}") from exc
+        try:
+            current_tool = document.entities[tool_entity_id]
+        except KeyError as exc:
+            raise EditServiceError(f"Edit entity is not registered: {tool_entity_id}") from exc
+
+        boolean_id = str(payload.get("boolean_id") or self._next_boolean_id(document))
+        if any(operation.id == boolean_id for entity in document.entities.values() for operation in entity.booleans):
+            raise EditServiceError(f"Edit boolean already exists: {boolean_id}")
+
+        try:
+            boolean = EditBooleanOperation.from_payload(
+                boolean_id,
+                {
+                    "type": operation_type,
+                    "tool_entity_id": current_tool.id,
+                    "keep_tool": True,
+                },
+            )
+            updated_target = EditEntity.from_payload(
+                current_target.id,
+                {
+                    **current_target.to_payload(),
+                    "booleans": [operation.to_payload() for operation in (*current_target.booleans, boolean)],
+                },
+            )
+            updated_tool = EditEntity.from_payload(
+                current_tool.id,
+                {
+                    **current_tool.to_payload(),
+                    "role": str(payload.get("tool_role") or "construction"),
+                },
+            )
+        except ValueError as exc:
+            raise EditServiceError(str(exc)) from exc
+
+        operation_id = str(payload.get("id") or payload.get("operation_id") or self._next_operation_id(document))
+        self._ensure_operation_id_available(document, operation_id)
+        operation = {
+            "id": operation_id,
+            "type": operation_type,
+            "target_entity_id": updated_target.id,
+            "tool_entity_id": updated_tool.id,
+            "boolean_id": boolean.id,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "keep_tool": True,
+            "tool_role": updated_tool.role,
+        }
+        next_document = document.with_entities_and_operation((updated_target, updated_tool), operation)
+        try:
+            bounds = bounding_box_payload(updated_target, document=next_document)
+        except EditKernelError as exc:
+            raise EditServiceUnavailableError(str(exc)) from exc
+        self.store.save(next_document)
+        return {
+            "ok": True,
+            "document_revision": next_document.revision,
+            "operation": operation,
+            "boolean": boolean.to_payload(),
+            "entity": {
+                "id": updated_target.id,
+                **updated_target.to_payload(),
+                "bounds": bounds,
+            },
+            "tool_entity": {
+                "id": updated_tool.id,
+                **updated_tool.to_payload(),
+            },
+            "changed_entity_ids": [updated_target.id, updated_tool.id],
             "document": normalized_document_payload(self.store, next_document),
         }
 
@@ -361,11 +462,8 @@ class EditService:
 
         try:
             updated = EditEntity.from_payload(entity_id, entity_payload)
-            bounds = bounding_box_payload(updated)
         except ValueError as exc:
             raise EditServiceError(str(exc)) from exc
-        except EditKernelError as exc:
-            raise EditServiceUnavailableError(str(exc)) from exc
 
         operation_id = str(payload.get("id") or self._next_operation_id(document))
         if any(operation.get("id") == operation_id for operation in document.operations):
@@ -380,6 +478,10 @@ class EditService:
             "entity": updated.to_payload(),
         }
         next_document = document.with_entity_and_operation(updated, operation)
+        try:
+            bounds = bounding_box_payload(updated, document=next_document)
+        except EditKernelError as exc:
+            raise EditServiceUnavailableError(str(exc)) from exc
         self.store.save(next_document)
         return {
             "ok": True,
@@ -432,6 +534,13 @@ class EditService:
         return _next_numbered_id(
             (hole.id for entity in document.entities.values() for hole in entity.holes),
             "hole",
+        )
+
+    @staticmethod
+    def _next_boolean_id(document: EditDocument) -> str:
+        return _next_numbered_id(
+            (operation.id for entity in document.entities.values() for operation in entity.booleans),
+            "boolean",
         )
 
     @staticmethod

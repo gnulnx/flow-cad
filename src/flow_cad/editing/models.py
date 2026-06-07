@@ -8,6 +8,7 @@ SCHEMA_VERSION = 1
 Vector3 = tuple[float, float, float]
 EditEntityKind = Literal["primitive_box"]
 PointQuality = Literal["exact", "approximate"]
+BooleanOperationKind = Literal["fuse", "cut"]
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,38 @@ class EditTransform:
         return {
             "translation_mm": list(self.translation_mm),
             "rotation_deg": list(self.rotation_deg),
+        }
+
+
+@dataclass(frozen=True)
+class EditBooleanOperation:
+    id: str
+    type: BooleanOperationKind
+    tool_entity_id: str
+    keep_tool: bool = True
+
+    @classmethod
+    def from_payload(cls, operation_id: str, payload: dict[str, Any]) -> "EditBooleanOperation":
+        operation_type = str(payload.get("type") or "")
+        if operation_type not in {"fuse", "cut"}:
+            raise ValueError(f"Unsupported boolean operation type: {operation_type!r}")
+        tool_entity_id = str(payload.get("tool_entity_id") or "")
+        if not tool_entity_id:
+            raise ValueError("`tool_entity_id` is required for boolean operations")
+        operation_value: BooleanOperationKind = "fuse" if operation_type == "fuse" else "cut"
+        return cls(
+            id=operation_id,
+            type=operation_value,
+            tool_entity_id=tool_entity_id,
+            keep_tool=bool(payload.get("keep_tool", True)),
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "type": self.type,
+            "tool_entity_id": self.tool_entity_id,
+            "keep_tool": self.keep_tool,
         }
 
 
@@ -79,6 +112,7 @@ class EditEntity:
     transform: EditTransform = field(default_factory=EditTransform)
     role: str = "inspection"
     holes: tuple[EditHoleCut, ...] = ()
+    booleans: tuple[EditBooleanOperation, ...] = ()
 
     @classmethod
     def from_payload(cls, entity_id: str, payload: dict[str, Any]) -> "EditEntity":
@@ -95,6 +129,16 @@ class EditEntity:
             hole_id = str(hole_payload.get("id") or f"hole_{index:03d}")
             holes.append(EditHoleCut.from_payload(hole_id, hole_payload))
 
+        raw_booleans = payload.get("booleans", [])
+        if not isinstance(raw_booleans, list):
+            raise ValueError(f"Edit entity `{entity_id}` booleans must be a list")
+        booleans: list[EditBooleanOperation] = []
+        for index, boolean_payload in enumerate(raw_booleans, start=1):
+            if not isinstance(boolean_payload, dict):
+                raise ValueError(f"Edit entity `{entity_id}` boolean operation must be an object")
+            operation_id = str(boolean_payload.get("id") or f"boolean_{index:03d}")
+            booleans.append(EditBooleanOperation.from_payload(operation_id, boolean_payload))
+
         return cls(
             id=entity_id,
             kind="primitive_box",
@@ -103,6 +147,7 @@ class EditEntity:
             transform=EditTransform.from_payload(_dict_or_none(payload.get("transform"), field_name="transform")),
             role=str(payload.get("role") or "inspection"),
             holes=tuple(holes),
+            booleans=tuple(booleans),
         )
 
     def to_payload(self) -> dict[str, Any]:
@@ -113,6 +158,7 @@ class EditEntity:
             "transform": self.transform.to_payload(),
             "role": self.role,
             "holes": [hole.to_payload() for hole in self.holes],
+            "booleans": [operation.to_payload() for operation in self.booleans],
         }
 
 
@@ -220,12 +266,18 @@ class EditDocument:
         }
 
     def with_entity_and_operation(self, entity: EditEntity, operation: dict[str, Any]) -> "EditDocument":
+        return self.with_entities_and_operation((entity,), operation)
+
+    def with_entities_and_operation(self, entities: tuple[EditEntity, ...], operation: dict[str, Any]) -> "EditDocument":
+        next_entities = {**self.entities}
+        for entity in entities:
+            next_entities[entity.id] = entity
         return EditDocument(
             schema_version=self.schema_version,
             document_id=self.document_id,
             units=self.units,
             revision=self.revision + 1,
-            entities={**self.entities, entity.id: entity},
+            entities=next_entities,
             points=self.points,
             operations=[*self.operations, operation],
         )

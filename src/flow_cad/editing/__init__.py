@@ -1,5 +1,5 @@
 from flow_cad.editing.document import DEFAULT_DOCUMENT_RELATIVE_PATH, EditDocumentStore
-from flow_cad.editing.models import EditDocument, EditEntity, EditHoleCut, EditPoint, EditTransform
+from flow_cad.editing.models import EditBooleanOperation, EditDocument, EditEntity, EditHoleCut, EditPoint, EditTransform
 from flow_cad.editing.presets import HOLE_PRESETS, HolePreset
 from flow_cad.editing.service import (
     EDIT_COMPONENT_PREFIX,
@@ -15,6 +15,7 @@ __all__ = [
     "EDIT_COMPONENT_PREFIX",
     "EditDocument",
     "EditDocumentStore",
+    "EditBooleanOperation",
     "EditEntity",
     "EditHoleCut",
     "EditPoint",

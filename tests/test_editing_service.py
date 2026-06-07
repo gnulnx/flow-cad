@@ -209,6 +209,54 @@ def test_cut_hole_rejects_non_cardinal_axes(tmp_path: Path) -> None:
         service.create_hole({"target_entity_id": "box_custom", "point_id": "point_center", "axis": [1, 1, 0]})
 
 
+def test_boolean_fuse_keeps_tool_as_construction_and_updates_target_shape(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "target", "size_mm": [10, 10, 10]})
+    service.append_operation({"type": "create_box", "entity_id": "tool", "size_mm": [10, 10, 10], "translation_mm": [12, 0, 0]})
+    before = shape_for_entity(service.document_model().entities["target"]).volume
+
+    result = service.create_boolean({"operation": "fuse", "target_entity_id": "target", "tool_entity_id": "edit:tool"})
+
+    assert result["document_revision"] == 3
+    assert result["operation"]["type"] == "fuse"
+    assert result["boolean"]["tool_entity_id"] == "tool"
+    assert result["tool_entity"]["role"] == "construction"
+
+    reloaded = EditService(bundled_example_project(tmp_path)).document_model()
+    assert reloaded.entities["target"].booleans[0].type == "fuse"
+    assert reloaded.entities["tool"].role == "construction"
+    assert shape_for_entity(reloaded.entities["target"], reloaded).volume > before
+
+
+def test_boolean_cut_keeps_tool_and_removes_volume_from_target_shape(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "target", "size_mm": [20, 20, 20]})
+    service.append_operation({"type": "create_box", "entity_id": "tool", "size_mm": [10, 10, 10]})
+    before = shape_for_entity(service.document_model().entities["target"]).volume
+
+    result = service.append_operation({"type": "cut", "target_entity_id": "edit:target", "tool_entity_id": "tool"})
+
+    assert result["document_revision"] == 3
+    assert result["operation"]["type"] == "cut"
+    assert result["entity"]["booleans"][0]["type"] == "cut"
+    assert result["entity"]["bounds"]["size_mm"] == pytest.approx([20.0, 20.0, 20.0])
+
+    reloaded = EditService(bundled_example_project(tmp_path)).document_model()
+    assert reloaded.entities["tool"].role == "construction"
+    assert shape_for_entity(reloaded.entities["target"], reloaded).volume < before
+
+
+def test_boolean_operations_reject_invalid_targets(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "target"})
+
+    with pytest.raises(EditServiceError, match="Boolean target and tool must be different"):
+        service.create_boolean({"operation": "cut", "target_entity_id": "target", "tool_entity_id": "target"})
+
+    with pytest.raises(EditServiceError, match="Edit entity is not registered: missing"):
+        service.create_boolean({"operation": "fuse", "target_entity_id": "target", "tool_entity_id": "missing"})
+
+
 def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> None:
     viewer_service = ViewerService(tmp_path)
     app = create_app(service=viewer_service)
@@ -219,6 +267,7 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     edit_points = _endpoint(app, "/api/edit/points", "POST")
     edit_point = _endpoint(app, "/api/edit/points/{point_id}", "PATCH")
     edit_holes = _endpoint(app, "/api/edit/holes", "POST")
+    edit_booleans = _endpoint(app, "/api/edit/booleans", "POST")
     health = _endpoint(app, "/api/health", "GET")
 
     status = edit_status()
@@ -268,11 +317,20 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert hole["hole"]["diameter_mm"] == 5.5
     assert health()["revision"] == 5
 
+    tool = edit_operations({"type": "create_box", "entity_id": "tool", "size_mm": [4, 4, 4]})
+    assert tool["document_revision"] == 6
+    boolean = edit_booleans({"operation": "cut", "target_entity_id": "box_001", "tool_entity_id": "tool"})
+    assert boolean["document_revision"] == 7
+    assert boolean["operation"]["type"] == "cut"
+    assert boolean["tool_entity"]["role"] == "construction"
+    assert health()["revision"] == 7
+
     reloaded = edit_document()
-    assert reloaded["revision"] == 5
-    assert sorted(reloaded["entities"]) == ["box_001"]
+    assert reloaded["revision"] == 7
+    assert sorted(reloaded["entities"]) == ["box_001", "tool"]
     assert sorted(reloaded["points"]) == ["point_001"]
     assert reloaded["entities"]["box_001"]["holes"][0]["preset"] == "m5_clearance"
+    assert reloaded["entities"]["box_001"]["booleans"][0]["type"] == "cut"
 
 
 def test_viewer_service_lists_edit_entities_as_exact_parts(tmp_path: Path) -> None:

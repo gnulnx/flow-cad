@@ -184,6 +184,11 @@ class ViewerService:
         self.revision += 1
         return result
 
+    def create_edit_boolean(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.create_boolean(payload)
+        self.revision += 1
+        return result
+
     def list_parts(self) -> dict[str, Any]:
         placement_map = self._placement_map()
         default_visible_ids = self._default_visible_part_keys()
@@ -416,7 +421,7 @@ class ViewerService:
             return step_path
 
         try:
-            export_entity_step(entity, step_path)
+            export_entity_step(entity, step_path, document=document)
         except EditKernelError as exc:
             raise ConversionUnavailableError(str(exc)) from exc
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
