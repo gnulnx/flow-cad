@@ -263,6 +263,7 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/edit/status" in route_paths
     assert "/api/edit/document" in route_paths
     assert "/api/edit/operations" in route_paths
+    assert "/api/edit/entities/{entity_id}" in route_paths
     assert "/api/reload" in route_paths
 
 

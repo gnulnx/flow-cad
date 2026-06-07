@@ -164,6 +164,11 @@ class ViewerService:
         self.revision += 1
         return result
 
+    def patch_edit_entity(self, entity_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.patch_entity(entity_id, payload)
+        self.revision += 1
+        return result
+
     def list_parts(self) -> dict[str, Any]:
         placement_map = self._placement_map()
         default_visible_ids = self._default_visible_part_keys()

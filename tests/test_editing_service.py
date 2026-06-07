@@ -58,12 +58,56 @@ def test_create_box_rejects_invalid_transform_payload(tmp_path: Path) -> None:
         service.append_operation({"type": "create_box", "transform": [0, 0, 0]})
 
 
+def test_transform_and_resize_operations_persist_entity_updates(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation(
+        {
+            "type": "create_box",
+            "entity_id": "box_custom",
+            "size_mm": [10, 20, 30],
+            "translation_mm": [0, 0, 15],
+        }
+    )
+
+    moved = service.append_operation(
+        {
+            "type": "set_transform",
+            "entity_id": "box_custom",
+            "translation_mm": [5, 0, 20],
+        }
+    )
+
+    assert moved["document_revision"] == 2
+    assert moved["operation"]["id"] == "op_002"
+    assert moved["operation"]["type"] == "set_transform"
+    assert moved["entity"]["bounds"]["center_mm"] == pytest.approx([5.0, 0.0, 20.0])
+
+    resized = service.patch_entity("edit:box_custom", {"size_mm": [20, 10, 8]})
+
+    assert resized["document_revision"] == 3
+    assert resized["operation"]["id"] == "op_003"
+    assert resized["operation"]["type"] == "resize_box"
+    assert resized["entity"]["bounds"]["size_mm"] == pytest.approx([20.0, 10.0, 8.0])
+    assert resized["entity"]["bounds"]["center_mm"] == pytest.approx([5.0, 0.0, 20.0])
+
+    reloaded = EditService(bundled_example_project(tmp_path)).document()
+    assert reloaded["revision"] == 3
+    assert reloaded["entities"]["box_custom"]["size_mm"] == [20.0, 10.0, 8.0]
+    assert reloaded["entities"]["box_custom"]["transform"]["translation_mm"] == [5.0, 0.0, 20.0]
+    assert [operation["type"] for operation in reloaded["operations"]] == [
+        "create_box",
+        "set_transform",
+        "resize_box",
+    ]
+
+
 def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> None:
     viewer_service = ViewerService(tmp_path)
     app = create_app(service=viewer_service)
     edit_status = _endpoint(app, "/api/edit/status", "GET")
     edit_document = _endpoint(app, "/api/edit/document", "GET")
     edit_operations = _endpoint(app, "/api/edit/operations", "POST")
+    edit_entity = _endpoint(app, "/api/edit/entities/{entity_id}", "PATCH")
     health = _endpoint(app, "/api/health", "GET")
 
     status = edit_status()
@@ -90,8 +134,13 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert created["entity"]["bounds"]["size_mm"] == pytest.approx([12.0, 14.0, 16.0])
     assert health()["revision"] == 1
 
+    moved = edit_entity("box_001", {"translation_mm": [1, 2, 3]})
+    assert moved["document_revision"] == 2
+    assert moved["operation"]["type"] == "set_transform"
+    assert health()["revision"] == 2
+
     reloaded = edit_document()
-    assert reloaded["revision"] == 1
+    assert reloaded["revision"] == 2
     assert sorted(reloaded["entities"]) == ["box_001"]
 
 

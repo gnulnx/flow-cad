@@ -67,7 +67,27 @@ class EditService:
         operation_type = str(payload.get("type") or "")
         if operation_type == "create_box":
             return self._append_create_box(document, payload)
+        if operation_type in {"set_transform", "resize_box"}:
+            entity_id = str(payload.get("entity_id") or "")
+            if not entity_id:
+                raise EditServiceError(f"`entity_id` is required for {operation_type}")
+            return self._append_update_entity(document, entity_id, payload, operation_type=operation_type)
         raise EditServiceError(f"Unsupported edit operation type: {operation_type or '<missing>'}")
+
+    def patch_entity(self, entity_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise EditServiceError("Edit entity patch payload must be an object")
+        document = self._load_document(create=True)
+        normalized_entity_id = entity_id_from_component_id(entity_id) if is_edit_component_id(entity_id) else entity_id
+        has_size = "size_mm" in payload
+        has_transform = any(key in payload for key in ("transform", "translation_mm", "rotation_deg"))
+        if has_size and has_transform:
+            raise EditServiceError("Patch either size or transform in one operation, not both")
+        if has_size:
+            return self._append_update_entity(document, normalized_entity_id, payload, operation_type="resize_box")
+        if has_transform:
+            return self._append_update_entity(document, normalized_entity_id, payload, operation_type="set_transform")
+        raise EditServiceError("Edit entity patch requires `size_mm`, `transform`, `translation_mm`, or `rotation_deg`")
 
     def _append_create_box(self, document: EditDocument, payload: dict[str, Any]) -> dict[str, Any]:
         entity_id = str(payload.get("entity_id") or self._next_entity_id(document, "box"))
@@ -130,11 +150,85 @@ class EditService:
             "document": normalized_document_payload(self.store, next_document),
         }
 
+    def _append_update_entity(
+        self,
+        document: EditDocument,
+        entity_id: str,
+        payload: dict[str, Any],
+        *,
+        operation_type: str,
+    ) -> dict[str, Any]:
+        entity_id = entity_id_from_component_id(entity_id) if is_edit_component_id(entity_id) else entity_id
+        try:
+            current = document.entities[entity_id]
+        except KeyError as exc:
+            raise EditServiceError(f"Edit entity is not registered: {entity_id}") from exc
+
+        entity_payload = current.to_payload()
+        if operation_type == "resize_box":
+            if "size_mm" not in payload:
+                raise EditServiceError("`size_mm` is required for resize_box")
+            entity_payload["size_mm"] = payload["size_mm"]
+        elif operation_type == "set_transform":
+            entity_payload["transform"] = self._merged_transform_payload(current, payload)
+        else:
+            raise EditServiceError(f"Unsupported edit operation type: {operation_type}")
+
+        try:
+            updated = EditEntity.from_payload(entity_id, entity_payload)
+            bounds = bounding_box_payload(updated)
+        except ValueError as exc:
+            raise EditServiceError(str(exc)) from exc
+        except EditKernelError as exc:
+            raise EditServiceUnavailableError(str(exc)) from exc
+
+        operation_id = str(payload.get("id") or self._next_operation_id(document))
+        if any(operation.get("id") == operation_id for operation in document.operations):
+            raise EditServiceError(f"Edit operation already exists: {operation_id}")
+
+        operation = {
+            "id": operation_id,
+            "type": operation_type,
+            "entity_id": updated.id,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "previous_entity": current.to_payload(),
+            "entity": updated.to_payload(),
+        }
+        next_document = document.with_entity_and_operation(updated, operation)
+        self.store.save(next_document)
+        return {
+            "ok": True,
+            "document_revision": next_document.revision,
+            "operation": operation,
+            "entity": {
+                "id": updated.id,
+                **updated.to_payload(),
+                "bounds": bounds,
+            },
+            "changed_entity_ids": [updated.id],
+            "document": normalized_document_payload(self.store, next_document),
+        }
+
     def _load_document(self, *, create: bool) -> EditDocument:
         try:
             return self.store.load_or_create() if create else self.store.load()
         except EditDocumentError as exc:
             raise EditServiceError(str(exc)) from exc
+
+    @staticmethod
+    def _merged_transform_payload(entity: EditEntity, payload: dict[str, Any]) -> dict[str, Any]:
+        raw_transform = payload.get("transform", {})
+        if raw_transform is not None and not isinstance(raw_transform, dict):
+            raise EditServiceError("`transform` must be an object")
+        transform_payload = {
+            **entity.transform.to_payload(),
+            **(raw_transform or {}),
+        }
+        if "translation_mm" in payload:
+            transform_payload["translation_mm"] = payload["translation_mm"]
+        if "rotation_deg" in payload:
+            transform_payload["rotation_deg"] = payload["rotation_deg"]
+        return transform_payload
 
     @staticmethod
     def _next_entity_id(document: EditDocument, prefix: str) -> str:

@@ -89,6 +89,13 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
         except EditServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
+    @app.patch("/api/edit/entities/{entity_id}")
+    def edit_entity(entity_id: str, patch: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.patch_edit_entity(entity_id, patch)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
     @app.post("/api/reload")
     def reload_viewer() -> dict[str, object]:
         return viewer_service.reload()
