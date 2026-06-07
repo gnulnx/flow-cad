@@ -136,6 +136,14 @@ const editBoxPart = {
   default_visible: true,
 }
 
+let editPoints: Record<string, {
+  position_mm: [number, number, number]
+  coordinate_space: string
+  quality: 'exact' | 'approximate'
+  source: Record<string, unknown>
+}> = {}
+let editBoxHoles: Array<Record<string, unknown>> = []
+
 function editDocumentPayload() {
   return {
     schema_version: 1,
@@ -153,9 +161,10 @@ function editDocumentPayload() {
           rotation_deg: [0, 0, 0],
         },
         role: 'inspection',
+        holes: editBoxHoles,
       },
     },
-    points: {},
+    points: editPoints,
     operations: [],
   }
 }
@@ -216,6 +225,8 @@ describe('App source loading', () => {
     partsRevision = 0
     healthRevision = 0
     activeParts = partsPayload.parts
+    editPoints = {}
+    editBoxHoles = []
     snapFeaturesPayload = {
       ...snapFeaturesPayload,
       features: [...snapFeaturesPayload.features],
@@ -231,6 +242,54 @@ describe('App source loading', () => {
         return jsonResponse({ ok: true, document_revision: partsRevision, entity: { id: 'box_001' }, document: editDocumentPayload() })
       }
       if (url.endsWith('/api/edit/document')) return jsonResponse(editDocumentPayload())
+      if (url.endsWith('/api/edit/points') && init?.method === 'POST') {
+        partsRevision += 1
+        healthRevision = partsRevision
+        const payload = JSON.parse(String(init?.body ?? '{}'))
+        editPoints = {
+          ...editPoints,
+          point_001: {
+            position_mm: payload.position_mm,
+            coordinate_space: payload.coordinate_space ?? 'world',
+            quality: payload.quality ?? 'exact',
+            source: payload.source ?? {},
+          },
+        }
+        return jsonResponse({ ok: true, document_revision: partsRevision, point: { id: 'point_001' }, document: editDocumentPayload() })
+      }
+      if (url.includes('/api/edit/points/') && init?.method === 'PATCH') {
+        partsRevision += 1
+        healthRevision = partsRevision
+        const pointId = decodeURIComponent(url.split('/').pop() ?? '')
+        const payload = JSON.parse(String(init?.body ?? '{}'))
+        editPoints = {
+          ...editPoints,
+          [pointId]: {
+            ...(editPoints[pointId] ?? { position_mm: [0, 0, 0], coordinate_space: 'world', quality: 'exact', source: {} }),
+            ...payload,
+          },
+        }
+        return jsonResponse({ ok: true, document_revision: partsRevision, point: { id: pointId }, document: editDocumentPayload() })
+      }
+      if (url.endsWith('/api/edit/holes') && init?.method === 'POST') {
+        partsRevision += 1
+        healthRevision = partsRevision
+        const payload = JSON.parse(String(init?.body ?? '{}'))
+        editBoxHoles = [
+          ...editBoxHoles,
+          {
+            id: 'hole_001',
+            point_id: payload.point_id,
+            position_mm: editPoints[payload.point_id]?.position_mm ?? [0, 0, 0],
+            axis: payload.axis,
+            preset: payload.preset,
+            diameter_mm: payload.preset === 'm5_clearance' ? 5.5 : 4.5,
+            through: true,
+          },
+        ]
+        activeParts = [...partsPayload.parts, editBoxPart]
+        return jsonResponse({ ok: true, document_revision: partsRevision, hole: editBoxHoles.at(-1), document: editDocumentPayload() })
+      }
       if (url.includes('/api/edit/entities/')) {
         partsRevision += 1
         healthRevision = partsRevision
@@ -417,6 +476,54 @@ describe('App source loading', () => {
         expect.objectContaining({
           method: 'PATCH',
           body: JSON.stringify({ size_mm: [30, 20, 20] }),
+        }),
+      )
+    })
+  })
+
+  it('creates an exact point and cuts a preset through-hole in the active edit entity', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByRole('button', { name: 'Cube' }))
+
+    await user.clear(await screen.findByLabelText('new point X'))
+    await user.type(screen.getByLabelText('new point X'), '1')
+    await user.clear(screen.getByLabelText('new point Y'))
+    await user.type(screen.getByLabelText('new point Y'), '2')
+    await user.clear(screen.getByLabelText('new point Z'))
+    await user.type(screen.getByLabelText('new point Z'), '3')
+    await user.click(screen.getByRole('button', { name: 'Add Point' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/points',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            position_mm: [1, 2, 3],
+            quality: 'exact',
+            source: { kind: 'typed_coordinates' },
+          }),
+        }),
+      )
+    })
+
+    await user.selectOptions(screen.getByLabelText('box_001 hole preset'), 'm5_clearance')
+    await user.click(screen.getByRole('button', { name: 'Cut Through Hole' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/holes',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            target_entity_id: 'edit:box_001',
+            point_id: 'point_001',
+            preset: 'm5_clearance',
+            axis: [0, 0, 1],
+          }),
         }),
       )
     })

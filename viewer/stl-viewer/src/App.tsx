@@ -18,6 +18,7 @@ import {
 } from './partMetadata'
 import type {
   EditDocumentPayload,
+  EditPoint,
   GeometryCapabilities,
   ModelData,
   PartMetadataDraft,
@@ -78,6 +79,17 @@ interface EditPatchResponse {
   document?: EditDocumentPayload
 }
 
+interface EditPointResponse {
+  point?: {
+    id?: string
+  }
+  document?: EditDocumentPayload
+}
+
+interface EditHoleResponse {
+  document?: EditDocumentPayload
+}
+
 function isEditComponentId(value: string | null) {
   return Boolean(value?.startsWith('edit:'))
 }
@@ -108,6 +120,7 @@ export default function App() {
   const [colorMode, setColorMode] = useState<ViewerColorMode>('workbench')
   const [partMetadataDrafts, setPartMetadataDrafts] = useState<Record<string, PartMetadataDraft>>({})
   const [editDocument, setEditDocument] = useState<EditDocumentPayload | null>(null)
+  const [activePointId, setActivePointId] = useState<string | null>(null)
   const loadingPartIdsRef = useRef<Set<string>>(new Set())
 
   // Resizing state hooks
@@ -376,6 +389,110 @@ export default function App() {
     }
   }, [apiBase, loadEditDocument, loadViewerState])
 
+  const createEditPoint = useCallback(async (positionMm: [number, number, number]) => {
+    try {
+      setStatusMessage('Adding point...')
+      const response = await fetch(apiUrl(apiBase, '/api/edit/points'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          position_mm: positionMm,
+          quality: 'exact',
+          source: { kind: 'typed_coordinates' },
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditPointResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      const pointId = payload.point?.id
+      if (pointId) {
+        setActivePointId(pointId)
+        setStatusMessage(`Added ${pointId}`)
+      } else {
+        setStatusMessage('Added point')
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('Point creation failed:', err)
+      setStatusMessage(`Point failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument])
+
+  const patchEditPoint = useCallback(async (pointId: string, patch: Record<string, unknown>) => {
+    try {
+      setStatusMessage(`Updating ${pointId}...`)
+      const response = await fetch(apiUrl(apiBase, `/api/edit/points/${encodeURIComponent(pointId)}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditPointResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      setActivePointId(pointId)
+      setStatusMessage(`Updated ${pointId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Point update failed for ${pointId}:`, err)
+      setStatusMessage(`Point update failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument])
+
+  const createEditHole = useCallback(async (
+    componentId: string,
+    pointId: string,
+    preset: string,
+    axis: [number, number, number],
+  ) => {
+    const entityId = editEntityIdFromComponentId(componentId)
+    try {
+      setStatusMessage(`Cutting ${preset} hole in ${entityId}...`)
+      const response = await fetch(apiUrl(apiBase, '/api/edit/holes'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_entity_id: componentId,
+          point_id: pointId,
+          preset,
+          axis,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditHoleResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      await loadViewerState()
+      setSelectedIds([componentId])
+      setActiveName(componentId)
+      setActivePointId(pointId)
+      setStatusMessage(`Cut ${preset} hole in ${entityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Hole cut failed for ${entityId}:`, err)
+      setStatusMessage(`Hole failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
   const loadStlFile = useCallback((file: File) => {
     const reader = new FileReader()
 
@@ -490,6 +607,18 @@ export default function App() {
       setStatusMessage(`Edit document unavailable: ${err.message}`)
     })
   }, [activeName, loadEditDocument])
+
+  useEffect(() => {
+    if (!editDocument) {
+      setActivePointId(null)
+      return
+    }
+    setActivePointId((current) => {
+      if (current && editDocument.points[current]) return current
+      const firstPointId = Object.keys(editDocument.points)[0] ?? null
+      return firstPointId
+    })
+  }, [editDocument])
 
   const handleFiles = useCallback((files: FileList) => {
     const stlFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.stl'))
@@ -650,6 +779,7 @@ export default function App() {
     const entity = editDocument.entities[entityId]
     return entity ? { componentId: activeName, entityId, entity } : null
   }, [activeName, editDocument])
+  const editPoints = useMemo<Record<string, EditPoint>>(() => editDocument?.points ?? {}, [editDocument])
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -714,7 +844,13 @@ export default function App() {
                 componentId={activeEditEntity.componentId}
                 entityId={activeEditEntity.entityId}
                 entity={activeEditEntity.entity}
+                points={editPoints}
+                activePointId={activePointId}
+                onActivePointChange={setActivePointId}
                 onPatch={patchEditEntity}
+                onCreatePoint={createEditPoint}
+                onPatchPoint={patchEditPoint}
+                onCreateHole={createEditHole}
               />
             ) : null}
             <Viewer

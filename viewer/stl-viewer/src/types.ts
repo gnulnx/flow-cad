@@ -69,12 +69,30 @@ export interface EditTransform {
   rotation_deg: [number, number, number]
 }
 
+export interface EditHoleCut {
+  id: string
+  point_id: string
+  position_mm: [number, number, number]
+  axis: [number, number, number]
+  preset: string
+  diameter_mm: number
+  through: boolean
+}
+
 export interface EditEntity {
   kind: 'primitive_box'
   name: string
   size_mm: [number, number, number]
   transform: EditTransform
   role: string
+  holes?: EditHoleCut[]
+}
+
+export interface EditPoint {
+  position_mm: [number, number, number]
+  coordinate_space: string
+  quality: 'exact' | 'approximate'
+  source: Record<string, unknown>
 }
 
 export interface EditDocumentPayload {
@@ -84,7 +102,7 @@ export interface EditDocumentPayload {
   revision: number
   document_path?: string
   entities: Record<string, EditEntity>
-  points: Record<string, unknown>
+  points: Record<string, EditPoint>
   operations: Array<Record<string, unknown>>
 }
 

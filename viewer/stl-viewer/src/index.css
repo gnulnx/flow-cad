@@ -346,6 +346,14 @@ body {
   gap: 10px;
 }
 
+.edit-controls-section {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
 .edit-vector-group {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -385,6 +393,38 @@ body {
 }
 
 .edit-vector-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.18);
+}
+
+.edit-hole-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 8px;
+}
+
+.edit-select-field {
+  display: grid;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.edit-select-field select {
+  min-width: 0;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 0 8px;
+  outline: none;
+}
+
+.edit-select-field select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.18);
 }
