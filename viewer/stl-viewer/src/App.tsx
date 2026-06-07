@@ -737,6 +737,7 @@ export default function App() {
               }}
               onTapeModeChange={handleTapeModeChange}
               onClearMeasurements={handleClearMeasurements}
+              onEditEntityPatch={patchEditEntity}
             />
           </FileDropZone>
         </div>

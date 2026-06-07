@@ -39,6 +39,7 @@ interface ViewerProps {
   onReload?: () => void
   onTapeModeChange?: (enabled: boolean) => void
   onClearMeasurements?: () => void
+  onEditEntityPatch?: (componentId: string, patch: Record<string, unknown>) => Promise<void>
 }
 
 type MeasurementMode = 'off' | 'quick' | 'tape'
@@ -107,11 +108,13 @@ function ModelComponent({
   model,
   isActive,
   measurementActive,
+  previewOffset,
   onClick,
 }: {
   model: ModelData
   isActive: boolean
   measurementActive: boolean
+  previewOffset?: THREE.Vector3
   onClick: (name: string, additive: boolean) => void
 }) {
   const edgeGeometry = useMemo(() => new THREE.EdgesGeometry(model.geometry, 20), [model.geometry])
@@ -123,7 +126,15 @@ function ModelComponent({
   return (
     <group>
       {model.occurrences.map((occurrence) => (
-        <group key={occurrence.name} position={occurrence.location} rotation={occurrenceRotation(occurrence)}>
+        <group
+          key={occurrence.name}
+          position={[
+            occurrence.location[0] + (previewOffset?.x ?? 0),
+            occurrence.location[1] + (previewOffset?.y ?? 0),
+            occurrence.location[2] + (previewOffset?.z ?? 0),
+          ]}
+          rotation={occurrenceRotation(occurrence)}
+        >
           <mesh
             userData={{ flowPartId: model.partId, flowOccurrenceName: occurrence.name }}
             geometry={model.geometry}
@@ -643,8 +654,124 @@ function MeasurementLayer({
   )
 }
 
+interface EditDragState {
+  pointerId: number
+  startCenter: THREE.Vector3
+  startPointerPoint: THREE.Vector3
+}
+
+function EditMoveHandle({
+  model,
+  previewOffset,
+  onPreviewOffsetChange,
+  onCommit,
+  onDragActiveChange,
+}: {
+  model: ModelData
+  previewOffset: THREE.Vector3
+  onPreviewOffsetChange: (partId: string, offset: THREE.Vector3 | null) => void
+  onCommit?: (partId: string, translationMm: [number, number, number]) => Promise<void>
+  onDragActiveChange: (active: boolean) => void
+}) {
+  const { camera, gl, raycaster, invalidate } = useThree()
+  const dragRef = useRef<EditDragState | null>(null)
+  const center = useMemo(() => model.bounds.center.clone().add(previewOffset), [model.bounds.center, previewOffset])
+  const handleRadius = Math.max(2.5, Math.min(7, model.bounds.size.length() * 0.05))
+
+  const startDrag = (event: any) => {
+    if (event.button !== 0) return
+    const startPointerPoint = worldPointOnCameraPlane(event, gl.domElement, camera, raycaster, center)
+    if (!startPointerPoint) return
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startCenter: center.clone(),
+      startPointerPoint,
+    }
+    event.target?.setPointerCapture?.(event.pointerId)
+    onDragActiveChange(true)
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const moveDrag = (event: any) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const currentPointerPoint = worldPointOnCameraPlane(event, gl.domElement, camera, raycaster, drag.startCenter)
+    if (!currentPointerPoint) return
+    const nextCenter = editMoveCenterAfterDrag(drag.startCenter, drag.startPointerPoint, currentPointerPoint)
+    onPreviewOffsetChange(model.partId, nextCenter.sub(model.bounds.center))
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const endDrag = (event: any) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    const currentPointerPoint = worldPointOnCameraPlane(event, gl.domElement, camera, raycaster, drag.startCenter)
+    const nextCenter = currentPointerPoint
+      ? editMoveCenterAfterDrag(drag.startCenter, drag.startPointerPoint, currentPointerPoint)
+      : drag.startCenter
+    event.target?.releasePointerCapture?.(event.pointerId)
+    onPreviewOffsetChange(model.partId, null)
+    onDragActiveChange(false)
+    void onCommit?.(model.partId, vectorToMmTuple(nextCenter))
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  return (
+    <group position={center}>
+      <mesh
+        userData={{ flowEditHandle: 'move', flowPartId: model.partId }}
+        onPointerDown={startDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
+        <sphereGeometry args={[handleRadius, 24, 16]} />
+        <meshBasicMaterial color="#10b981" transparent opacity={0.85} depthTest={false} />
+      </mesh>
+      <mesh>
+        <torusGeometry args={[handleRadius * 1.55, Math.max(0.18, handleRadius * 0.08), 12, 36]} />
+        <meshBasicMaterial color="#d9f99d" transparent opacity={0.75} depthTest={false} />
+      </mesh>
+    </group>
+  )
+}
+
 function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode }) {
-  const { models, activeName, onModelActivate, fitRequest, frameSelectedRequest, rotationMode, measurementMode, clearMeasurementsRequest } = props
+  const {
+    models,
+    activeName,
+    onModelActivate,
+    fitRequest,
+    frameSelectedRequest,
+    rotationMode,
+    measurementMode,
+    clearMeasurementsRequest,
+    onEditEntityPatch,
+  } = props
+  const [editPreviewOffsets, setEditPreviewOffsets] = useState<Record<string, THREE.Vector3>>({})
+  const [editDragActive, setEditDragActive] = useState(false)
+  const activeEditableModel = measurementMode === 'off' && activeName?.startsWith('edit:')
+    ? models.find((model) => model.partId === activeName && model.capabilities.exact_editing)
+    : null
+  const setPreviewOffset = (partId: string, offset: THREE.Vector3 | null) => {
+    setEditPreviewOffsets((current) => {
+      const next = { ...current }
+      if (offset) {
+        next[partId] = offset.clone()
+      } else {
+        delete next[partId]
+      }
+      return next
+    })
+  }
+
   return (
     <>
       <ambientLight intensity={0.55} />
@@ -657,10 +784,20 @@ function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode })
           key={model.partId}
           model={model}
           isActive={model.partId === activeName}
-          measurementActive={measurementMode !== 'off'}
+          measurementActive={measurementMode !== 'off' || editDragActive}
+          previewOffset={editPreviewOffsets[model.partId]}
           onClick={onModelActivate}
         />
       ))}
+      {activeEditableModel ? (
+        <EditMoveHandle
+          model={activeEditableModel}
+          previewOffset={editPreviewOffsets[activeEditableModel.partId] ?? new THREE.Vector3()}
+          onPreviewOffsetChange={setPreviewOffset}
+          onCommit={onEditEntityPatch}
+          onDragActiveChange={setEditDragActive}
+        />
+      ) : null}
       <MeasurementLayer models={models} mode={measurementMode} clearMeasurementsRequest={clearMeasurementsRequest} />
       <ViewportControls
         models={models}
@@ -668,7 +805,7 @@ function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode })
         fitRequest={fitRequest}
         frameSelectedRequest={frameSelectedRequest}
         rotationMode={rotationMode}
-        measurementActive={measurementMode !== 'off'}
+        measurementActive={measurementMode !== 'off' || editDragActive}
       />
     </>
   )
@@ -910,6 +1047,14 @@ export function measurementResolveModesDiffer(start: MeasurementTarget, end: Mea
   )
 }
 
+export function editMoveCenterAfterDrag(
+  startCenter: THREE.Vector3,
+  startPointerPoint: THREE.Vector3,
+  currentPointerPoint: THREE.Vector3,
+) {
+  return startCenter.clone().add(currentPointerPoint.clone().sub(startPointerPoint))
+}
+
 export function pickedTapeTarget(target: MeasurementTarget): MeasurementTarget {
   if (!target.segment) return target
   return {
@@ -1123,4 +1268,27 @@ function freePointForEvent(event: PointerEvent, element: HTMLElement, camera: TH
   const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, anchor)
   const point = new THREE.Vector3()
   return freePointTarget(raycaster.ray.intersectPlane(plane, point) ?? anchor)
+}
+
+function worldPointOnCameraPlane(
+  event: { clientX: number; clientY: number },
+  element: HTMLElement,
+  camera: THREE.Camera,
+  raycaster: THREE.Raycaster,
+  planePoint: THREE.Vector3,
+) {
+  const rect = element.getBoundingClientRect()
+  raycaster.setFromCamera(screenPointToNdc(new THREE.Vector2(event.clientX, event.clientY), rect), camera)
+  const normal = camera.getWorldDirection(new THREE.Vector3())
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, planePoint)
+  const point = new THREE.Vector3()
+  return raycaster.ray.intersectPlane(plane, point)
+}
+
+function vectorToMmTuple(vector: THREE.Vector3): [number, number, number] {
+  return [
+    Number(vector.x.toFixed(4)),
+    Number(vector.y.toFixed(4)),
+    Number(vector.z.toFixed(4)),
+  ]
 }

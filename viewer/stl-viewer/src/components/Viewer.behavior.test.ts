@@ -4,6 +4,7 @@ import { resolveMeasurement } from '../measurement'
 import type { MeasurementTarget } from '../measurement'
 import {
   defaultTapeResolveMode,
+  editMoveCenterAfterDrag,
   measurementLabelOffsetAfterDrag,
   measurementResolveModesDiffer,
   pickedTapeTarget,
@@ -57,6 +58,16 @@ describe('viewer snap behavior contract', () => {
         { x: 132, y: 109 },
       ),
     ).toEqual({ x: 60, y: -119 })
+  })
+
+  it('moves edit centers by the camera-plane pointer delta', () => {
+    const nextCenter = editMoveCenterAfterDrag(
+      new Vector3(10, 20, 30),
+      new Vector3(1, 2, 3),
+      new Vector3(4, 0, 8),
+    )
+
+    expect(nextCenter.toArray()).toEqual([13, 18, 35])
   })
 
   it('does not switch to edge-length preview during an active tape drag', () => {
