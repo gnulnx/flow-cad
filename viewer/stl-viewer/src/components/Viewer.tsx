@@ -714,6 +714,29 @@ function setEditDragLock(element: HTMLCanvasElement, active: boolean) {
   }
 }
 
+function installEditDragLock(element: HTMLCanvasElement, pointerId: number, onFallbackRelease: () => void) {
+  let released = false
+  let fallbackPending = false
+  setEditDragLock(element, true)
+  const release = (event?: Event) => {
+    if (event instanceof PointerEvent && event.pointerId !== pointerId) return
+    if (released) return
+    released = true
+    setEditDragLock(element, false)
+    window.removeEventListener('pointerup', release, true)
+    window.removeEventListener('pointercancel', release, true)
+    window.removeEventListener('blur', release)
+    if (!fallbackPending) {
+      fallbackPending = true
+      window.setTimeout(onFallbackRelease, 0)
+    }
+  }
+  window.addEventListener('pointerup', release, true)
+  window.addEventListener('pointercancel', release, true)
+  window.addEventListener('blur', release)
+  return release
+}
+
 function EditMoveHandle({
   model,
   previewOffset,
@@ -729,8 +752,26 @@ function EditMoveHandle({
 }) {
   const { camera, gl, raycaster, invalidate } = useThree()
   const dragRef = useRef<EditDragState | null>(null)
+  const releaseDragLockRef = useRef<(() => void) | null>(null)
+  const onPreviewOffsetChangeRef = useRef(onPreviewOffsetChange)
+  const onDragActiveChangeRef = useRef(onDragActiveChange)
   const center = useMemo(() => model.bounds.center.clone().add(previewOffset), [model.bounds.center, previewOffset])
   const handleRadius = Math.max(2.5, Math.min(7, model.bounds.size.length() * 0.05))
+
+  useEffect(() => {
+    onPreviewOffsetChangeRef.current = onPreviewOffsetChange
+    onDragActiveChangeRef.current = onDragActiveChange
+  }, [onDragActiveChange, onPreviewOffsetChange])
+
+  useEffect(() => {
+    return () => {
+      releaseDragLockRef.current?.()
+      releaseDragLockRef.current = null
+      dragRef.current = null
+      onPreviewOffsetChangeRef.current(model.partId, null)
+      onDragActiveChangeRef.current(false)
+    }
+  }, [model.partId])
 
   const startDrag = (event: any) => {
     if (event.button !== 0) return
@@ -741,7 +782,15 @@ function EditMoveHandle({
       startCenter: center.clone(),
       startPointerPoint,
     }
-    setEditDragLock(gl.domElement, true)
+    releaseDragLockRef.current?.()
+    releaseDragLockRef.current = installEditDragLock(gl.domElement, event.pointerId, () => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      dragRef.current = null
+      onPreviewOffsetChange(model.partId, null)
+      onDragActiveChange(false)
+      invalidate()
+    })
     event.target?.setPointerCapture?.(event.pointerId)
     onDragActiveChange(true)
     event.stopPropagation()
@@ -770,7 +819,8 @@ function EditMoveHandle({
       ? editMoveCenterAfterDrag(drag.startCenter, drag.startPointerPoint, currentPointerPoint)
       : drag.startCenter
     event.target?.releasePointerCapture?.(event.pointerId)
-    setEditDragLock(gl.domElement, false)
+    releaseDragLockRef.current?.()
+    releaseDragLockRef.current = null
     onPreviewOffsetChange(model.partId, null)
     onDragActiveChange(false)
     void onCommit?.(model.partId, { translation_mm: vectorToMmTuple(nextCenter) })
@@ -814,8 +864,26 @@ function EditResizeHandles({
 }) {
   const { camera, gl, raycaster, invalidate } = useThree()
   const dragRef = useRef<EditResizeDragState | null>(null)
+  const releaseDragLockRef = useRef<(() => void) | null>(null)
+  const onPreviewSizeChangeRef = useRef(onPreviewSizeChange)
+  const onDragActiveChangeRef = useRef(onDragActiveChange)
   const center = model.bounds.center
   const handleRadius = Math.max(1.8, Math.min(5, previewSize.length() * 0.035))
+
+  useEffect(() => {
+    onPreviewSizeChangeRef.current = onPreviewSizeChange
+    onDragActiveChangeRef.current = onDragActiveChange
+  }, [onDragActiveChange, onPreviewSizeChange])
+
+  useEffect(() => {
+    return () => {
+      releaseDragLockRef.current?.()
+      releaseDragLockRef.current = null
+      dragRef.current = null
+      onPreviewSizeChangeRef.current(model.partId, null)
+      onDragActiveChangeRef.current(false)
+    }
+  }, [model.partId])
 
   const startResize = (axis: AxisName, direction: 1 | -1) => (event: any) => {
     if (event.button !== 0) return
@@ -829,7 +897,15 @@ function EditResizeHandles({
       startSize: previewSize.clone(),
       startPointerPoint,
     }
-    setEditDragLock(gl.domElement, true)
+    releaseDragLockRef.current?.()
+    releaseDragLockRef.current = installEditDragLock(gl.domElement, event.pointerId, () => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      dragRef.current = null
+      onPreviewSizeChange(model.partId, null)
+      onDragActiveChange(false)
+      invalidate()
+    })
     event.target?.setPointerCapture?.(event.pointerId)
     onDragActiveChange(true)
     event.stopPropagation()
@@ -876,7 +952,8 @@ function EditResizeHandles({
       ? editResizeSizeAfterDrag(drag.startSize, drag.axis, drag.direction, drag.startPointerPoint, currentPointerPoint)
       : drag.startSize
     event.target?.releasePointerCapture?.(event.pointerId)
-    setEditDragLock(gl.domElement, false)
+    releaseDragLockRef.current?.()
+    releaseDragLockRef.current = null
     onPreviewSizeChange(model.partId, null)
     onDragActiveChange(false)
     void onCommit?.(model.partId, { size_mm: vectorToMmTuple(nextSize) })

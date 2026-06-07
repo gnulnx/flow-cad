@@ -345,6 +345,7 @@ export default function ViewportControls({
     if (!(camera instanceof THREE.PerspectiveCamera)) return
 
     const element = gl.domElement
+    element.removeAttribute(EDIT_DRAG_LOCK_ATTRIBUTE)
 
     const editDragLocked = () => element.getAttribute(EDIT_DRAG_LOCK_ATTRIBUTE) === 'true'
 
