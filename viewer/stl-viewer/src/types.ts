@@ -87,13 +87,19 @@ export interface EditBooleanOperation {
 }
 
 export interface EditEntity {
-  kind: 'primitive_box'
+  kind: 'primitive_box' | 'derived_split'
   name: string
   size_mm: [number, number, number]
   transform: EditTransform
   role: string
   holes?: EditHoleCut[]
   booleans?: EditBooleanOperation[]
+  source_entity_id?: string | null
+  split_plane?: {
+    origin_mm: [number, number, number]
+    normal: [number, number, number]
+  }
+  split_keep?: 'top' | 'bottom'
 }
 
 export interface EditPoint {

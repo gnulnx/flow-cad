@@ -257,6 +257,49 @@ def test_boolean_operations_reject_invalid_targets(tmp_path: Path) -> None:
         service.create_boolean({"operation": "fuse", "target_entity_id": "target", "tool_entity_id": "missing"})
 
 
+def test_split_operation_creates_explicit_top_and_bottom_entities(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "target", "size_mm": [20, 20, 20]})
+
+    result = service.create_split(
+        {
+            "target_entity_id": "edit:target",
+            "plane_origin_mm": [0, 0, 0],
+            "plane_normal": [0, 0, 1],
+        }
+    )
+
+    assert result["document_revision"] == 2
+    assert result["operation"]["type"] == "split"
+    assert result["operation"]["result_entity_ids"] == {
+        "top": "target_split_top",
+        "bottom": "target_split_bottom",
+    }
+    assert result["source_entity"]["role"] == "construction"
+    assert [entity["id"] for entity in result["entities"]] == ["target_split_top", "target_split_bottom"]
+    assert result["entities"][0]["bounds"]["size_mm"] == pytest.approx([20.0, 20.0, 10.0])
+    assert result["entities"][1]["bounds"]["size_mm"] == pytest.approx([20.0, 20.0, 10.0])
+
+    reloaded = EditService(bundled_example_project(tmp_path)).document_model()
+    assert reloaded.entities["target"].role == "construction"
+    assert reloaded.entities["target_split_top"].kind == "derived_split"
+    assert reloaded.entities["target_split_bottom"].split_keep == "bottom"
+    source_volume = shape_for_entity(reloaded.entities["target"], reloaded).volume
+    top_volume = shape_for_entity(reloaded.entities["target_split_top"], reloaded).volume
+    bottom_volume = shape_for_entity(reloaded.entities["target_split_bottom"], reloaded).volume
+    assert top_volume == pytest.approx(source_volume / 2.0)
+    assert bottom_volume == pytest.approx(source_volume / 2.0)
+
+
+def test_split_operation_rejects_result_id_conflicts(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "target"})
+    service.append_operation({"type": "create_box", "entity_id": "target_split_top"})
+
+    with pytest.raises(EditServiceError, match="Split result entity already exists: target_split_top"):
+        service.create_split({"target_entity_id": "target"})
+
+
 def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> None:
     viewer_service = ViewerService(tmp_path)
     app = create_app(service=viewer_service)
@@ -268,6 +311,7 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     edit_point = _endpoint(app, "/api/edit/points/{point_id}", "PATCH")
     edit_holes = _endpoint(app, "/api/edit/holes", "POST")
     edit_booleans = _endpoint(app, "/api/edit/booleans", "POST")
+    edit_splits = _endpoint(app, "/api/edit/splits", "POST")
     health = _endpoint(app, "/api/health", "GET")
 
     status = edit_status()
@@ -325,12 +369,19 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert boolean["tool_entity"]["role"] == "construction"
     assert health()["revision"] == 7
 
+    split = edit_splits({"target_entity_id": "tool", "plane_normal": [1, 0, 0]})
+    assert split["document_revision"] == 8
+    assert split["operation"]["type"] == "split"
+    assert split["source_entity"]["role"] == "construction"
+    assert health()["revision"] == 8
+
     reloaded = edit_document()
-    assert reloaded["revision"] == 7
-    assert sorted(reloaded["entities"]) == ["box_001", "tool"]
+    assert reloaded["revision"] == 8
+    assert sorted(reloaded["entities"]) == ["box_001", "tool", "tool_split_bottom", "tool_split_top"]
     assert sorted(reloaded["points"]) == ["point_001"]
     assert reloaded["entities"]["box_001"]["holes"][0]["preset"] == "m5_clearance"
     assert reloaded["entities"]["box_001"]["booleans"][0]["type"] == "cut"
+    assert reloaded["entities"]["tool_split_top"]["kind"] == "derived_split"
 
 
 def test_viewer_service_lists_edit_entities_as_exact_parts(tmp_path: Path) -> None:

@@ -79,6 +79,8 @@ class EditService:
             return self._append_cut_hole(document, payload)
         if operation_type in {"fuse", "cut"}:
             return self._append_boolean(document, payload, operation_type=operation_type)
+        if operation_type == "split":
+            return self._append_split(document, payload)
         raise EditServiceError(f"Unsupported edit operation type: {operation_type or '<missing>'}")
 
     def patch_entity(self, entity_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -148,6 +150,12 @@ class EditService:
             raise EditServiceError("Edit boolean operation must be `fuse` or `cut`")
         document = self._load_document(create=True)
         return self._append_boolean(document, {**payload, "type": operation_type}, operation_type=operation_type)
+
+    def create_split(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise EditServiceError("Edit split payload must be an object")
+        document = self._load_document(create=True)
+        return self._append_split(document, {**payload, "type": "split"})
 
     def _append_create_box(self, document: EditDocument, payload: dict[str, Any]) -> dict[str, Any]:
         entity_id = str(payload.get("entity_id") or self._next_entity_id(document, "box"))
@@ -436,6 +444,125 @@ class EditService:
             "document": normalized_document_payload(self.store, next_document),
         }
 
+    def _append_split(self, document: EditDocument, payload: dict[str, Any]) -> dict[str, Any]:
+        target_entity_id = str(payload.get("target_entity_id") or payload.get("entity_id") or "")
+        if is_edit_component_id(target_entity_id):
+            target_entity_id = entity_id_from_component_id(target_entity_id)
+        if not target_entity_id:
+            raise EditServiceError("`target_entity_id` is required for split")
+        try:
+            current = document.entities[target_entity_id]
+        except KeyError as exc:
+            raise EditServiceError(f"Edit entity is not registered: {target_entity_id}") from exc
+
+        try:
+            current_bounds = bounding_box_payload(current, document=document)
+            plane_origin = _vector3_payload(
+                payload.get("plane_origin_mm") or payload.get("origin_mm") or current_bounds["center_mm"],
+                field_name="plane_origin_mm",
+            )
+            plane_normal = _normalized_vector3_payload(
+                payload.get("plane_normal") or payload.get("axis") or (0.0, 0.0, 1.0),
+                field_name="plane_normal",
+            )
+        except ValueError as exc:
+            raise EditServiceError(str(exc)) from exc
+        except EditKernelError as exc:
+            raise EditServiceUnavailableError(str(exc)) from exc
+
+        raw_result_ids = payload.get("result_entity_ids", {})
+        if raw_result_ids is not None and not isinstance(raw_result_ids, dict):
+            raise EditServiceError("`result_entity_ids` must be an object")
+        result_ids = raw_result_ids or {}
+        top_id = str(result_ids.get("top") or f"{target_entity_id}_split_top")
+        bottom_id = str(result_ids.get("bottom") or f"{target_entity_id}_split_bottom")
+        if top_id == bottom_id:
+            raise EditServiceError("Split result entity ids must be different")
+        existing_ids = set(document.entities)
+        conflicts = sorted(existing_ids.intersection({top_id, bottom_id}))
+        if conflicts:
+            raise EditServiceError(f"Split result entity already exists: {', '.join(conflicts)}")
+
+        operation_id = str(payload.get("id") or payload.get("operation_id") or self._next_operation_id(document))
+        self._ensure_operation_id_available(document, operation_id)
+        operation = {
+            "id": operation_id,
+            "type": "split",
+            "target_entity_id": current.id,
+            "result_entity_ids": {
+                "top": top_id,
+                "bottom": bottom_id,
+            },
+            "timestamp": datetime.now(UTC).isoformat(),
+            "plane_origin_mm": list(plane_origin),
+            "plane_normal": list(plane_normal),
+        }
+        try:
+            source = EditEntity.from_payload(current.id, {**current.to_payload(), "role": "construction"})
+            top = EditEntity.from_payload(
+                top_id,
+                {
+                    "kind": "derived_split",
+                    "name": top_id,
+                    "source_entity_id": current.id,
+                    "split_plane": {
+                        "origin_mm": plane_origin,
+                        "normal": plane_normal,
+                    },
+                    "split_keep": "top",
+                    "size_mm": current_bounds["size_mm"],
+                    "role": current.role,
+                },
+            )
+            bottom = EditEntity.from_payload(
+                bottom_id,
+                {
+                    "kind": "derived_split",
+                    "name": bottom_id,
+                    "source_entity_id": current.id,
+                    "split_plane": {
+                        "origin_mm": plane_origin,
+                        "normal": plane_normal,
+                    },
+                    "split_keep": "bottom",
+                    "size_mm": current_bounds["size_mm"],
+                    "role": current.role,
+                },
+            )
+        except ValueError as exc:
+            raise EditServiceError(str(exc)) from exc
+
+        next_document = document.with_entities_and_operation((source, top, bottom), operation)
+        try:
+            top_bounds = bounding_box_payload(top, document=next_document)
+            bottom_bounds = bounding_box_payload(bottom, document=next_document)
+        except EditKernelError as exc:
+            raise EditServiceUnavailableError(str(exc)) from exc
+        self.store.save(next_document)
+        return {
+            "ok": True,
+            "document_revision": next_document.revision,
+            "operation": operation,
+            "entities": [
+                {
+                    "id": top.id,
+                    **top.to_payload(),
+                    "bounds": top_bounds,
+                },
+                {
+                    "id": bottom.id,
+                    **bottom.to_payload(),
+                    "bounds": bottom_bounds,
+                },
+            ],
+            "source_entity": {
+                "id": source.id,
+                **source.to_payload(),
+            },
+            "changed_entity_ids": [source.id, top.id, bottom.id],
+            "document": normalized_document_payload(self.store, next_document),
+        }
+
     def _append_update_entity(
         self,
         document: EditDocument,
@@ -560,13 +687,7 @@ def _next_numbered_id(existing: Any, prefix: str) -> str:
 
 
 def _normalized_cardinal_axis(value: Any) -> Vector3:
-    if not isinstance(value, (list, tuple)) or len(value) != 3:
-        raise ValueError("`axis` must be a three-number array")
-    axis = tuple(float(item) for item in value)
-    length = sum(item * item for item in axis) ** 0.5
-    if length == 0:
-        raise ValueError("`axis` must not be the zero vector")
-    normalized = (axis[0] / length, axis[1] / length, axis[2] / length)
+    normalized = _normalized_vector3_payload(value, field_name="axis")
     non_zero = [index for index, item in enumerate(normalized) if abs(item) > 1e-6]
     if len(non_zero) != 1:
         raise ValueError("`axis` must be one of +/-X, +/-Y, +/-Z for V1 through-hole cuts")
@@ -575,6 +696,21 @@ def _normalized_cardinal_axis(value: Any) -> Vector3:
     result = [0.0, 0.0, 0.0]
     result[index] = sign
     return (result[0], result[1], result[2])
+
+
+def _vector3_payload(value: Any, *, field_name: str) -> Vector3:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError(f"`{field_name}` must be a three-number array")
+    vector = tuple(float(item) for item in value)
+    return (vector[0], vector[1], vector[2])
+
+
+def _normalized_vector3_payload(value: Any, *, field_name: str) -> Vector3:
+    vector = _vector3_payload(value, field_name=field_name)
+    length = sum(item * item for item in vector) ** 0.5
+    if length == 0:
+        raise ValueError(f"`{field_name}` must not be the zero vector")
+    return (vector[0] / length, vector[1] / length, vector[2] / length)
 
 
 def component_id_for_entity(entity_id: str) -> str:

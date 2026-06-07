@@ -13,7 +13,7 @@ class EditKernelError(RuntimeError):
 
 
 def shape_for_entity(entity: EditEntity, document: EditDocument | None = None, _seen: frozenset[str] | None = None) -> Any:
-    if entity.kind != "primitive_box":
+    if entity.kind not in {"primitive_box", "derived_split"}:
         raise EditKernelError(f"Unsupported edit entity kind: {entity.kind}")
     try:
         from build123d import Box, Location
@@ -22,7 +22,10 @@ def shape_for_entity(entity: EditEntity, document: EditDocument | None = None, _
             "Edit kernel operations require build123d/OCP. Install project dependencies or configure the CAD environment."
         ) from exc
 
-    shape = Box(*entity.size_mm).moved(Location(entity.transform.translation_mm, entity.transform.rotation_deg))
+    if entity.kind == "primitive_box":
+        shape = Box(*entity.size_mm).moved(Location(entity.transform.translation_mm, entity.transform.rotation_deg))
+    else:
+        shape = _shape_for_split_entity(entity, document, _seen or frozenset())
     for hole in entity.holes:
         shape = _cut_through_hole(shape, hole)
     for operation in entity.booleans:
@@ -93,6 +96,36 @@ def _apply_boolean_operation(
         return result.clean()
     except Exception as exc:
         raise EditKernelError(f"Could not apply boolean {operation_type} with tool {tool_entity_id}: {exc}") from exc
+
+
+def _shape_for_split_entity(entity: EditEntity, document: EditDocument | None, seen: frozenset[str]) -> Any:
+    if document is None:
+        raise EditKernelError(f"Split entity {entity.id} requires an edit document")
+    if not entity.source_entity_id:
+        raise EditKernelError(f"Split entity {entity.id} is missing a source entity id")
+    if entity.source_entity_id in seen:
+        raise EditKernelError(f"Split entity cycle detected at edit entity: {entity.source_entity_id}")
+    try:
+        source = document.entities[entity.source_entity_id]
+    except KeyError as exc:
+        raise EditKernelError(f"Split source entity is not registered: {entity.source_entity_id}") from exc
+    try:
+        from build123d import Keep, Plane
+    except Exception as exc:  # pragma: no cover - depends on local CAD install
+        raise EditKernelError(
+            "Edit kernel operations require build123d/OCP. Install project dependencies or configure the CAD environment."
+        ) from exc
+
+    source_shape = shape_for_entity(source, document, seen | {entity.id})
+    plane = Plane(origin=entity.split_plane_origin_mm, z_dir=_normalized_axis(entity.split_plane_normal))
+    try:
+        top, bottom = source_shape.split(plane, keep=Keep.BOTH)
+    except Exception as exc:
+        raise EditKernelError(f"Could not split edit entity {entity.source_entity_id}: {exc}") from exc
+    result = top if entity.split_keep == "top" else bottom
+    if result is None:
+        raise EditKernelError(f"Split did not produce {entity.split_keep} result for entity {entity.id}")
+    return result.clean()
 
 
 def _cut_through_hole(shape: Any, hole: EditHoleCut) -> Any:

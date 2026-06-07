@@ -6,9 +6,10 @@ from typing import Any, Literal
 
 SCHEMA_VERSION = 1
 Vector3 = tuple[float, float, float]
-EditEntityKind = Literal["primitive_box"]
+EditEntityKind = Literal["primitive_box", "derived_split"]
 PointQuality = Literal["exact", "approximate"]
 BooleanOperationKind = Literal["fuse", "cut"]
+SplitKeep = Literal["top", "bottom"]
 
 
 @dataclass(frozen=True)
@@ -113,11 +114,15 @@ class EditEntity:
     role: str = "inspection"
     holes: tuple[EditHoleCut, ...] = ()
     booleans: tuple[EditBooleanOperation, ...] = ()
+    source_entity_id: str | None = None
+    split_plane_origin_mm: Vector3 = (0.0, 0.0, 0.0)
+    split_plane_normal: Vector3 = (0.0, 0.0, 1.0)
+    split_keep: SplitKeep = "top"
 
     @classmethod
     def from_payload(cls, entity_id: str, payload: dict[str, Any]) -> "EditEntity":
         kind = payload.get("kind")
-        if kind != "primitive_box":
+        if kind not in {"primitive_box", "derived_split"}:
             raise ValueError(f"Unsupported edit entity kind for {entity_id}: {kind!r}")
         raw_holes = payload.get("holes", [])
         if not isinstance(raw_holes, list):
@@ -139,19 +144,50 @@ class EditEntity:
             operation_id = str(boolean_payload.get("id") or f"boolean_{index:03d}")
             booleans.append(EditBooleanOperation.from_payload(operation_id, boolean_payload))
 
+        source_entity_id = None
+        split_keep: SplitKeep = "top"
+        split_plane_origin_mm = (0.0, 0.0, 0.0)
+        split_plane_normal = (0.0, 0.0, 1.0)
+        if kind == "derived_split":
+            source_entity_id = str(payload.get("source_entity_id") or "")
+            if not source_entity_id:
+                raise ValueError(f"Edit split entity `{entity_id}` requires `source_entity_id`")
+            split_keep_value = str(payload.get("split_keep") or "top")
+            if split_keep_value not in {"top", "bottom"}:
+                raise ValueError("`split_keep` must be `top` or `bottom`")
+            split_keep = "top" if split_keep_value == "top" else "bottom"
+            raw_split_plane = payload.get("split_plane", {})
+            if not isinstance(raw_split_plane, dict):
+                raise ValueError("`split_plane` must be an object")
+            split_plane_origin_mm = _vector3(
+                raw_split_plane.get("origin_mm"),
+                default=(0.0, 0.0, 0.0),
+                field_name="split_plane.origin_mm",
+            )
+            split_plane_normal = _vector3(
+                raw_split_plane.get("normal"),
+                default=(0.0, 0.0, 1.0),
+                field_name="split_plane.normal",
+            )
+
+        entity_kind: EditEntityKind = "primitive_box" if kind == "primitive_box" else "derived_split"
         return cls(
             id=entity_id,
-            kind="primitive_box",
+            kind=entity_kind,
             name=str(payload.get("name") or entity_id),
             size_mm=_vector3(payload.get("size_mm"), default=(20.0, 20.0, 20.0), field_name="size_mm"),
             transform=EditTransform.from_payload(_dict_or_none(payload.get("transform"), field_name="transform")),
             role=str(payload.get("role") or "inspection"),
             holes=tuple(holes),
             booleans=tuple(booleans),
+            source_entity_id=source_entity_id,
+            split_plane_origin_mm=split_plane_origin_mm,
+            split_plane_normal=split_plane_normal,
+            split_keep=split_keep,
         )
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "kind": self.kind,
             "name": self.name,
             "size_mm": list(self.size_mm),
@@ -160,6 +196,18 @@ class EditEntity:
             "holes": [hole.to_payload() for hole in self.holes],
             "booleans": [operation.to_payload() for operation in self.booleans],
         }
+        if self.kind == "derived_split":
+            payload.update(
+                {
+                    "source_entity_id": self.source_entity_id,
+                    "split_plane": {
+                        "origin_mm": list(self.split_plane_origin_mm),
+                        "normal": list(self.split_plane_normal),
+                    },
+                    "split_keep": self.split_keep,
+                }
+            )
+        return payload
 
 
 @dataclass(frozen=True)
