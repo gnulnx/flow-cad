@@ -161,11 +161,24 @@ let editPoints: Record<string, {
 }> = {}
 let editBoxHoles: Array<Record<string, unknown>> = []
 let editBoxBooleans: Array<Record<string, unknown>> = []
+let editBoxAvailable = false
 let editToolAvailable = false
 
 function editDocumentPayload() {
-  const entities = {
-    box_001: {
+  const entities: Record<string, {
+    kind: string
+    name: string
+    size_mm: number[]
+    transform: {
+      translation_mm: number[]
+      rotation_deg: number[]
+    }
+    role: string
+    holes: Array<Record<string, unknown>>
+    booleans: Array<Record<string, unknown>>
+  }> = {}
+  if (editBoxAvailable) {
+    entities.box_001 = {
       kind: 'primitive_box',
       name: 'box_001',
       size_mm: [20, 20, 20],
@@ -176,21 +189,21 @@ function editDocumentPayload() {
       role: 'inspection',
       holes: editBoxHoles,
       booleans: editBoxBooleans,
-    },
-    ...(editToolAvailable ? {
-      tool: {
-        kind: 'primitive_box',
-        name: 'tool',
-        size_mm: [10, 10, 10],
-        transform: {
-          translation_mm: [0, 0, 0],
-          rotation_deg: [0, 0, 0],
-        },
-        role: 'inspection',
-        holes: [],
-        booleans: [],
+    }
+  }
+  if (editToolAvailable) {
+    entities.tool = {
+      kind: 'primitive_box',
+      name: 'tool',
+      size_mm: [10, 10, 10],
+      transform: {
+        translation_mm: [0, 0, 0],
+        rotation_deg: [0, 0, 0],
       },
-    } : {}),
+      role: 'inspection',
+      holes: [],
+      booleans: [],
+    }
   }
   return {
     schema_version: 1,
@@ -263,6 +276,7 @@ describe('App source loading', () => {
     editPoints = {}
     editBoxHoles = []
     editBoxBooleans = []
+    editBoxAvailable = false
     editToolAvailable = false
     snapFeaturesPayload = {
       ...snapFeaturesPayload,
@@ -275,6 +289,7 @@ describe('App source loading', () => {
       if (url.endsWith('/api/edit/operations')) {
         partsRevision += 1
         healthRevision = partsRevision
+        editBoxAvailable = true
         activeParts = [...partsPayload.parts, editBoxPart]
         return jsonResponse({ ok: true, document_revision: partsRevision, entity: { id: 'box_001' }, document: editDocumentPayload() })
       }
@@ -311,6 +326,7 @@ describe('App source loading', () => {
       if (url.endsWith('/api/edit/holes') && init?.method === 'POST') {
         partsRevision += 1
         healthRevision = partsRevision
+        editBoxAvailable = true
         const payload = JSON.parse(String(init?.body ?? '{}'))
         editBoxHoles = [
           ...editBoxHoles,
@@ -330,6 +346,7 @@ describe('App source loading', () => {
       if (url.endsWith('/api/edit/booleans') && init?.method === 'POST') {
         partsRevision += 1
         healthRevision = partsRevision
+        editBoxAvailable = true
         const payload = JSON.parse(String(init?.body ?? '{}'))
         editBoxBooleans = [
           ...editBoxBooleans,
@@ -347,7 +364,19 @@ describe('App source loading', () => {
       if (url.endsWith('/api/edit/splits') && init?.method === 'POST') {
         partsRevision += 1
         healthRevision = partsRevision
+        editBoxAvailable = true
         activeParts = [...partsPayload.parts, editBoxPart]
+        return jsonResponse({ ok: true, document_revision: partsRevision, document: editDocumentPayload() })
+      }
+      if (url.endsWith('/api/edit/undo') && init?.method === 'POST') {
+        partsRevision += 1
+        healthRevision = partsRevision
+        editBoxAvailable = false
+        editToolAvailable = false
+        editPoints = {}
+        editBoxHoles = []
+        editBoxBooleans = []
+        activeParts = partsPayload.parts
         return jsonResponse({ ok: true, document_revision: partsRevision, document: editDocumentPayload() })
       }
       if (url.includes('/api/edit/entities/')) {
@@ -503,6 +532,30 @@ describe('App source loading', () => {
     })
   })
 
+  it('undoes the last edit operation from the toolbar', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByRole('button', { name: 'Cube' }))
+    await waitFor(() => {
+      const latestModels = viewerRenderProps.at(-1)?.models ?? []
+      expect(latestModels.some((model) => model.partId === 'edit:box_001')).toBe(true)
+    })
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/undo',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    await waitFor(() => {
+      const latestModels = viewerRenderProps.at(-1)?.models ?? []
+      expect(latestModels.some((model) => model.partId === 'edit:box_001')).toBe(false)
+    })
+  })
+
   it('patches selected cube center and size from exact edit controls', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -591,6 +644,7 @@ describe('App source loading', () => {
 
   it('applies a boolean cut from the active edit entity controls', async () => {
     const user = userEvent.setup()
+    editBoxAvailable = true
     editToolAvailable = true
     activeParts = [...partsPayload.parts, editBoxPart, editToolPart]
     render(<App />)
@@ -620,6 +674,7 @@ describe('App source loading', () => {
 
   it('applies a plane split from the active edit entity controls', async () => {
     const user = userEvent.setup()
+    editBoxAvailable = true
     activeParts = [...partsPayload.parts, editBoxPart]
     render(<App />)
 

@@ -131,6 +131,13 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
         except EditServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
+    @app.post("/api/edit/undo")
+    def edit_undo() -> dict[str, object]:
+        try:
+            return viewer_service.undo_edit_operation()
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
     @app.post("/api/reload")
     def reload_viewer() -> dict[str, object]:
         return viewer_service.reload()

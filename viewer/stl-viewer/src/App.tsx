@@ -98,6 +98,10 @@ interface EditSplitResponse {
   document?: EditDocumentPayload
 }
 
+interface EditUndoResponse {
+  document?: EditDocumentPayload
+}
+
 function isEditComponentId(value: string | null) {
   return Boolean(value?.startsWith('edit:'))
 }
@@ -364,6 +368,28 @@ export default function App() {
       setActiveName(componentId)
       setTapeMode(false)
       setStatusMessage(`Added ${entityId}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
+  const undoEditOperation = useCallback(async () => {
+    try {
+      setStatusMessage('Undoing edit...')
+      const response = await fetch(apiUrl(apiBase, '/api/edit/undo'), { method: 'POST' })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      const payload = await response.json() as EditUndoResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      await loadViewerState()
+      setStatusMessage('Undid edit')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('Undo failed:', err)
+      setStatusMessage(`Undo failed: ${message}`)
     }
   }, [apiBase, loadEditDocument, loadViewerState])
 
@@ -893,6 +919,12 @@ export default function App() {
           handleAddCube().catch((err) => {
             console.error('Add cube failed:', err)
             setStatusMessage(`Add cube failed: ${err.message}`)
+          })
+        }}
+        onUndo={() => {
+          undoEditOperation().catch((err) => {
+            console.error('Undo failed:', err)
+            setStatusMessage(`Undo failed: ${err.message}`)
           })
         }}
         statusMessage={statusMessage}

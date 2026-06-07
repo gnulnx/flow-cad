@@ -300,6 +300,44 @@ def test_split_operation_rejects_result_id_conflicts(tmp_path: Path) -> None:
         service.create_split({"target_entity_id": "target"})
 
 
+def test_undo_reverts_create_point_and_hole_operations(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "target"})
+    service.create_point({"point_id": "point_center", "position_mm": [0, 0, 0], "quality": "exact"})
+    service.create_hole({"target_entity_id": "target", "point_id": "point_center"})
+
+    undo_hole = service.undo()
+    assert undo_hole["document_revision"] == 4
+    assert undo_hole["undone_operation"]["type"] == "cut_hole"
+    assert undo_hole["document"]["entities"]["target"]["holes"] == []
+
+    undo_point = service.undo()
+    assert undo_point["document_revision"] == 5
+    assert undo_point["document"]["points"] == {}
+
+    undo_box = service.undo()
+    assert undo_box["document_revision"] == 6
+    assert undo_box["document"]["entities"] == {}
+    assert undo_box["document"]["operations"] == []
+
+
+def test_undo_reverts_boolean_and_split_operations(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "target"})
+    service.append_operation({"type": "create_box", "entity_id": "tool"})
+    service.create_boolean({"operation": "cut", "target_entity_id": "target", "tool_entity_id": "tool"})
+
+    undo_boolean = service.undo()
+    assert undo_boolean["document"]["entities"]["target"]["booleans"] == []
+    assert undo_boolean["document"]["entities"]["tool"]["role"] == "inspection"
+
+    service.create_split({"target_entity_id": "target"})
+    undo_split = service.undo()
+    assert "target_split_top" not in undo_split["document"]["entities"]
+    assert "target_split_bottom" not in undo_split["document"]["entities"]
+    assert undo_split["document"]["entities"]["target"]["role"] == "inspection"
+
+
 def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> None:
     viewer_service = ViewerService(tmp_path)
     app = create_app(service=viewer_service)
@@ -312,6 +350,7 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     edit_holes = _endpoint(app, "/api/edit/holes", "POST")
     edit_booleans = _endpoint(app, "/api/edit/booleans", "POST")
     edit_splits = _endpoint(app, "/api/edit/splits", "POST")
+    edit_undo = _endpoint(app, "/api/edit/undo", "POST")
     health = _endpoint(app, "/api/health", "GET")
 
     status = edit_status()
@@ -375,13 +414,17 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert split["source_entity"]["role"] == "construction"
     assert health()["revision"] == 8
 
+    undo = edit_undo()
+    assert undo["document_revision"] == 9
+    assert undo["undone_operation"]["type"] == "split"
+    assert health()["revision"] == 9
+
     reloaded = edit_document()
-    assert reloaded["revision"] == 8
-    assert sorted(reloaded["entities"]) == ["box_001", "tool", "tool_split_bottom", "tool_split_top"]
+    assert reloaded["revision"] == 9
+    assert sorted(reloaded["entities"]) == ["box_001", "tool"]
     assert sorted(reloaded["points"]) == ["point_001"]
     assert reloaded["entities"]["box_001"]["holes"][0]["preset"] == "m5_clearance"
     assert reloaded["entities"]["box_001"]["booleans"][0]["type"] == "cut"
-    assert reloaded["entities"]["tool_split_top"]["kind"] == "derived_split"
 
 
 def test_viewer_service_lists_edit_entities_as_exact_parts(tmp_path: Path) -> None:

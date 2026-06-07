@@ -194,6 +194,11 @@ class ViewerService:
         self.revision += 1
         return result
 
+    def undo_edit_operation(self) -> dict[str, Any]:
+        result = self.edit_service.undo()
+        self.revision += 1
+        return result
+
     def list_parts(self) -> dict[str, Any]:
         placement_map = self._placement_map()
         default_visible_ids = self._default_visible_part_keys()
