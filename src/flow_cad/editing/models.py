@@ -31,6 +31,46 @@ class EditTransform:
 
 
 @dataclass(frozen=True)
+class EditHoleCut:
+    id: str
+    point_id: str
+    position_mm: Vector3
+    axis: Vector3 = (0.0, 0.0, 1.0)
+    preset: str = "m4_clearance"
+    diameter_mm: float = 4.5
+    through: bool = True
+
+    @classmethod
+    def from_payload(cls, hole_id: str, payload: dict[str, Any]) -> "EditHoleCut":
+        diameter = float(payload.get("diameter_mm", 0.0))
+        if diameter <= 0:
+            raise ValueError("`diameter_mm` must be positive")
+        axis = _vector3(payload.get("axis"), default=(0.0, 0.0, 1.0), field_name="axis")
+        if sum(abs(value) for value in axis) == 0:
+            raise ValueError("`axis` must not be the zero vector")
+        return cls(
+            id=hole_id,
+            point_id=str(payload.get("point_id") or ""),
+            position_mm=_vector3(payload.get("position_mm"), default=(0.0, 0.0, 0.0), field_name="position_mm"),
+            axis=axis,
+            preset=str(payload.get("preset") or "m4_clearance"),
+            diameter_mm=diameter,
+            through=bool(payload.get("through", True)),
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "point_id": self.point_id,
+            "position_mm": list(self.position_mm),
+            "axis": list(self.axis),
+            "preset": self.preset,
+            "diameter_mm": self.diameter_mm,
+            "through": self.through,
+        }
+
+
+@dataclass(frozen=True)
 class EditEntity:
     id: str
     kind: EditEntityKind
@@ -38,12 +78,23 @@ class EditEntity:
     size_mm: Vector3
     transform: EditTransform = field(default_factory=EditTransform)
     role: str = "inspection"
+    holes: tuple[EditHoleCut, ...] = ()
 
     @classmethod
     def from_payload(cls, entity_id: str, payload: dict[str, Any]) -> "EditEntity":
         kind = payload.get("kind")
         if kind != "primitive_box":
             raise ValueError(f"Unsupported edit entity kind for {entity_id}: {kind!r}")
+        raw_holes = payload.get("holes", [])
+        if not isinstance(raw_holes, list):
+            raise ValueError(f"Edit entity `{entity_id}` holes must be a list")
+        holes: list[EditHoleCut] = []
+        for index, hole_payload in enumerate(raw_holes, start=1):
+            if not isinstance(hole_payload, dict):
+                raise ValueError(f"Edit entity `{entity_id}` hole must be an object")
+            hole_id = str(hole_payload.get("id") or f"hole_{index:03d}")
+            holes.append(EditHoleCut.from_payload(hole_id, hole_payload))
+
         return cls(
             id=entity_id,
             kind="primitive_box",
@@ -51,6 +102,7 @@ class EditEntity:
             size_mm=_vector3(payload.get("size_mm"), default=(20.0, 20.0, 20.0), field_name="size_mm"),
             transform=EditTransform.from_payload(_dict_or_none(payload.get("transform"), field_name="transform")),
             role=str(payload.get("role") or "inspection"),
+            holes=tuple(holes),
         )
 
     def to_payload(self) -> dict[str, Any]:
@@ -60,6 +112,7 @@ class EditEntity:
             "size_mm": list(self.size_mm),
             "transform": self.transform.to_payload(),
             "role": self.role,
+            "holes": [hole.to_payload() for hole in self.holes],
         }
 
 

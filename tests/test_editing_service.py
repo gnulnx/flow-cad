@@ -3,6 +3,7 @@ from typing import Any, Callable
 
 import pytest
 
+from flow_cad.editing.kernel import shape_for_entity
 from flow_cad.editing.service import EditService, EditServiceError
 from flow_cad.project import bundled_example_project
 from flow_cad.viewer.app import create_app
@@ -152,6 +153,62 @@ def test_create_point_requires_coordinates(tmp_path: Path) -> None:
         service.create_point({"quality": "exact"})
 
 
+def test_cut_hole_operation_persists_and_changes_exact_box_shape(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation(
+        {
+            "type": "create_box",
+            "entity_id": "box_custom",
+            "size_mm": [20, 20, 20],
+            "translation_mm": [0, 0, 10],
+        }
+    )
+    service.create_point({"point_id": "point_center", "position_mm": [0, 0, 10], "quality": "exact"})
+    before = shape_for_entity(service.document_model().entities["box_custom"]).volume
+
+    result = service.append_operation(
+        {
+            "type": "cut_hole",
+            "target_entity_id": "edit:box_custom",
+            "point_id": "point_center",
+            "preset": "m4_clearance",
+            "axis": [0, 0, 1],
+        }
+    )
+
+    assert result["document_revision"] == 3
+    assert result["operation"]["type"] == "cut_hole"
+    assert result["operation"]["preset"] == "m4_clearance"
+    assert result["operation"]["diameter_mm"] == 4.5
+    assert result["entity"]["holes"][0]["point_id"] == "point_center"
+    assert result["entity"]["holes"][0]["axis"] == [0.0, 0.0, 1.0]
+    assert result["entity"]["bounds"]["size_mm"] == pytest.approx([20.0, 20.0, 20.0])
+
+    reloaded = EditService(bundled_example_project(tmp_path)).document_model()
+    assert reloaded.revision == 3
+    assert reloaded.entities["box_custom"].holes[0].diameter_mm == pytest.approx(4.5)
+    assert [operation["type"] for operation in reloaded.operations] == ["create_box", "create_point", "cut_hole"]
+    assert shape_for_entity(reloaded.entities["box_custom"]).volume < before
+
+
+def test_cut_hole_rejects_approximate_points(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "box_custom"})
+    service.create_point({"point_id": "point_mesh", "position_mm": [0, 0, 0], "quality": "approximate"})
+
+    with pytest.raises(EditServiceError, match="Approximate edit points cannot drive exact through-hole cuts"):
+        service.create_hole({"target_entity_id": "box_custom", "point_id": "point_mesh"})
+
+
+def test_cut_hole_rejects_non_cardinal_axes(tmp_path: Path) -> None:
+    service = EditService(bundled_example_project(tmp_path))
+    service.append_operation({"type": "create_box", "entity_id": "box_custom"})
+    service.create_point({"point_id": "point_center", "position_mm": [0, 0, 0], "quality": "exact"})
+
+    with pytest.raises(EditServiceError, match=r"\+/-X, \+/-Y, \+/-Z"):
+        service.create_hole({"target_entity_id": "box_custom", "point_id": "point_center", "axis": [1, 1, 0]})
+
+
 def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> None:
     viewer_service = ViewerService(tmp_path)
     app = create_app(service=viewer_service)
@@ -161,6 +218,7 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     edit_entity = _endpoint(app, "/api/edit/entities/{entity_id}", "PATCH")
     edit_points = _endpoint(app, "/api/edit/points", "POST")
     edit_point = _endpoint(app, "/api/edit/points/{point_id}", "PATCH")
+    edit_holes = _endpoint(app, "/api/edit/holes", "POST")
     health = _endpoint(app, "/api/health", "GET")
 
     status = edit_status()
@@ -168,6 +226,8 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert status["document_path"] == "flow/document.json"
     assert status["document_exists"] is False
     assert status["document_revision"] == 0
+    assert status["tool_presets"]["holes"]["m4_clearance"]["diameter_mm"] == 4.5
+    assert status["tool_presets"]["holes"]["m5_clearance"]["diameter_mm"] == 5.5
 
     document = edit_document()
     assert document["revision"] == 0
@@ -202,10 +262,17 @@ def test_edit_api_status_document_and_create_box_operation(tmp_path: Path) -> No
     assert point_update["point"]["position_mm"] == [3.0, 2.0, 1.0]
     assert health()["revision"] == 4
 
+    hole = edit_holes({"target_entity_id": "box_001", "point_id": "point_001", "preset": "m5_clearance"})
+    assert hole["document_revision"] == 5
+    assert hole["operation"]["type"] == "cut_hole"
+    assert hole["hole"]["diameter_mm"] == 5.5
+    assert health()["revision"] == 5
+
     reloaded = edit_document()
-    assert reloaded["revision"] == 4
+    assert reloaded["revision"] == 5
     assert sorted(reloaded["entities"]) == ["box_001"]
     assert sorted(reloaded["points"]) == ["point_001"]
+    assert reloaded["entities"]["box_001"]["holes"][0]["preset"] == "m5_clearance"
 
 
 def test_viewer_service_lists_edit_entities_as_exact_parts(tmp_path: Path) -> None:
@@ -284,6 +351,35 @@ def test_viewer_service_lazily_exports_edit_entity_model(tmp_path: Path) -> None
     assert snap_payload["capabilities"]["exact_snap"] is True
     assert snap_payload["capabilities"]["exact_editing"] is True
     assert {feature["kind"] for feature in snap_payload["features"]} >= {"vertex", "line_edge", "edge_midpoint"}
+
+
+def test_viewer_service_refreshes_edit_snap_features_after_hole_cut(tmp_path: Path) -> None:
+    viewer_service = ViewerService(tmp_path)
+    viewer_service.append_edit_operation(
+        {
+            "type": "create_box",
+            "size_mm": [20, 20, 20],
+            "translation_mm": [0, 0, 10],
+        }
+    )
+    viewer_service.create_edit_point({"point_id": "point_center", "position_mm": [0, 0, 10], "quality": "exact"})
+    before = viewer_service.snap_features("edit:box_001")
+    assert all(feature["kind"] != "circle_center" for feature in before["features"])
+
+    viewer_service.create_edit_hole(
+        {
+            "target_entity_id": "edit:box_001",
+            "point_id": "point_center",
+            "preset": "m4_clearance",
+            "axis": [0, 0, 1],
+        }
+    )
+
+    after = viewer_service.snap_features("edit:box_001")
+    circle_centers = [feature for feature in after["features"] if feature["kind"] == "circle_center"]
+    assert after["capabilities"]["exact_editing"] is True
+    assert [feature["radius"] for feature in circle_centers] == pytest.approx([2.25, 2.25])
+    assert sorted(round(feature["point"][2], 3) for feature in circle_centers) == [0.0, 20.0]
 
 
 def _endpoint(app: Any, path: str, method: str) -> Callable[..., dict[str, Any]]:

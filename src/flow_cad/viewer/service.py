@@ -179,6 +179,11 @@ class ViewerService:
         self.revision += 1
         return result
 
+    def create_edit_hole(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.create_hole(payload)
+        self.revision += 1
+        return result
+
     def list_parts(self) -> dict[str, Any]:
         placement_map = self._placement_map()
         default_visible_ids = self._default_visible_part_keys()

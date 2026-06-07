@@ -6,7 +6,8 @@ from typing import Any
 
 from flow_cad.editing.document import EditDocumentError, EditDocumentStore, normalized_document_payload
 from flow_cad.editing.kernel import EditKernelError, bounding_box_payload
-from flow_cad.editing.models import EditDocument, EditEntity, EditPoint
+from flow_cad.editing.models import EditDocument, EditEntity, EditHoleCut, EditPoint, Vector3
+from flow_cad.editing.presets import hole_preset, hole_presets_payload
 from flow_cad.project import FlowCadProject
 
 
@@ -37,7 +38,7 @@ class EditService:
             "can_undo": bool(document.operations),
             "can_redo": False,
             "tool_presets": {
-                "holes": {},
+                "holes": hole_presets_payload(),
             },
         }
 
@@ -74,6 +75,8 @@ class EditService:
             if not entity_id:
                 raise EditServiceError(f"`entity_id` is required for {operation_type}")
             return self._append_update_entity(document, entity_id, payload, operation_type=operation_type)
+        if operation_type == "cut_hole":
+            return self._append_cut_hole(document, payload)
         raise EditServiceError(f"Unsupported edit operation type: {operation_type or '<missing>'}")
 
     def patch_entity(self, entity_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -128,6 +131,12 @@ class EditService:
         next_document = document.with_point_and_operation(point, operation)
         self.store.save(next_document)
         return self._point_result(next_document, point, operation)
+
+    def create_hole(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise EditServiceError("Edit hole payload must be an object")
+        document = self._load_document(create=True)
+        return self._append_cut_hole(document, {**payload, "type": "cut_hole"})
 
     def _append_create_box(self, document: EditDocument, payload: dict[str, Any]) -> dict[str, Any]:
         entity_id = str(payload.get("entity_id") or self._next_entity_id(document, "box"))
@@ -236,6 +245,96 @@ class EditService:
             "document": normalized_document_payload(self.store, document),
         }
 
+    def _append_cut_hole(self, document: EditDocument, payload: dict[str, Any]) -> dict[str, Any]:
+        target_entity_id = str(payload.get("target_entity_id") or payload.get("entity_id") or "")
+        if is_edit_component_id(target_entity_id):
+            target_entity_id = entity_id_from_component_id(target_entity_id)
+        if not target_entity_id:
+            raise EditServiceError("`target_entity_id` is required for cut_hole")
+        point_id = str(payload.get("point_id") or "")
+        if not point_id:
+            raise EditServiceError("`point_id` is required for cut_hole")
+
+        try:
+            current = document.entities[target_entity_id]
+        except KeyError as exc:
+            raise EditServiceError(f"Edit entity is not registered: {target_entity_id}") from exc
+        try:
+            point = document.points[point_id]
+        except KeyError as exc:
+            raise EditServiceError(f"Edit point is not registered: {point_id}") from exc
+
+        if point.quality != "exact":
+            raise EditServiceError("Approximate edit points cannot drive exact through-hole cuts")
+        if point.coordinate_space != "world":
+            raise EditServiceError("Only world-space edit points can drive through-hole cuts in V1")
+
+        preset_id = str(payload.get("preset") or "m4_clearance")
+        try:
+            preset = hole_preset(preset_id)
+            axis = _normalized_cardinal_axis(payload.get("axis", (0.0, 0.0, 1.0)))
+        except ValueError as exc:
+            raise EditServiceError(str(exc)) from exc
+
+        hole_id = str(payload.get("hole_id") or self._next_hole_id(document))
+        if any(hole.id == hole_id for entity in document.entities.values() for hole in entity.holes):
+            raise EditServiceError(f"Edit hole already exists: {hole_id}")
+
+        try:
+            hole = EditHoleCut.from_payload(
+                hole_id,
+                {
+                    "point_id": point.id,
+                    "position_mm": point.position_mm,
+                    "axis": axis,
+                    "preset": preset.id,
+                    "diameter_mm": preset.diameter_mm,
+                    "through": True,
+                },
+            )
+            updated = EditEntity.from_payload(
+                current.id,
+                {
+                    **current.to_payload(),
+                    "holes": [hole.to_payload() for hole in (*current.holes, hole)],
+                },
+            )
+            bounds = bounding_box_payload(updated)
+        except ValueError as exc:
+            raise EditServiceError(str(exc)) from exc
+        except EditKernelError as exc:
+            raise EditServiceUnavailableError(str(exc)) from exc
+
+        operation_id = str(payload.get("id") or payload.get("operation_id") or self._next_operation_id(document))
+        self._ensure_operation_id_available(document, operation_id)
+        operation = {
+            "id": operation_id,
+            "type": "cut_hole",
+            "target_entity_id": updated.id,
+            "point_id": point.id,
+            "hole_id": hole.id,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "preset": preset.id,
+            "diameter_mm": preset.diameter_mm,
+            "axis": list(axis),
+            "through": True,
+        }
+        next_document = document.with_entity_and_operation(updated, operation)
+        self.store.save(next_document)
+        return {
+            "ok": True,
+            "document_revision": next_document.revision,
+            "operation": operation,
+            "hole": hole.to_payload(),
+            "entity": {
+                "id": updated.id,
+                **updated.to_payload(),
+                "bounds": bounds,
+            },
+            "changed_entity_ids": [updated.id],
+            "document": normalized_document_payload(self.store, next_document),
+        }
+
     def _append_update_entity(
         self,
         document: EditDocument,
@@ -329,6 +428,13 @@ class EditService:
         return _next_numbered_id(document.points.keys(), "point")
 
     @staticmethod
+    def _next_hole_id(document: EditDocument) -> str:
+        return _next_numbered_id(
+            (hole.id for entity in document.entities.values() for hole in entity.holes),
+            "hole",
+        )
+
+    @staticmethod
     def _ensure_operation_id_available(document: EditDocument, operation_id: str) -> None:
         if any(operation.get("id") == operation_id for operation in document.operations):
             raise EditServiceError(f"Edit operation already exists: {operation_id}")
@@ -342,6 +448,24 @@ def _next_numbered_id(existing: Any, prefix: str) -> str:
         if candidate not in taken:
             return candidate
         index += 1
+
+
+def _normalized_cardinal_axis(value: Any) -> Vector3:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError("`axis` must be a three-number array")
+    axis = tuple(float(item) for item in value)
+    length = sum(item * item for item in axis) ** 0.5
+    if length == 0:
+        raise ValueError("`axis` must not be the zero vector")
+    normalized = (axis[0] / length, axis[1] / length, axis[2] / length)
+    non_zero = [index for index, item in enumerate(normalized) if abs(item) > 1e-6]
+    if len(non_zero) != 1:
+        raise ValueError("`axis` must be one of +/-X, +/-Y, +/-Z for V1 through-hole cuts")
+    index = non_zero[0]
+    sign = 1.0 if normalized[index] > 0 else -1.0
+    result = [0.0, 0.0, 0.0]
+    result[index] = sign
+    return (result[0], result[1], result[2])
 
 
 def component_id_for_entity(entity_id: str) -> str:

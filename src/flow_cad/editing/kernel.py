@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
-from flow_cad.editing.models import EditEntity
+from flow_cad.editing.models import EditEntity, EditHoleCut
 from flow_cad.step_io import normalize_step_file
 
 
@@ -21,8 +22,10 @@ def shape_for_entity(entity: EditEntity) -> Any:
             "Edit kernel operations require build123d/OCP. Install project dependencies or configure the CAD environment."
         ) from exc
 
-    shape = Box(*entity.size_mm)
-    return shape.moved(Location(entity.transform.translation_mm, entity.transform.rotation_deg))
+    shape = Box(*entity.size_mm).moved(Location(entity.transform.translation_mm, entity.transform.rotation_deg))
+    for hole in entity.holes:
+        shape = _cut_through_hole(shape, hole)
+    return shape
 
 
 def export_entity_step(entity: EditEntity, path: Path) -> Path:
@@ -60,3 +63,58 @@ def bounding_box_payload(entity: EditEntity) -> dict[str, Any]:
             (min_point[2] + max_point[2]) / 2,
         ],
     }
+
+
+def _cut_through_hole(shape: Any, hole: EditHoleCut) -> Any:
+    if not hole.through:
+        raise EditKernelError("Only through-hole cuts are supported in the edit kernel")
+    try:
+        from build123d import Cylinder, Location
+    except Exception as exc:  # pragma: no cover - depends on local CAD install
+        raise EditKernelError(
+            "Edit kernel operations require build123d/OCP. Install project dependencies or configure the CAD environment."
+        ) from exc
+
+    axis = _cardinal_axis(hole.axis)
+    length = _through_length(shape, axis, hole.diameter_mm)
+    rotation = {
+        "x": (0.0, 90.0, 0.0),
+        "y": (90.0, 0.0, 0.0),
+        "z": (0.0, 0.0, 0.0),
+    }[axis]
+    cutter = Cylinder(hole.diameter_mm / 2.0, length, rotation=rotation).moved(Location(hole.position_mm))
+    try:
+        result = shape - cutter
+        return result.clean()
+    except Exception as exc:
+        raise EditKernelError(f"Could not cut through-hole {hole.id}: {exc}") from exc
+
+
+def _cardinal_axis(axis: tuple[float, float, float]) -> str:
+    normalized = _normalized_axis(axis)
+    candidates = {
+        "x": (1.0, 0.0, 0.0),
+        "y": (0.0, 1.0, 0.0),
+        "z": (0.0, 0.0, 1.0),
+    }
+    for name, candidate in candidates.items():
+        if all(abs(abs(normalized[index]) - candidate[index]) < 1e-6 for index in range(3)):
+            return name
+    raise EditKernelError("Only X, Y, and Z axis through-hole cuts are supported")
+
+
+def _normalized_axis(axis: tuple[float, float, float]) -> tuple[float, float, float]:
+    length = math.sqrt(sum(value * value for value in axis))
+    if length == 0:
+        raise EditKernelError("Hole axis must not be the zero vector")
+    return (axis[0] / length, axis[1] / length, axis[2] / length)
+
+
+def _through_length(shape: Any, axis: str, diameter_mm: float) -> float:
+    bb = shape.bounding_box()
+    span = {
+        "x": float(bb.max.X - bb.min.X),
+        "y": float(bb.max.Y - bb.min.Y),
+        "z": float(bb.max.Z - bb.min.Z),
+    }[axis]
+    return span + max(20.0, diameter_mm * 4.0)
