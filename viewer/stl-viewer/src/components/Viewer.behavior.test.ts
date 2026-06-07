@@ -5,6 +5,7 @@ import type { MeasurementTarget } from '../measurement'
 import {
   defaultTapeResolveMode,
   editMoveCenterAfterDrag,
+  editResizeSizeAfterDrag,
   measurementLabelOffsetAfterDrag,
   measurementResolveModesDiffer,
   pickedTapeTarget,
@@ -68,6 +69,30 @@ describe('viewer snap behavior contract', () => {
     )
 
     expect(nextCenter.toArray()).toEqual([13, 18, 35])
+  })
+
+  it('resizes edit boxes along the dragged axis while preserving other dimensions', () => {
+    const nextSize = editResizeSizeAfterDrag(
+      new Vector3(20, 30, 40),
+      'x',
+      1,
+      new Vector3(10, 0, 0),
+      new Vector3(14, 5, 0),
+    )
+
+    expect(nextSize.toArray()).toEqual([28, 30, 40])
+  })
+
+  it('keeps edit box resize dimensions positive', () => {
+    const nextSize = editResizeSizeAfterDrag(
+      new Vector3(20, 30, 40),
+      'y',
+      -1,
+      new Vector3(0, -15, 0),
+      new Vector3(0, 10, 0),
+    )
+
+    expect(nextSize.toArray()).toEqual([20, 0.1, 40])
   })
 
   it('does not switch to edge-length preview during an active tape drag', () => {

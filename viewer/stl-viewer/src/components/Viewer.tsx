@@ -660,6 +660,24 @@ interface EditDragState {
   startPointerPoint: THREE.Vector3
 }
 
+interface EditResizeDragState {
+  pointerId: number
+  axis: AxisName
+  direction: 1 | -1
+  startSize: THREE.Vector3
+  startPointerPoint: THREE.Vector3
+}
+
+export type AxisName = 'x' | 'y' | 'z'
+
+const EDIT_AXIS_VECTORS: Record<AxisName, THREE.Vector3> = {
+  x: new THREE.Vector3(1, 0, 0),
+  y: new THREE.Vector3(0, 1, 0),
+  z: new THREE.Vector3(0, 0, 1),
+}
+
+const MIN_EDIT_SIZE_MM = 0.1
+
 function EditMoveHandle({
   model,
   previewOffset,
@@ -670,7 +688,7 @@ function EditMoveHandle({
   model: ModelData
   previewOffset: THREE.Vector3
   onPreviewOffsetChange: (partId: string, offset: THREE.Vector3 | null) => void
-  onCommit?: (partId: string, translationMm: [number, number, number]) => Promise<void>
+  onCommit?: (partId: string, patch: Record<string, unknown>) => Promise<void>
   onDragActiveChange: (active: boolean) => void
 }) {
   const { camera, gl, raycaster, invalidate } = useThree()
@@ -717,7 +735,7 @@ function EditMoveHandle({
     event.target?.releasePointerCapture?.(event.pointerId)
     onPreviewOffsetChange(model.partId, null)
     onDragActiveChange(false)
-    void onCommit?.(model.partId, vectorToMmTuple(nextCenter))
+    void onCommit?.(model.partId, { translation_mm: vectorToMmTuple(nextCenter) })
     event.stopPropagation()
     event.nativeEvent?.preventDefault?.()
     invalidate()
@@ -743,6 +761,123 @@ function EditMoveHandle({
   )
 }
 
+function EditResizeHandles({
+  model,
+  previewSize,
+  onPreviewSizeChange,
+  onCommit,
+  onDragActiveChange,
+}: {
+  model: ModelData
+  previewSize: THREE.Vector3
+  onPreviewSizeChange: (partId: string, size: THREE.Vector3 | null) => void
+  onCommit?: (partId: string, patch: Record<string, unknown>) => Promise<void>
+  onDragActiveChange: (active: boolean) => void
+}) {
+  const { camera, gl, raycaster, invalidate } = useThree()
+  const dragRef = useRef<EditResizeDragState | null>(null)
+  const center = model.bounds.center
+  const handleRadius = Math.max(1.8, Math.min(5, previewSize.length() * 0.035))
+
+  const startResize = (axis: AxisName, direction: 1 | -1) => (event: any) => {
+    if (event.button !== 0) return
+    const handlePoint = resizeHandlePosition(center, previewSize, axis, direction)
+    const startPointerPoint = worldPointOnCameraPlane(event, gl.domElement, camera, raycaster, handlePoint)
+    if (!startPointerPoint) return
+    dragRef.current = {
+      pointerId: event.pointerId,
+      axis,
+      direction,
+      startSize: previewSize.clone(),
+      startPointerPoint,
+    }
+    event.target?.setPointerCapture?.(event.pointerId)
+    onDragActiveChange(true)
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const moveResize = (event: any) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const currentPointerPoint = worldPointOnCameraPlane(
+      event,
+      gl.domElement,
+      camera,
+      raycaster,
+      resizeHandlePosition(center, drag.startSize, drag.axis, drag.direction),
+    )
+    if (!currentPointerPoint) return
+    const nextSize = editResizeSizeAfterDrag(
+      drag.startSize,
+      drag.axis,
+      drag.direction,
+      drag.startPointerPoint,
+      currentPointerPoint,
+    )
+    onPreviewSizeChange(model.partId, nextSize)
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const endResize = (event: any) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    const currentPointerPoint = worldPointOnCameraPlane(
+      event,
+      gl.domElement,
+      camera,
+      raycaster,
+      resizeHandlePosition(center, drag.startSize, drag.axis, drag.direction),
+    )
+    const nextSize = currentPointerPoint
+      ? editResizeSizeAfterDrag(drag.startSize, drag.axis, drag.direction, drag.startPointerPoint, currentPointerPoint)
+      : drag.startSize
+    event.target?.releasePointerCapture?.(event.pointerId)
+    onPreviewSizeChange(model.partId, null)
+    onDragActiveChange(false)
+    void onCommit?.(model.partId, { size_mm: vectorToMmTuple(nextSize) })
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const handles: Array<{ axis: AxisName; direction: 1 | -1; color: string }> = [
+    { axis: 'x', direction: 1, color: '#ef4444' },
+    { axis: 'x', direction: -1, color: '#ef4444' },
+    { axis: 'y', direction: 1, color: '#22c55e' },
+    { axis: 'y', direction: -1, color: '#22c55e' },
+    { axis: 'z', direction: 1, color: '#3b82f6' },
+    { axis: 'z', direction: -1, color: '#3b82f6' },
+  ]
+
+  return (
+    <group>
+      <mesh position={center}>
+        <boxGeometry args={[previewSize.x, previewSize.y, previewSize.z]} />
+        <meshBasicMaterial color="#d9f99d" wireframe transparent opacity={0.55} depthTest={false} />
+      </mesh>
+      {handles.map((handle) => (
+        <mesh
+          key={`${handle.axis}:${handle.direction}`}
+          position={resizeHandlePosition(center, previewSize, handle.axis, handle.direction)}
+          userData={{ flowEditHandle: 'resize', flowPartId: model.partId, axis: handle.axis, direction: handle.direction }}
+          onPointerDown={startResize(handle.axis, handle.direction)}
+          onPointerMove={moveResize}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+        >
+          <boxGeometry args={[handleRadius * 1.6, handleRadius * 1.6, handleRadius * 1.6]} />
+          <meshBasicMaterial color={handle.color} transparent opacity={0.82} depthTest={false} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
 function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode }) {
   const {
     models,
@@ -756,6 +891,7 @@ function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode })
     onEditEntityPatch,
   } = props
   const [editPreviewOffsets, setEditPreviewOffsets] = useState<Record<string, THREE.Vector3>>({})
+  const [editPreviewSizes, setEditPreviewSizes] = useState<Record<string, THREE.Vector3>>({})
   const [editDragActive, setEditDragActive] = useState(false)
   const activeEditableModel = measurementMode === 'off' && activeName?.startsWith('edit:')
     ? models.find((model) => model.partId === activeName && model.capabilities.exact_editing)
@@ -765,6 +901,17 @@ function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode })
       const next = { ...current }
       if (offset) {
         next[partId] = offset.clone()
+      } else {
+        delete next[partId]
+      }
+      return next
+    })
+  }
+  const setPreviewSize = (partId: string, size: THREE.Vector3 | null) => {
+    setEditPreviewSizes((current) => {
+      const next = { ...current }
+      if (size) {
+        next[partId] = size.clone()
       } else {
         delete next[partId]
       }
@@ -790,13 +937,22 @@ function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode })
         />
       ))}
       {activeEditableModel ? (
-        <EditMoveHandle
-          model={activeEditableModel}
-          previewOffset={editPreviewOffsets[activeEditableModel.partId] ?? new THREE.Vector3()}
-          onPreviewOffsetChange={setPreviewOffset}
-          onCommit={onEditEntityPatch}
-          onDragActiveChange={setEditDragActive}
-        />
+        <>
+          <EditMoveHandle
+            model={activeEditableModel}
+            previewOffset={editPreviewOffsets[activeEditableModel.partId] ?? new THREE.Vector3()}
+            onPreviewOffsetChange={setPreviewOffset}
+            onCommit={onEditEntityPatch}
+            onDragActiveChange={setEditDragActive}
+          />
+          <EditResizeHandles
+            model={activeEditableModel}
+            previewSize={editPreviewSizes[activeEditableModel.partId] ?? activeEditableModel.bounds.size}
+            onPreviewSizeChange={setPreviewSize}
+            onCommit={onEditEntityPatch}
+            onDragActiveChange={setEditDragActive}
+          />
+        </>
       ) : null}
       <MeasurementLayer models={models} mode={measurementMode} clearMeasurementsRequest={clearMeasurementsRequest} />
       <ViewportControls
@@ -1055,6 +1211,20 @@ export function editMoveCenterAfterDrag(
   return startCenter.clone().add(currentPointerPoint.clone().sub(startPointerPoint))
 }
 
+export function editResizeSizeAfterDrag(
+  startSize: THREE.Vector3,
+  axis: AxisName,
+  direction: 1 | -1,
+  startPointerPoint: THREE.Vector3,
+  currentPointerPoint: THREE.Vector3,
+) {
+  const axisVector = EDIT_AXIS_VECTORS[axis]
+  const signedDelta = currentPointerPoint.clone().sub(startPointerPoint).dot(axisVector) * direction
+  const nextSize = startSize.clone()
+  nextSize[axis] = Math.max(MIN_EDIT_SIZE_MM, startSize[axis] + signedDelta * 2)
+  return nextSize
+}
+
 export function pickedTapeTarget(target: MeasurementTarget): MeasurementTarget {
   if (!target.segment) return target
   return {
@@ -1291,4 +1461,8 @@ function vectorToMmTuple(vector: THREE.Vector3): [number, number, number] {
     Number(vector.y.toFixed(4)),
     Number(vector.z.toFixed(4)),
   ]
+}
+
+function resizeHandlePosition(center: THREE.Vector3, size: THREE.Vector3, axis: AxisName, direction: 1 | -1) {
+  return center.clone().add(EDIT_AXIS_VECTORS[axis].clone().multiplyScalar((size[axis] / 2) * direction))
 }
