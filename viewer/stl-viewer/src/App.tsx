@@ -5,6 +5,7 @@ import FileDropZone from './components/FileDropZone'
 import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import SourcePanel from './components/SourcePanel'
+import EditEntityControls from './components/EditEntityControls'
 import { calculateMeshMetrics } from './meshMetrics'
 import {
   MODEL_WIREFRAME_COLOR,
@@ -16,6 +17,7 @@ import {
   type ViewerColorMode,
 } from './partMetadata'
 import type {
+  EditDocumentPayload,
   GeometryCapabilities,
   ModelData,
   PartMetadataDraft,
@@ -69,6 +71,19 @@ interface EditOperationResponse {
   entity?: {
     id?: string
   }
+  document?: EditDocumentPayload
+}
+
+interface EditPatchResponse {
+  document?: EditDocumentPayload
+}
+
+function isEditComponentId(value: string | null) {
+  return Boolean(value?.startsWith('edit:'))
+}
+
+function editEntityIdFromComponentId(value: string) {
+  return value.replace(/^edit:/, '')
 }
 
 export default function App() {
@@ -92,6 +107,7 @@ export default function App() {
   const [activeVersion, setActiveVersion] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ViewerColorMode>('workbench')
   const [partMetadataDrafts, setPartMetadataDrafts] = useState<Record<string, PartMetadataDraft>>({})
+  const [editDocument, setEditDocument] = useState<EditDocumentPayload | null>(null)
   const loadingPartIdsRef = useRef<Set<string>>(new Set())
 
   // Resizing state hooks
@@ -292,6 +308,16 @@ export default function App() {
     await loadViewerState()
   }, [apiBase, loadViewerState])
 
+  const loadEditDocument = useCallback(async () => {
+    const response = await fetch(apiUrl(apiBase, '/api/edit/document'))
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as EditDocumentPayload
+    setEditDocument(payload)
+    return payload
+  }, [apiBase])
+
   const handleAddCube = useCallback(async () => {
     setStatusMessage('Adding cube...')
     const response = await fetch(apiUrl(apiBase, '/api/edit/operations'), {
@@ -304,6 +330,11 @@ export default function App() {
     }
 
     const payload = await response.json() as EditOperationResponse
+    if (payload.document) {
+      setEditDocument(payload.document)
+    } else {
+      await loadEditDocument()
+    }
     await loadViewerState()
     const entityId = payload.entity?.id
     if (entityId) {
@@ -313,7 +344,37 @@ export default function App() {
       setTapeMode(false)
       setStatusMessage(`Added ${entityId}`)
     }
-  }, [apiBase, loadViewerState])
+  }, [apiBase, loadEditDocument, loadViewerState])
+
+  const patchEditEntity = useCallback(async (componentId: string, patch: Record<string, unknown>) => {
+    const entityId = editEntityIdFromComponentId(componentId)
+    try {
+      setStatusMessage(`Updating ${entityId}...`)
+      const response = await fetch(apiUrl(apiBase, `/api/edit/entities/${encodeURIComponent(componentId)}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditPatchResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      await loadViewerState()
+      setSelectedIds([componentId])
+      setActiveName(componentId)
+      setStatusMessage(`Updated ${entityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Edit update failed for ${entityId}:`, err)
+      setStatusMessage(`Update failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
 
   const loadStlFile = useCallback((file: File) => {
     const reader = new FileReader()
@@ -421,6 +482,14 @@ export default function App() {
       setSourceContext(null)
     })
   }, [activeName, apiBase, viewerParts])
+
+  useEffect(() => {
+    if (!isEditComponentId(activeName)) return
+    loadEditDocument().catch((err) => {
+      console.error(`Failed to load edit document for ${activeName}:`, err)
+      setStatusMessage(`Edit document unavailable: ${err.message}`)
+    })
+  }, [activeName, loadEditDocument])
 
   const handleFiles = useCallback((files: FileList) => {
     const stlFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.stl'))
@@ -575,6 +644,12 @@ export default function App() {
     () => Array.from(new Set(visibleModels.flatMap((model) => model.warnings))).slice(0, 3),
     [visibleModels],
   )
+  const activeEditEntity = useMemo(() => {
+    if (!activeName || !isEditComponentId(activeName) || !editDocument) return null
+    const entityId = editEntityIdFromComponentId(activeName)
+    const entity = editDocument.entities[entityId]
+    return entity ? { componentId: activeName, entityId, entity } : null
+  }, [activeName, editDocument])
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -633,6 +708,14 @@ export default function App() {
                   <div key={warning} className="geometry-warning">{warning}</div>
                 ))}
               </div>
+            ) : null}
+            {activeEditEntity ? (
+              <EditEntityControls
+                componentId={activeEditEntity.componentId}
+                entityId={activeEditEntity.entityId}
+                entity={activeEditEntity.entity}
+                onPatch={patchEditEntity}
+              />
             ) : null}
             <Viewer
               models={visibleModels}

@@ -64,6 +64,30 @@ export interface ViewerPartsPayload {
   parts: ViewerPart[]
 }
 
+export interface EditTransform {
+  translation_mm: [number, number, number]
+  rotation_deg: [number, number, number]
+}
+
+export interface EditEntity {
+  kind: 'primitive_box'
+  name: string
+  size_mm: [number, number, number]
+  transform: EditTransform
+  role: string
+}
+
+export interface EditDocumentPayload {
+  schema_version: number
+  document_id: string
+  units: 'mm' | string
+  revision: number
+  document_path?: string
+  entities: Record<string, EditEntity>
+  points: Record<string, unknown>
+  operations: Array<Record<string, unknown>>
+}
+
 export interface SnapFeature {
   id: string
   kind: SnapFeatureKind

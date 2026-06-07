@@ -136,6 +136,30 @@ const editBoxPart = {
   default_visible: true,
 }
 
+function editDocumentPayload() {
+  return {
+    schema_version: 1,
+    document_id: 'main',
+    units: 'mm',
+    revision: partsRevision,
+    document_path: 'flow/document.json',
+    entities: {
+      box_001: {
+        kind: 'primitive_box',
+        name: 'box_001',
+        size_mm: [20, 20, 20],
+        transform: {
+          translation_mm: [0, 0, 0],
+          rotation_deg: [0, 0, 0],
+        },
+        role: 'inspection',
+      },
+    },
+    points: {},
+    operations: [],
+  }
+}
+
 const sourcePayload = {
   component_id: 'wheel_box_test_body',
   symbol: 'make_wheel_box_test_body',
@@ -197,14 +221,29 @@ describe('App source loading', () => {
       features: [...snapFeaturesPayload.features],
       warnings: [],
     }
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString()
       if (url.endsWith('/api/parts')) return jsonResponse({ ...partsPayload, revision: partsRevision, parts: activeParts })
       if (url.endsWith('/api/edit/operations')) {
         partsRevision += 1
         healthRevision = partsRevision
         activeParts = [...partsPayload.parts, editBoxPart]
-        return jsonResponse({ ok: true, document_revision: partsRevision, entity: { id: 'box_001' } })
+        return jsonResponse({ ok: true, document_revision: partsRevision, entity: { id: 'box_001' }, document: editDocumentPayload() })
+      }
+      if (url.endsWith('/api/edit/document')) return jsonResponse(editDocumentPayload())
+      if (url.includes('/api/edit/entities/')) {
+        partsRevision += 1
+        healthRevision = partsRevision
+        const patch = JSON.parse(String(init?.body ?? '{}'))
+        const document = editDocumentPayload()
+        document.revision = partsRevision
+        if (Array.isArray(patch.translation_mm)) {
+          document.entities.box_001.transform.translation_mm = patch.translation_mm
+        }
+        if (Array.isArray(patch.size_mm)) {
+          document.entities.box_001.size_mm = patch.size_mm
+        }
+        return jsonResponse({ ok: true, document_revision: partsRevision, entity: { id: 'box_001' }, document })
       }
       if (url.endsWith('/source')) return jsonResponse(sourcePayload)
       if (url.endsWith('/snap-features')) return jsonResponse(snapFeaturesPayload)
@@ -342,6 +381,44 @@ describe('App source loading', () => {
     await waitFor(() => {
       const latestModels = viewerRenderProps.at(-1)?.models ?? []
       expect(latestModels.some((model) => model.partId === 'edit:box_001')).toBe(true)
+    })
+  })
+
+  it('patches selected cube center and size from exact edit controls', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByRole('button', { name: 'Cube' }))
+
+    const centerX = await screen.findByLabelText('box_001 center X')
+    await user.clear(centerX)
+    await user.type(centerX, '5')
+    await user.click(screen.getByRole('button', { name: 'Apply Center' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/entities/edit%3Abox_001',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ translation_mm: [5, 0, 0] }),
+        }),
+      )
+    })
+
+    const sizeX = await screen.findByLabelText('box_001 size X')
+    await user.clear(sizeX)
+    await user.type(sizeX, '30')
+    await user.click(screen.getByRole('button', { name: 'Apply Size' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/edit/entities/edit%3Abox_001',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ size_mm: [30, 20, 20] }),
+        }),
+      )
     })
   })
 })
