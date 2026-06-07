@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from flow_cad.editing.service import EditServiceError
 from flow_cad.viewer.service import ViewerError, ViewerService
 
 
@@ -65,6 +66,27 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
         try:
             return viewer_service.snap_features(component_id)
         except ViewerError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/edit/status")
+    def edit_status() -> dict[str, object]:
+        try:
+            return viewer_service.edit_status()
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/edit/document")
+    def edit_document() -> dict[str, object]:
+        try:
+            return viewer_service.edit_document()
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/edit/operations")
+    def edit_operations(operation: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.append_edit_operation(operation)
+        except EditServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     @app.post("/api/reload")

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from flow_cad.core.metadata import PartDefinition, definition_export_subdir
+from flow_cad.editing.service import EditService
 from flow_cad.project import FlowCadProject, load_project
 from flow_cad.viewer.geometry_authority import (
     GeometryAuthorityError,
@@ -125,6 +126,7 @@ class ViewerService:
         self.converter = converter
         self.revision = 0
         self.reloaded_at: datetime | None = None
+        self.edit_service = EditService(self.project)
 
     @property
     def exports_dir(self) -> Path:
@@ -138,6 +140,7 @@ class ViewerService:
         self.project = load_project(self.project_root)
         self.project_root = self.project.root
         self.params = self.project.make_params()
+        self.edit_service = EditService(self.project)
         self.revision += 1
         self.reloaded_at = datetime.now(UTC)
         return {
@@ -145,6 +148,17 @@ class ViewerService:
             "revision": self.revision,
             "reloaded_at": self.reloaded_at.isoformat(),
         }
+
+    def edit_status(self) -> dict[str, Any]:
+        return self.edit_service.status()
+
+    def edit_document(self) -> dict[str, Any]:
+        return self.edit_service.document()
+
+    def append_edit_operation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.append_operation(payload)
+        self.revision += 1
+        return result
 
     def list_parts(self) -> dict[str, Any]:
         placement_map = self._placement_map()

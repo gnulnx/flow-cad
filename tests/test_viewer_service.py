@@ -260,6 +260,9 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/parts/{component_id}/model" in route_paths
     assert "/api/parts/{component_id}/source" in route_paths
     assert "/api/parts/{component_id}/snap-features" in route_paths
+    assert "/api/edit/status" in route_paths
+    assert "/api/edit/document" in route_paths
+    assert "/api/edit/operations" in route_paths
     assert "/api/reload" in route_paths
 
 
