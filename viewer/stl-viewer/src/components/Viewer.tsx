@@ -40,6 +40,11 @@ interface ViewerProps {
   onTapeModeChange?: (enabled: boolean) => void
   onClearMeasurements?: () => void
   onEditEntityPatch?: (componentId: string, patch: Record<string, unknown>) => Promise<void>
+  onCreateEditPoint?: (
+    positionMm: [number, number, number],
+    quality: 'exact' | 'approximate',
+    source: Record<string, unknown>,
+  ) => Promise<void>
 }
 
 type MeasurementMode = 'off' | 'quick' | 'tape'
@@ -283,11 +288,13 @@ function MeasurementLabel({
   onDelete,
   onOffsetChange,
   onResolveModeChange,
+  onDropPoint,
 }: {
   annotation: MeasurementAnnotation
   onDelete?: (id: string) => void
   onOffsetChange?: (id: string, offset: ScreenOffset) => void
   onResolveModeChange?: (id: string, mode: MeasurementResolveMode) => void
+  onDropPoint?: (annotation: MeasurementAnnotation) => void
 }) {
   const midpoint = annotation.startPoint.clone().add(annotation.endPoint).multiplyScalar(0.5)
   const dragRef = useRef<LabelDragState | null>(null)
@@ -350,6 +357,11 @@ function MeasurementLabel({
   const stopButtonPointer = (event: ReactPointerEvent<HTMLButtonElement>) => {
     event.stopPropagation()
   }
+  const dropPoint = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onDropPoint?.(annotation)
+  }
 
   return (
     <Html position={midpoint} center className="measurement-html">
@@ -406,6 +418,11 @@ function MeasurementLabel({
             <span className="delta-y">DY {formatMm(annotation.delta.y)}</span>
             <span className="delta-z">DZ {formatMm(annotation.delta.z)}</span>
           </div>
+          {onDropPoint && !annotation.temporary ? (
+            <button type="button" className="measurement-point" onPointerDown={stopButtonPointer} onClick={dropPoint}>
+              Drop Point
+            </button>
+          ) : null}
         </div>
       </div>
     </Html>
@@ -417,12 +434,14 @@ function MeasurementAnnotationView({
   onDelete,
   onLabelOffsetChange,
   onResolveModeChange,
+  onDropPoint,
   showMarkers = true,
 }: {
   annotation: MeasurementAnnotation
   onDelete?: (id: string) => void
   onLabelOffsetChange?: (id: string, offset: ScreenOffset) => void
   onResolveModeChange?: (id: string, mode: MeasurementResolveMode) => void
+  onDropPoint?: (annotation: MeasurementAnnotation) => void
   showMarkers?: boolean
 }) {
   const color = '#facc15'
@@ -441,6 +460,7 @@ function MeasurementAnnotationView({
         onDelete={annotation.temporary ? undefined : onDelete}
         onOffsetChange={annotation.temporary ? undefined : onLabelOffsetChange}
         onResolveModeChange={annotation.temporary ? undefined : onResolveModeChange}
+        onDropPoint={annotation.temporary ? undefined : onDropPoint}
       />
     </group>
   )
@@ -450,10 +470,12 @@ function MeasurementLayer({
   models,
   mode,
   clearMeasurementsRequest,
+  onCreateEditPoint,
 }: {
   models: ModelData[]
   mode: MeasurementMode
   clearMeasurementsRequest: number
+  onCreateEditPoint?: ViewerProps['onCreateEditPoint']
 }) {
   const { camera, gl, scene, raycaster, invalidate } = useThree()
   const [hoverTarget, setHoverTarget] = useState<MeasurementTarget | null>(null)
@@ -634,6 +656,11 @@ function MeasurementLayer({
     }))
   }
 
+  const dropEditPoint = (annotation: MeasurementAnnotation) => {
+    const payload = editPointPayloadForMeasurement(annotation.endPoint, annotation.qualityLabel, annotation.label, annotation.id)
+    void onCreateEditPoint?.(payload.position_mm, payload.quality, payload.source)
+  }
+
   return (
     <group>
       {annotations.map((annotation) => (
@@ -643,6 +670,7 @@ function MeasurementLayer({
           onDelete={deleteAnnotation}
           onLabelOffsetChange={moveAnnotationLabel}
           onResolveModeChange={changeAnnotationResolveMode}
+          onDropPoint={onCreateEditPoint ? dropEditPoint : undefined}
         />
       ))}
       {quickAnnotation ? <MeasurementAnnotationView annotation={quickAnnotation} /> : null}
@@ -954,7 +982,12 @@ function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode })
           />
         </>
       ) : null}
-      <MeasurementLayer models={models} mode={measurementMode} clearMeasurementsRequest={clearMeasurementsRequest} />
+      <MeasurementLayer
+        models={models}
+        mode={measurementMode}
+        clearMeasurementsRequest={clearMeasurementsRequest}
+        onCreateEditPoint={props.onCreateEditPoint}
+      />
       <ViewportControls
         models={models}
         activeName={activeName}
@@ -1223,6 +1256,23 @@ export function editResizeSizeAfterDrag(
   const nextSize = startSize.clone()
   nextSize[axis] = Math.max(MIN_EDIT_SIZE_MM, startSize[axis] + signedDelta * 2)
   return nextSize
+}
+
+export function editPointPayloadForMeasurement(
+  point: THREE.Vector3,
+  qualityLabel: string,
+  label: string,
+  measurementId: string,
+) {
+  return {
+    position_mm: vectorToMmTuple(point),
+    quality: qualityLabel.toLowerCase() === 'exact' ? 'exact' as const : 'approximate' as const,
+    source: {
+      kind: 'measurement',
+      label,
+      measurement_id: measurementId,
+    },
+  }
 }
 
 export function pickedTapeTarget(target: MeasurementTarget): MeasurementTarget {

@@ -5,6 +5,7 @@ import type { MeasurementTarget } from '../measurement'
 import {
   defaultTapeResolveMode,
   editMoveCenterAfterDrag,
+  editPointPayloadForMeasurement,
   editResizeSizeAfterDrag,
   measurementLabelOffsetAfterDrag,
   measurementResolveModesDiffer,
@@ -93,6 +94,25 @@ describe('viewer snap behavior contract', () => {
     )
 
     expect(nextSize.toArray()).toEqual([20, 0.1, 40])
+  })
+
+  it('creates edit point payloads from measurement endpoints with provenance', () => {
+    const payload = editPointPayloadForMeasurement(
+      new Vector3(1.23456, 2, 3),
+      'Approximate',
+      'Line Edge -> Free Point',
+      'measurement:1',
+    )
+
+    expect(payload).toEqual({
+      position_mm: [1.2346, 2, 3],
+      quality: 'approximate',
+      source: {
+        kind: 'measurement',
+        label: 'Line Edge -> Free Point',
+        measurement_id: 'measurement:1',
+      },
+    })
   })
 
   it('does not switch to edge-length preview during an active tape drag', () => {

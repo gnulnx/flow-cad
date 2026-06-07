@@ -393,7 +393,11 @@ export default function App() {
     }
   }, [apiBase, loadEditDocument, loadViewerState])
 
-  const createEditPoint = useCallback(async (positionMm: [number, number, number]) => {
+  const createEditPoint = useCallback(async (
+    positionMm: [number, number, number],
+    quality: 'exact' | 'approximate' = 'exact',
+    source: Record<string, unknown> = { kind: 'typed_coordinates' },
+  ) => {
     try {
       setStatusMessage('Adding point...')
       const response = await fetch(apiUrl(apiBase, '/api/edit/points'), {
@@ -401,8 +405,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           position_mm: positionMm,
-          quality: 'exact',
-          source: { kind: 'typed_coordinates' },
+          quality,
+          source,
         }),
       })
       if (!response.ok) {
@@ -929,6 +933,7 @@ export default function App() {
               onTapeModeChange={handleTapeModeChange}
               onClearMeasurements={handleClearMeasurements}
               onEditEntityPatch={patchEditEntity}
+              onCreateEditPoint={createEditPoint}
             />
           </FileDropZone>
         </div>

@@ -1138,6 +1138,23 @@ body {
   color: #ef4444;
 }
 
+.measurement-point {
+  height: 22px;
+  margin-top: 6px;
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  border-radius: 5px;
+  background: rgba(250, 204, 21, 0.1);
+  color: #fef08a;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  pointer-events: auto;
+}
+
+.measurement-point:hover {
+  background: rgba(250, 204, 21, 0.18);
+}
+
 /* ==========================================================================
    Geometry Capability Warnings
    ========================================================================== */
