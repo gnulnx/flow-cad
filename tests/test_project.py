@@ -1,9 +1,11 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 from click.testing import CliRunner
 
+from flow_cad.core.cache import list_component_cache
 from flow_cad.cli import flow
 from flow_cad.core.metadata import PartDefinition, PartRole
 from flow_cad.project import (
@@ -424,3 +426,48 @@ def test_flow_cad_build_uses_initialized_external_project(tmp_path: Path, monkey
     assert (tmp_path / "exports" / "step" / "example" / "example_block.step").exists()
     assert (tmp_path / "exports" / "step" / "assembly" / f"{tmp_path.name}_assembly.step").exists()
     assert (tmp_path / "reports" / f"{tmp_path.name}_cad_report.txt").exists()
+
+
+def test_flow_cad_build_exports_saved_edit_document_entities(tmp_path: Path, monkeypatch) -> None:
+    init_project(tmp_path)
+    document_path = tmp_path / "flow" / "document.json"
+    document_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "document_id": "main",
+                "units": "mm",
+                "revision": 1,
+                "entities": {
+                    "box_001": {
+                        "kind": "primitive_box",
+                        "name": "box_001",
+                        "size_mm": [10, 12, 14],
+                        "transform": {
+                            "translation_mm": [0, 0, 7],
+                            "rotation_deg": [0, 0, 0],
+                        },
+                        "role": "inspection",
+                    },
+                },
+                "points": {},
+                "operations": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        flow,
+        ["cad", "build", "--no-bundle", "--cache", "--no-snapshots"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert (tmp_path / "exports" / "step" / "flow_document" / "box_001.step").exists()
+    assert (tmp_path / "exports" / "stl" / "flow_document" / "box_001.stl").exists()
+    report = (tmp_path / "reports" / f"{tmp_path.name}_cad_report.txt").read_text(encoding="utf-8")
+    assert "exports/step/flow_document/box_001.step" in report
+    entries = {entry.id: entry for entry in list_component_cache(tmp_path / ".flow" / "registry.db")}
+    assert "edit:box_001" in entries

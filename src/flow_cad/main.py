@@ -7,9 +7,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 from flow_cad.core.exporter import Exporter
 from flow_cad.core.cache import write_active_cache
-from flow_cad.core.metadata import definition_export_subdir
+from flow_cad.core.metadata import PartDefinition, definition_export_subdir
 from flow_cad.core.report import write_report
 from flow_cad.core.bundler import create_bundle
+from flow_cad.editing.kernel import shape_for_entity
+from flow_cad.editing.service import EDIT_COMPONENT_PREFIX, EditService
 from flow_cad.project import load_project
 
 def build_parts(params):
@@ -22,6 +24,18 @@ def assert_printable(name: str, shape) -> None:
     if any(dim > 256.05 for dim in dims):
         rounded = tuple(round(d, 2) for d in dims)
         raise ValueError(f"{name} exceeds 256 mm build volume: {rounded}")
+
+
+def edit_export_definition(entity) -> PartDefinition:
+    return PartDefinition(
+        id=f"{EDIT_COMPONENT_PREFIX}{entity.id}",
+        module_id="flow_document",
+        filename=f"{entity.id}.step",
+        factory=lambda _params: None,
+        role=entity.role,
+        material="",
+        family="flow_document",
+    )
 
 @click.group()
 def cli():
@@ -61,6 +75,15 @@ def build(bundle, cache, snapshots, snapshots_only, profile):
     export_definitions = list(project.iter_part_definitions_for_profile(profile))
     if not export_definitions:
         raise click.ClickException(f"Build profile {profile!r} did not match any registered parts")
+
+    edit_document = EditService(project).document_model()
+    edit_definitions = [edit_export_definition(entity) for entity in edit_document.entities.values()]
+    edit_shapes = {
+        definition.id: shape_for_entity(entity, edit_document)
+        for definition, entity in zip(edit_definitions, edit_document.entities.values(), strict=True)
+    }
+    parts.update(edit_shapes)
+    export_definitions.extend(edit_definitions)
     
     for definition in export_definitions:
         if definition.is_printable:
