@@ -65,6 +65,10 @@ def test_flow_cad_build_records_profile_and_profile_command_reads_it(tmp_path: P
             "stl_export",
             "report_generation",
             "active_cache_write",
+            "viewer_cache_update",
+            "interference_check",
+            "validator",
+            "project_tests",
         }.issubset(phases)
 
         part_events = [event for event in profile_data["events"] if event["phase"] == "part_generation"]

@@ -67,6 +67,10 @@ part id, and metadata. The current build path records:
 - `snapshot_export`
 - `assembly_generation`
 - `assembly_placement`
+- `viewer_cache_update`
+- `interference_check`
+- `validator`
+- `project_tests`
 - `report_generation`
 - `active_cache_write`
 - `handoff_bundle`
@@ -74,8 +78,11 @@ part id, and metadata. The current build path records:
 Skipped work is recorded as an event with status `skipped` and a reason. For
 example, `flow cad build --no-snapshots` records skipped snapshot exports, and
 `flow cad build --snapshots-only` records skipped STEP/STL exports.
+`flow cad build --changed` records cache-hit skip events for unchanged
+artifacts, including successful no-op builds where every requested artifact is
+already current.
 
-Export events currently include cache metadata:
+Export and cache-hit events include cache metadata:
 
 ```json
 {
@@ -84,8 +91,13 @@ Export events currently include cache metadata:
 }
 ```
 
-This reflects the current build behavior: Flow CAD does not yet have incremental
-artifact cache hit/miss checks for exports.
+This reflects the current build behavior:
+
+- `step_export` and `stl_export` include artifact cache status and reason.
+- Skipped changed-mode artifacts are marked with cache hits and reason.
+- Rebuilt artifacts include rebuild reasons such as `full_build`, `source_changed`, `artifact_missing`, or `artifact_stale`.
+- Parameter snapshot changes are treated as rebuild inputs and reported as
+  `params_changed`.
 
 ## JSON Shape
 
@@ -133,15 +145,15 @@ latest-profile path.
 
 ## Current Limits
 
-The profiler covers the current build command. It does not yet launch project
-validators, tests, viewer conversion, interference checks, or draft geometry
-transactions. When those commands become Flow CAD entry points, they should use
-the same profiler event model so `flow cad profile` can compare CAD kernel,
-export, cache, validator, test, viewer, and review clocks in one place.
+The profiler now captures:
 
-The profiler also reports all exports as rebuilt because the build pipeline does
-not yet implement touched-artifact cache checks. Incremental build work should
-replace that metadata with real hit/miss decisions and reasons.
+- project build/test/profile phases
+- cache hit/miss metadata for exports
+- validator events (handoff only by default)
+- pairwise interference checks
+- viewer cache refresh timing
+
+Draft geometry transactions are not yet covered by profiling here.
 
 ## Test Coverage
 

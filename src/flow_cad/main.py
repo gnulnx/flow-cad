@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
+import itertools
 import json
 import inspect
+import subprocess
+import sys
+from collections.abc import Iterable
 import rich_click as click
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 from flow_cad.core.exporter import Exporter
-from flow_cad.core.cache import latest_build_metadata, write_active_cache
+from flow_cad.core.cache import latest_build_metadata, list_component_cache, params_as_json, write_active_cache
 from flow_cad.core.metadata import definition_export_subdir
 from flow_cad.core.report import write_report
 from flow_cad.core.bundler import create_bundle
-from flow_cad.project import load_project
+from flow_cad.project import _call_with_supported_kwargs, load_project
+from flow_cad.viewer.service import ConversionUnavailableError, ViewerService
 from flow_cad.profiler import (
     FlowCadProfiler,
     format_profile_summary,
@@ -84,13 +90,353 @@ def _definition_source_paths(definition, project) -> tuple[Path, ...]:
 def _definition_changed_since(definition, project, compiled_at: float | None) -> bool:
     if compiled_at is None:
         return True
-    for source_path in _definition_source_paths(definition, project):
+    source_paths = _definition_source_paths(definition, project)
+    if not source_paths:
+        return True
+    for source_path in source_paths:
         try:
-            if source_path.stat().st_mtime >= compiled_at:
+            if source_path.stat().st_mtime > compiled_at:
                 return True
         except OSError:
             return True
-    return not bool(_definition_source_paths(definition, project))
+    return False
+
+
+def _params_changed_since(params, latest_metadata: object | None) -> bool:
+    if latest_metadata is None:
+        return True
+    try:
+        return str(getattr(latest_metadata, "parameters_json", "")) != params_as_json(params)
+    except Exception:
+        return True
+
+
+def _expected_artifact_paths(exporter: Exporter, definition) -> tuple[Path, Path]:
+    module_id = definition_export_subdir(definition)
+    step_path = exporter.step_dir / module_id / definition.filename
+    stl_path = exporter.stl_dir / module_id / f"{Path(definition.filename).stem}.stl"
+    return step_path, stl_path
+
+
+def _artifact_cache_reason(
+    definition,
+    project,
+    exporter: Exporter,
+    *,
+    build_mode: str,
+    artifact: str,
+    previous_compiled_at: float | None,
+    cached_row: object | None,
+    params_changed: bool,
+) -> str:
+    if build_mode != "changed":
+        return "full_build"
+    if cached_row is None:
+        return "not_in_active_cache"
+    if previous_compiled_at is None:
+        return "no_previous_build"
+    if artifact not in {"step", "stl"}:
+        return "invalid_artifact"
+
+    step_path, stl_path = _expected_artifact_paths(exporter, definition)
+    artifact_path = step_path if artifact == "step" else stl_path
+    if not artifact_path.exists():
+        return "artifact_missing"
+    try:
+        artifact_mtime = artifact_path.stat().st_mtime
+    except OSError:
+        return "artifact_source_unknown"
+
+    if artifact == "stl":
+        try:
+            if step_path.stat().st_mtime > artifact_path.stat().st_mtime:
+                return "artifact_stale"
+        except OSError:
+            return "artifact_source_unknown"
+
+    if params_changed:
+        return "params_changed"
+
+    if _definition_changed_since(definition, project, previous_compiled_at):
+        return "source_changed"
+
+    for source_path in _definition_source_paths(definition, project):
+        try:
+            if artifact_mtime < source_path.stat().st_mtime:
+                return "artifact_stale"
+        except OSError:
+            return "artifact_source_unknown"
+
+    return "cache_hit"
+
+
+def _changed_definition_cache_reasons(
+    definition,
+    project,
+    exporter: Exporter,
+    *,
+    previous_compiled_at: float | None,
+    cached_row: object | None,
+    params_changed: bool,
+) -> tuple[str, str]:
+    step_reason = _artifact_cache_reason(
+        definition,
+        project,
+        exporter,
+        build_mode="changed",
+        artifact="step",
+        previous_compiled_at=previous_compiled_at,
+        cached_row=cached_row,
+        params_changed=params_changed,
+    )
+    stl_reason = _artifact_cache_reason(
+        definition,
+        project,
+        exporter,
+        build_mode="changed",
+        artifact="stl",
+        previous_compiled_at=previous_compiled_at,
+        cached_row=cached_row,
+        params_changed=params_changed,
+    )
+    return step_reason, stl_reason
+
+
+def _changed_definition_needs_rebuild(step_reason: str, stl_reason: str, *, effective_stl: bool) -> bool:
+    if step_reason != "cache_hit":
+        return True
+    return effective_stl and stl_reason != "cache_hit"
+
+
+def _bbox_overlaps(shape_a, shape_b) -> bool:
+    try:
+        a = shape_a.bounding_box()
+        b = shape_b.bounding_box()
+    except Exception:
+        return False
+    return not (
+        a.max.X < b.min.X
+        or a.min.X > b.max.X
+        or a.max.Y < b.min.Y
+        or a.min.Y > b.max.Y
+        or a.max.Z < b.min.Z
+        or a.min.Z > b.max.Z
+    )
+
+
+def _part_cache_events_for_skipped_definition(
+    profiler: FlowCadProfiler,
+    exporter: Exporter,
+    definition,
+    step_cache_reason: str,
+    stl_cache_reason: str,
+    *,
+    effective_stl: bool,
+) -> None:
+    filename = definition.filename
+    metadata = {
+        "path": str(_expected_artifact_paths(exporter, definition)[0]),
+        "module_id": str(definition_export_subdir(definition)),
+        "artifact_cache_status": "hit",
+        "artifact_cache_reason": step_cache_reason,
+    }
+    profiler.record_skip(
+        "step_export",
+        filename,
+        part_id=definition.id,
+        reason=step_cache_reason,
+        metadata=metadata,
+    )
+    if effective_stl:
+        metadata = {
+            "path": str(_expected_artifact_paths(exporter, definition)[1]),
+            "module_id": str(definition_export_subdir(definition)),
+            "artifact_cache_status": "hit",
+            "artifact_cache_reason": stl_cache_reason,
+        }
+        profiler.record_skip(
+            "stl_export",
+            filename.replace(".step", ".stl"),
+            part_id=definition.id,
+            reason=stl_cache_reason,
+            metadata=metadata,
+        )
+    else:
+        metadata = {
+            "path": str(_expected_artifact_paths(exporter, definition)[1]),
+            "module_id": str(definition_export_subdir(definition)),
+            "artifact_cache_status": "skipped",
+            "artifact_cache_reason": "stl_disabled",
+        }
+        profiler.record_skip(
+            "stl_export",
+            filename.replace(".step", ".stl"),
+            part_id=definition.id,
+            reason="stl_disabled",
+            metadata=metadata,
+        )
+
+
+def _refresh_viewer_cache(
+    project,
+    params,
+    profiler: FlowCadProfiler,
+    definitions: Iterable[object],
+) -> None:
+    definitions = list(definitions)
+    if not definitions:
+        profiler.record_skip("viewer_cache_update", "viewer cache", reason="no_parts")
+        return
+
+    metadata = {
+        "requested_parts": len(definitions),
+        "model_cache_refreshed": 0,
+        "missing_parts": 0,
+        "failed_parts": 0,
+    }
+    with profiler.measure(
+        "viewer_cache_update",
+        "refresh viewer cache",
+        metadata=metadata,
+    ):
+        service = ViewerService(project=project, params=params)
+        refreshed = 0
+        missing = 0
+        failed = 0
+        for definition in definitions:
+            part_id = definition.id
+            try:
+                service.model_path(part_id)
+                service.snap_features(part_id)
+                refreshed += 1
+            except ConversionUnavailableError:
+                failed += 1
+                continue
+            except FileNotFoundError:
+                missing += 1
+                continue
+            except Exception:
+                failed += 1
+                continue
+        metadata["model_cache_refreshed"] = refreshed
+        metadata["missing_parts"] = missing
+        metadata["failed_parts"] = failed
+        if missing:
+            metadata["reason"] = "parts_missing"
+        elif failed:
+            metadata["reason"] = "cache_conversion_failed"
+
+
+def _run_interference_check(parts: dict[str, object], profiler: FlowCadProfiler) -> None:
+    if len(parts) < 2:
+        profiler.record_skip(
+            "interference_check",
+            "aabb pairs",
+            reason="insufficient_parts",
+            metadata={"part_count": len(parts)},
+        )
+        return
+
+    metadata = {
+        "part_count": len(parts),
+        "pair_count": 0,
+        "overlapping_pair_count": 0,
+        "interfering_pairs": [],
+    }
+    with profiler.measure(
+        "interference_check",
+        "part pairs",
+        metadata=metadata,
+    ):
+        pair_count = 0
+        overlap_count = 0
+        pair_names: list[str] = []
+        ids = sorted(parts.keys())
+        for first, second in itertools.combinations(ids, 2):
+            pair_count += 1
+            if _bbox_overlaps(parts[first], parts[second]):
+                overlap_count += 1
+                pair_names.append(f"{first}↔{second}")
+        metadata["pair_count"] = pair_count
+        metadata["overlapping_pair_count"] = overlap_count
+        metadata["interfering_pairs"] = pair_names[:20]
+
+
+def _run_project_validators(
+    project,
+    profiler: FlowCadProfiler,
+    params,
+    parts: dict[str, object],
+    report_definitions: list[object],
+    build_mode: str,
+) -> None:
+    validators = list(project.iter_validators())
+    if not validators:
+        profiler.record_skip(
+            "validator",
+            "project validators",
+            reason="no_validators",
+            metadata={"build_mode": build_mode},
+        )
+        return
+
+    for name, validator in validators:
+        with profiler.measure(
+            "validator",
+            name,
+            part_id=name,
+            metadata={
+                "build_mode": build_mode,
+                "part_count": len(parts),
+                "validator_count": len(validators),
+            },
+        ):
+            validator_result = _call_with_supported_kwargs(
+                validator,
+                _project=project,
+                project=project,
+                params=params,
+                parts=parts,
+                definitions=report_definitions,
+            )
+            if isinstance(validator_result, (list, tuple, set)) and validator_result:
+                raise click.ClickException(f"Validator {name!r} reported {len(validator_result)} issue(s).")
+            if isinstance(validator_result, dict) and (
+                validator_result.get("errors") or validator_result.get("issues") or validator_result.get("failures")
+            ):
+                count = len(
+                    validator_result.get("errors")
+                    or validator_result.get("issues")
+                    or validator_result.get("failures")
+                )
+                raise click.ClickException(f"Validator {name!r} reported {count} issue(s).")
+            if isinstance(validator_result, str) and validator_result.strip():
+                raise click.ClickException(f"Validator {name!r} reported errors.")
+
+
+def _run_project_tests(project, profiler: FlowCadProfiler, *, run_tests: bool) -> None:
+    test_path = project.root / "tests"
+    if not run_tests:
+        profiler.record_skip("project_tests", "pytest", reason="not_requested")
+        return
+    if not test_path.exists():
+        profiler.record_skip("project_tests", "pytest", reason="tests_missing")
+        return
+    test_files = [
+        path
+        for pattern in ("test_*.py", "*_test.py")
+        for path in test_path.rglob(pattern)
+        if path.is_file()
+    ]
+    if not test_files:
+        profiler.record_skip("project_tests", "pytest", reason="tests_missing")
+        return
+
+    command = [sys.executable, "-m", "pytest", str(test_path)]
+    with profiler.measure("project_tests", "pytest", metadata={"command": " ".join(command)}):
+        result = subprocess.run(command, cwd=project.root)
+    if result.returncode != 0:
+        raise click.ClickException("Project tests failed.")
 
 
 def _build_profile_parts(project, profile: str, include_references: bool) -> list:
@@ -130,6 +476,7 @@ def cli():
 @click.option("--stl/--no-stl", "generate_stl", default=True, help="Generate STL meshes after STEP export.")
 @click.option("--reports/--no-reports", "generate_reports", default=True, help="Write a CAD report after export.")
 @click.option("--snapshots-only", is_flag=True, default=False, help="Only regenerate SVG snapshots without rebuilding STEP geometry.")
+@click.option("--run-tests", is_flag=True, default=False, help="Run project pytest after build.")
 @click.option("--part", default=None, help="Build one part and its direct facts.")
 @click.option("--changed", is_flag=True, default=False, help="Rebuild parts whose source changed since the last cached build.")
 @click.option("--assembly-preview", is_flag=True, default=False, help="Rebuild placement data for an updated viewer cache without handoff packaging.")
@@ -144,6 +491,7 @@ def build(
     generate_stl,
     generate_reports,
     snapshots_only,
+    run_tests,
     part,
     changed,
     assembly_preview,
@@ -177,6 +525,7 @@ def build(
                 "snapshots_only": str(bool(snapshots_only)),
                 "stl": str(bool(generate_stl)),
                 "reports": str(bool(generate_reports)),
+                "run_tests": str(bool(run_tests)),
                 "part": str(part or ""),
                 "build_profile": build_profile,
             },
@@ -217,33 +566,36 @@ def build(
                 effective_reports = bool(generate_reports)
                 should_clear_exports = True
 
-            include_references = build_mode in {"default", "handoff", "assembly-preview"}
+            no_changed_definitions = False
+            include_references = build_mode in {"default", "handoff", "assembly-preview", "changed"}
             if build_mode == "part":
                 target_definition = _find_part_definition(project, part)
                 if target_definition is None:
                     raise click.ClickException(f"Part {part!r} not found in registry for project {project.project_id}.")
-                export_definitions = [target_definition]
+                all_profile_definitions = [target_definition]
+                export_definitions = all_profile_definitions
+                active_cache_rows = {}
+                compiled_at = None
             elif build_mode == "changed":
                 latest_metadata = latest_build_metadata(project.paths.cache)
                 compiled_at = latest_metadata.compiled_at.timestamp() if latest_metadata else None
-                candidates = _build_profile_parts(
+                params_changed = _params_changed_since(params, latest_metadata)
+                active_cache_rows = {row.id: row for row in list_component_cache(project.paths.cache)}
+                all_profile_definitions = _build_profile_parts(
                     project,
                     build_profile,
                     include_references=True,
                 )
-                export_definitions = [
-                    definition
-                    for definition in candidates
-                    if _definition_changed_since(definition, project, compiled_at)
-                ]
-                if not export_definitions:
-                    raise click.ClickException("No changed definitions were found since the last cached build.")
+                export_definitions = list(all_profile_definitions)
             else:
-                export_definitions = _build_profile_parts(
+                all_profile_definitions = _build_profile_parts(
                     project,
                     build_profile,
                     include_references=include_references,
                 )
+                export_definitions = list(all_profile_definitions)
+                active_cache_rows = {}
+                compiled_at = None
 
             if not export_definitions:
                 raise click.ClickException(f"Build profile {build_profile!r} did not match any registered parts")
@@ -257,6 +609,30 @@ def build(
                 exports_dir=project.paths.exports,
                 reports_dir=project.paths.reports,
             )
+
+            if build_mode == "changed":
+                changed_reasons: dict[str, tuple[str, str]] = {}
+                unchanged_reasons: dict[str, tuple[str, str]] = {}
+                for definition in all_profile_definitions:
+                    step_reason, stl_reason = _changed_definition_cache_reasons(
+                        definition,
+                        project,
+                        exporter,
+                        previous_compiled_at=compiled_at,
+                        cached_row=active_cache_rows.get(definition.id),
+                        params_changed=params_changed,
+                    )
+                    if _changed_definition_needs_rebuild(step_reason, stl_reason, effective_stl=effective_stl):
+                        changed_reasons[definition.id] = (step_reason, stl_reason)
+                    else:
+                        unchanged_reasons[definition.id] = (step_reason, stl_reason)
+
+                export_definitions = [
+                    definition
+                    for definition in all_profile_definitions
+                    if definition.id in changed_reasons
+                ]
+                no_changed_definitions = not export_definitions
             if not snapshots_only and should_clear_exports:
                 exporter.clear(profiler=profiler)
             elif snapshots_only:
@@ -268,6 +644,21 @@ def build(
                     reason="partial_profile",
                 )
 
+            if build_mode == "changed":
+                unchanged_definitions = [definition for definition in all_profile_definitions if definition.id not in changed_reasons]
+                for definition in unchanged_definitions:
+                    step_reason, stl_reason = unchanged_reasons[definition.id]
+                    _part_cache_events_for_skipped_definition(
+                        profiler,
+                        exporter,
+                        definition=definition,
+                        step_cache_reason=step_reason,
+                        stl_cache_reason=stl_reason,
+                        effective_stl=effective_stl,
+                    )
+
+            if no_changed_definitions:
+                profiler.record_skip("part_generation", "project parts", reason="no_changed_definitions")
             parts = _build_parts_for_definitions(params, export_definitions, profiler)
 
             for definition in export_definitions:
@@ -292,6 +683,21 @@ def build(
             cache_components = []
             report_definitions = []
             for definition in export_definitions:
+                if build_mode == "changed":
+                    step_reason, stl_reason = changed_reasons[definition.id]
+                    artifact_cache = {
+                        "step_status": "rebuilt",
+                        "step_reason": step_reason,
+                        "stl_status": "rebuilt",
+                        "stl_reason": stl_reason,
+                    }
+                else:
+                    artifact_cache = {
+                        "step_status": "rebuilt",
+                        "step_reason": "full_build",
+                        "stl_status": "rebuilt",
+                        "stl_reason": "full_build",
+                    }
                 path = exporter.export(
                     parts[definition.id],
                     definition.filename,
@@ -299,6 +705,7 @@ def build(
                     is_printable=definition.is_printable,
                     profiler=profiler,
                     part_id=definition.id,
+                    artifact_cache=artifact_cache,
                 )
                 exported.append(path)
                 cache_components.append((definition, parts[definition.id], path))
@@ -345,28 +752,37 @@ def build(
 
             printable_occurrences = []
             report_path = None
-            if not effective_reports:
-                profiler.record_skip("report_generation", "CAD report", reason="reports_disabled")
-            elif build_profile in {"all", "active", project.active_version}:
-                with profiler.measure(
-                    "assembly_placement",
-                    "printable report occurrences",
-                    metadata={"include_references": "false"},
-                ):
-                    printable_occurrences = project.get_assembly_occurrences(
-                        params,
-                        parts,
-                        include_references=False,
+            if build_mode in {"default", "assembly-preview", "handoff"}:
+                if build_profile in {"all", "active", project.active_version}:
+                    with profiler.measure(
+                        "assembly_placement",
+                        "printable report occurrences",
+                        metadata={"include_references": "false"},
+                    ):
+                        printable_occurrences = project.get_assembly_occurrences(
+                            params,
+                            parts,
+                            include_references=False,
+                        )
+                else:
+                    profiler.record_skip(
+                        "assembly_placement",
+                        "printable report occurrences",
+                        reason="profile_excluded",
                     )
             else:
-                printable_occurrences = []
                 profiler.record_skip(
                     "assembly_placement",
                     "printable report occurrences",
-                    reason="profile_excluded",
+                    reason="mode_skipped",
                 )
 
-            if effective_reports:
+            if no_changed_definitions:
+                profiler.record_skip("report_generation", "CAD report", reason="no_changed_definitions")
+            elif not effective_reports:
+                profiler.record_skip("report_generation", "CAD report", reason="reports_disabled")
+
+            if effective_reports and not no_changed_definitions:
                 with profiler.measure("report_generation", "CAD report", metadata={"reports_dir": str(exporter.report_dir)}):
                     report_path = write_report(
                         params,
@@ -390,6 +806,49 @@ def build(
                 click.echo(click.style(f"Updated active cache {db_path} for build {build_id}", fg="green"))
             else:
                 profiler.record_skip("active_cache_write", "registry cache", reason="cache_disabled")
+
+            _run_interference_check(parts, profiler=profiler)
+
+            if build_mode == "handoff":
+                _run_project_validators(
+                    project=project,
+                    profiler=profiler,
+                    params=params,
+                    parts=parts,
+                    report_definitions=report_definitions,
+                    build_mode=build_mode,
+                )
+            else:
+                profiler.record_skip(
+                    "validator",
+                    "project validators",
+                    reason="not_requested",
+                    metadata={"build_mode": build_mode},
+                )
+
+            _run_project_tests(
+                project=project,
+                profiler=profiler,
+                run_tests=run_tests or build_mode == "handoff",
+            )
+
+            if build_mode in {"default", "assembly-preview", "handoff"}:
+                viewer_cache_definitions = list(export_definitions)
+                if "assembly" in parts:
+                    viewer_cache_definitions.append(assembly_definition)
+                _refresh_viewer_cache(
+                    project=project,
+                    params=params,
+                    profiler=profiler,
+                    definitions=viewer_cache_definitions,
+                )
+            else:
+                profiler.record_skip(
+                    "viewer_cache_update",
+                    "refresh viewer cache",
+                    reason="mode_skipped",
+                    metadata={"build_mode": build_mode},
+                )
 
             if not snapshots_only:
                 click.echo(

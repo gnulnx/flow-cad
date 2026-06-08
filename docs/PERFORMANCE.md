@@ -153,6 +153,24 @@ build behavior used for release/handoff workflows.
 Project handoff commands should still run the full build and validators.
 Interactive work should start smaller.
 
+#### Foundation Readiness Before Step 3
+
+Before starting the draft geometry operation API, the first two steps must leave
+a reliable fast-loop foundation:
+
+- [x] Build profiles are mutually exclusive and `--handoff` forces the strict
+  release gate behavior.
+- [x] `--changed` records cache-hit events instead of failing when everything is
+  already current.
+- [x] `--changed` uses current parameter snapshots as rebuild inputs, not only
+  part source mtimes.
+- [x] `--changed` can rebuild one touched part while recording cache hits for
+  untouched parts.
+- [x] `--snapshots-only` does not regenerate STEP or STL artifacts.
+- [x] Viewer-cache and interference phases measure the actual work they report.
+- [x] Regression tests cover the cache-hit, touched-source, parameter-change,
+  snapshot-only, and profile-phase contracts.
+
 ### 3. Add A Draft Geometry Operation API
 
 Simple panels should not require an agent to hand-write a new Python generator
