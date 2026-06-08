@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from flow_cad.editing.service import EditServiceError
 from flow_cad.viewer.service import ViewerError, ViewerService
 
 
@@ -65,6 +66,90 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
         try:
             return viewer_service.snap_features(component_id)
         except ViewerError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/edit/status")
+    def edit_status() -> dict[str, object]:
+        try:
+            return viewer_service.edit_status()
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/edit/document")
+    def edit_document() -> dict[str, object]:
+        try:
+            return viewer_service.edit_document()
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/edit/operations")
+    def edit_operations(operation: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.append_edit_operation(operation)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.patch("/api/edit/entities/{entity_id}")
+    def edit_entity(entity_id: str, patch: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.patch_edit_entity(entity_id, patch)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.delete("/api/edit/entities/{entity_id}")
+    def delete_edit_entity(entity_id: str) -> dict[str, object]:
+        try:
+            return viewer_service.delete_edit_entity(entity_id)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/edit/points")
+    def edit_points(point: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.create_edit_point(point)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.patch("/api/edit/points/{point_id}")
+    def edit_point(point_id: str, patch: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.patch_edit_point(point_id, patch)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/edit/holes")
+    def edit_holes(hole: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.create_edit_hole(hole)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/edit/booleans")
+    def edit_booleans(operation: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.create_edit_boolean(operation)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/edit/splits")
+    def edit_splits(operation: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.create_edit_split(operation)
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/edit/undo")
+    def edit_undo() -> dict[str, object]:
+        try:
+            return viewer_service.undo_edit_operation()
+        except EditServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/edit/redo")
+    def edit_redo() -> dict[str, object]:
+        try:
+            return viewer_service.redo_edit_operation()
+        except EditServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     @app.post("/api/reload")

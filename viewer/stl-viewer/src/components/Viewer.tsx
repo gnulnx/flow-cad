@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Grid, Html } from '@react-three/drei'
-import ViewportControls from './ViewportControls'
+import ViewportControls, { EDIT_DRAG_LOCK_ATTRIBUTE } from './ViewportControls'
 import {
   formatMm,
   freePointTarget,
@@ -39,6 +39,12 @@ interface ViewerProps {
   onReload?: () => void
   onTapeModeChange?: (enabled: boolean) => void
   onClearMeasurements?: () => void
+  onEditEntityPatch?: (componentId: string, patch: Record<string, unknown>) => Promise<void>
+  onCreateEditPoint?: (
+    positionMm: [number, number, number],
+    quality: 'exact' | 'approximate',
+    source: Record<string, unknown>,
+  ) => Promise<void>
 }
 
 type MeasurementMode = 'off' | 'quick' | 'tape'
@@ -107,11 +113,13 @@ function ModelComponent({
   model,
   isActive,
   measurementActive,
+  previewOffset,
   onClick,
 }: {
   model: ModelData
   isActive: boolean
   measurementActive: boolean
+  previewOffset?: THREE.Vector3
   onClick: (name: string, additive: boolean) => void
 }) {
   const edgeGeometry = useMemo(() => new THREE.EdgesGeometry(model.geometry, 20), [model.geometry])
@@ -123,7 +131,15 @@ function ModelComponent({
   return (
     <group>
       {model.occurrences.map((occurrence) => (
-        <group key={occurrence.name} position={occurrence.location} rotation={occurrenceRotation(occurrence)}>
+        <group
+          key={occurrence.name}
+          position={[
+            occurrence.location[0] + (previewOffset?.x ?? 0),
+            occurrence.location[1] + (previewOffset?.y ?? 0),
+            occurrence.location[2] + (previewOffset?.z ?? 0),
+          ]}
+          rotation={occurrenceRotation(occurrence)}
+        >
           <mesh
             userData={{ flowPartId: model.partId, flowOccurrenceName: occurrence.name }}
             geometry={model.geometry}
@@ -272,11 +288,13 @@ function MeasurementLabel({
   onDelete,
   onOffsetChange,
   onResolveModeChange,
+  onDropPoint,
 }: {
   annotation: MeasurementAnnotation
   onDelete?: (id: string) => void
   onOffsetChange?: (id: string, offset: ScreenOffset) => void
   onResolveModeChange?: (id: string, mode: MeasurementResolveMode) => void
+  onDropPoint?: (annotation: MeasurementAnnotation) => void
 }) {
   const midpoint = annotation.startPoint.clone().add(annotation.endPoint).multiplyScalar(0.5)
   const dragRef = useRef<LabelDragState | null>(null)
@@ -339,6 +357,11 @@ function MeasurementLabel({
   const stopButtonPointer = (event: ReactPointerEvent<HTMLButtonElement>) => {
     event.stopPropagation()
   }
+  const dropPoint = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onDropPoint?.(annotation)
+  }
 
   return (
     <Html position={midpoint} center className="measurement-html">
@@ -395,6 +418,11 @@ function MeasurementLabel({
             <span className="delta-y">DY {formatMm(annotation.delta.y)}</span>
             <span className="delta-z">DZ {formatMm(annotation.delta.z)}</span>
           </div>
+          {onDropPoint && !annotation.temporary ? (
+            <button type="button" className="measurement-point" onPointerDown={stopButtonPointer} onClick={dropPoint}>
+              Drop Point
+            </button>
+          ) : null}
         </div>
       </div>
     </Html>
@@ -406,12 +434,14 @@ function MeasurementAnnotationView({
   onDelete,
   onLabelOffsetChange,
   onResolveModeChange,
+  onDropPoint,
   showMarkers = true,
 }: {
   annotation: MeasurementAnnotation
   onDelete?: (id: string) => void
   onLabelOffsetChange?: (id: string, offset: ScreenOffset) => void
   onResolveModeChange?: (id: string, mode: MeasurementResolveMode) => void
+  onDropPoint?: (annotation: MeasurementAnnotation) => void
   showMarkers?: boolean
 }) {
   const color = '#facc15'
@@ -430,6 +460,7 @@ function MeasurementAnnotationView({
         onDelete={annotation.temporary ? undefined : onDelete}
         onOffsetChange={annotation.temporary ? undefined : onLabelOffsetChange}
         onResolveModeChange={annotation.temporary ? undefined : onResolveModeChange}
+        onDropPoint={annotation.temporary ? undefined : onDropPoint}
       />
     </group>
   )
@@ -439,10 +470,12 @@ function MeasurementLayer({
   models,
   mode,
   clearMeasurementsRequest,
+  onCreateEditPoint,
 }: {
   models: ModelData[]
   mode: MeasurementMode
   clearMeasurementsRequest: number
+  onCreateEditPoint?: ViewerProps['onCreateEditPoint']
 }) {
   const { camera, gl, scene, raycaster, invalidate } = useThree()
   const [hoverTarget, setHoverTarget] = useState<MeasurementTarget | null>(null)
@@ -623,6 +656,11 @@ function MeasurementLayer({
     }))
   }
 
+  const dropEditPoint = (annotation: MeasurementAnnotation) => {
+    const payload = editPointPayloadForMeasurement(annotation.endPoint, annotation.qualityLabel, annotation.label, annotation.id)
+    void onCreateEditPoint?.(payload.position_mm, payload.quality, payload.source)
+  }
+
   return (
     <group>
       {annotations.map((annotation) => (
@@ -632,6 +670,7 @@ function MeasurementLayer({
           onDelete={deleteAnnotation}
           onLabelOffsetChange={moveAnnotationLabel}
           onResolveModeChange={changeAnnotationResolveMode}
+          onDropPoint={onCreateEditPoint ? dropEditPoint : undefined}
         />
       ))}
       {quickAnnotation ? <MeasurementAnnotationView annotation={quickAnnotation} /> : null}
@@ -643,8 +682,360 @@ function MeasurementLayer({
   )
 }
 
+interface EditDragState {
+  pointerId: number
+  startCenter: THREE.Vector3
+  startPointerPoint: THREE.Vector3
+}
+
+interface EditResizeDragState {
+  pointerId: number
+  axis: AxisName
+  direction: 1 | -1
+  startSize: THREE.Vector3
+  startPointerPoint: THREE.Vector3
+}
+
+export type AxisName = 'x' | 'y' | 'z'
+
+const EDIT_AXIS_VECTORS: Record<AxisName, THREE.Vector3> = {
+  x: new THREE.Vector3(1, 0, 0),
+  y: new THREE.Vector3(0, 1, 0),
+  z: new THREE.Vector3(0, 0, 1),
+}
+
+const MIN_EDIT_SIZE_MM = 0.1
+
+function setEditDragLock(element: HTMLCanvasElement, active: boolean) {
+  if (active) {
+    element.setAttribute(EDIT_DRAG_LOCK_ATTRIBUTE, 'true')
+  } else {
+    element.removeAttribute(EDIT_DRAG_LOCK_ATTRIBUTE)
+  }
+}
+
+function installEditDragLock(element: HTMLCanvasElement, pointerId: number, onFallbackRelease: () => void) {
+  let released = false
+  let fallbackPending = false
+  setEditDragLock(element, true)
+  const release = (event?: Event) => {
+    if (event instanceof PointerEvent && event.pointerId !== pointerId) return
+    if (released) return
+    released = true
+    setEditDragLock(element, false)
+    window.removeEventListener('pointerup', release, true)
+    window.removeEventListener('pointercancel', release, true)
+    window.removeEventListener('blur', release)
+    if (!fallbackPending) {
+      fallbackPending = true
+      window.setTimeout(onFallbackRelease, 0)
+    }
+  }
+  window.addEventListener('pointerup', release, true)
+  window.addEventListener('pointercancel', release, true)
+  window.addEventListener('blur', release)
+  return release
+}
+
+function EditMoveHandle({
+  model,
+  previewOffset,
+  onPreviewOffsetChange,
+  onCommit,
+  onDragActiveChange,
+}: {
+  model: ModelData
+  previewOffset: THREE.Vector3
+  onPreviewOffsetChange: (partId: string, offset: THREE.Vector3 | null) => void
+  onCommit?: (partId: string, patch: Record<string, unknown>) => Promise<void>
+  onDragActiveChange: (active: boolean) => void
+}) {
+  const { camera, gl, raycaster, invalidate } = useThree()
+  const dragRef = useRef<EditDragState | null>(null)
+  const releaseDragLockRef = useRef<(() => void) | null>(null)
+  const onPreviewOffsetChangeRef = useRef(onPreviewOffsetChange)
+  const onDragActiveChangeRef = useRef(onDragActiveChange)
+  const center = useMemo(() => model.bounds.center.clone().add(previewOffset), [model.bounds.center, previewOffset])
+  const handleRadius = Math.max(2.5, Math.min(7, model.bounds.size.length() * 0.05))
+
+  useEffect(() => {
+    onPreviewOffsetChangeRef.current = onPreviewOffsetChange
+    onDragActiveChangeRef.current = onDragActiveChange
+  }, [onDragActiveChange, onPreviewOffsetChange])
+
+  useEffect(() => {
+    return () => {
+      releaseDragLockRef.current?.()
+      releaseDragLockRef.current = null
+      dragRef.current = null
+      onPreviewOffsetChangeRef.current(model.partId, null)
+      onDragActiveChangeRef.current(false)
+    }
+  }, [model.partId])
+
+  const startDrag = (event: any) => {
+    if (event.button !== 0) return
+    const startPointerPoint = worldPointOnCameraPlane(event, gl.domElement, camera, raycaster, center)
+    if (!startPointerPoint) return
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startCenter: center.clone(),
+      startPointerPoint,
+    }
+    releaseDragLockRef.current?.()
+    releaseDragLockRef.current = installEditDragLock(gl.domElement, event.pointerId, () => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      dragRef.current = null
+      onPreviewOffsetChange(model.partId, null)
+      onDragActiveChange(false)
+      invalidate()
+    })
+    event.target?.setPointerCapture?.(event.pointerId)
+    onDragActiveChange(true)
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const moveDrag = (event: any) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const currentPointerPoint = worldPointOnCameraPlane(event, gl.domElement, camera, raycaster, drag.startCenter)
+    if (!currentPointerPoint) return
+    const nextCenter = editMoveCenterAfterDrag(drag.startCenter, drag.startPointerPoint, currentPointerPoint)
+    onPreviewOffsetChange(model.partId, nextCenter.sub(model.bounds.center))
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const endDrag = (event: any) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    const currentPointerPoint = worldPointOnCameraPlane(event, gl.domElement, camera, raycaster, drag.startCenter)
+    const nextCenter = currentPointerPoint
+      ? editMoveCenterAfterDrag(drag.startCenter, drag.startPointerPoint, currentPointerPoint)
+      : drag.startCenter
+    event.target?.releasePointerCapture?.(event.pointerId)
+    releaseDragLockRef.current?.()
+    releaseDragLockRef.current = null
+    onPreviewOffsetChange(model.partId, null)
+    onDragActiveChange(false)
+    void onCommit?.(model.partId, { translation_mm: vectorToMmTuple(nextCenter) })
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  return (
+    <group position={center}>
+      <mesh
+        userData={{ flowEditHandle: 'move', flowPartId: model.partId }}
+        onPointerDown={startDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
+        <sphereGeometry args={[handleRadius, 24, 16]} />
+        <meshBasicMaterial color="#10b981" transparent opacity={0.85} depthTest={false} />
+      </mesh>
+      <mesh>
+        <torusGeometry args={[handleRadius * 1.55, Math.max(0.18, handleRadius * 0.08), 12, 36]} />
+        <meshBasicMaterial color="#d9f99d" transparent opacity={0.75} depthTest={false} />
+      </mesh>
+    </group>
+  )
+}
+
+function EditResizeHandles({
+  model,
+  previewSize,
+  onPreviewSizeChange,
+  onCommit,
+  onDragActiveChange,
+}: {
+  model: ModelData
+  previewSize: THREE.Vector3
+  onPreviewSizeChange: (partId: string, size: THREE.Vector3 | null) => void
+  onCommit?: (partId: string, patch: Record<string, unknown>) => Promise<void>
+  onDragActiveChange: (active: boolean) => void
+}) {
+  const { camera, gl, raycaster, invalidate } = useThree()
+  const dragRef = useRef<EditResizeDragState | null>(null)
+  const releaseDragLockRef = useRef<(() => void) | null>(null)
+  const onPreviewSizeChangeRef = useRef(onPreviewSizeChange)
+  const onDragActiveChangeRef = useRef(onDragActiveChange)
+  const center = model.bounds.center
+  const handleRadius = Math.max(1.8, Math.min(5, previewSize.length() * 0.035))
+
+  useEffect(() => {
+    onPreviewSizeChangeRef.current = onPreviewSizeChange
+    onDragActiveChangeRef.current = onDragActiveChange
+  }, [onDragActiveChange, onPreviewSizeChange])
+
+  useEffect(() => {
+    return () => {
+      releaseDragLockRef.current?.()
+      releaseDragLockRef.current = null
+      dragRef.current = null
+      onPreviewSizeChangeRef.current(model.partId, null)
+      onDragActiveChangeRef.current(false)
+    }
+  }, [model.partId])
+
+  const startResize = (axis: AxisName, direction: 1 | -1) => (event: any) => {
+    if (event.button !== 0) return
+    const handlePoint = resizeHandlePosition(center, previewSize, axis, direction)
+    const startPointerPoint = worldPointOnCameraPlane(event, gl.domElement, camera, raycaster, handlePoint)
+    if (!startPointerPoint) return
+    dragRef.current = {
+      pointerId: event.pointerId,
+      axis,
+      direction,
+      startSize: previewSize.clone(),
+      startPointerPoint,
+    }
+    releaseDragLockRef.current?.()
+    releaseDragLockRef.current = installEditDragLock(gl.domElement, event.pointerId, () => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      dragRef.current = null
+      onPreviewSizeChange(model.partId, null)
+      onDragActiveChange(false)
+      invalidate()
+    })
+    event.target?.setPointerCapture?.(event.pointerId)
+    onDragActiveChange(true)
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const moveResize = (event: any) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const currentPointerPoint = worldPointOnCameraPlane(
+      event,
+      gl.domElement,
+      camera,
+      raycaster,
+      resizeHandlePosition(center, drag.startSize, drag.axis, drag.direction),
+    )
+    if (!currentPointerPoint) return
+    const nextSize = editResizeSizeAfterDrag(
+      drag.startSize,
+      drag.axis,
+      drag.direction,
+      drag.startPointerPoint,
+      currentPointerPoint,
+    )
+    onPreviewSizeChange(model.partId, nextSize)
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const endResize = (event: any) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    const currentPointerPoint = worldPointOnCameraPlane(
+      event,
+      gl.domElement,
+      camera,
+      raycaster,
+      resizeHandlePosition(center, drag.startSize, drag.axis, drag.direction),
+    )
+    const nextSize = currentPointerPoint
+      ? editResizeSizeAfterDrag(drag.startSize, drag.axis, drag.direction, drag.startPointerPoint, currentPointerPoint)
+      : drag.startSize
+    event.target?.releasePointerCapture?.(event.pointerId)
+    releaseDragLockRef.current?.()
+    releaseDragLockRef.current = null
+    onPreviewSizeChange(model.partId, null)
+    onDragActiveChange(false)
+    void onCommit?.(model.partId, { size_mm: vectorToMmTuple(nextSize) })
+    event.stopPropagation()
+    event.nativeEvent?.preventDefault?.()
+    invalidate()
+  }
+
+  const handles: Array<{ axis: AxisName; direction: 1 | -1; color: string }> = [
+    { axis: 'x', direction: 1, color: '#ef4444' },
+    { axis: 'x', direction: -1, color: '#ef4444' },
+    { axis: 'y', direction: 1, color: '#22c55e' },
+    { axis: 'y', direction: -1, color: '#22c55e' },
+    { axis: 'z', direction: 1, color: '#3b82f6' },
+    { axis: 'z', direction: -1, color: '#3b82f6' },
+  ]
+
+  return (
+    <group>
+      <mesh position={center}>
+        <boxGeometry args={[previewSize.x, previewSize.y, previewSize.z]} />
+        <meshBasicMaterial color="#d9f99d" wireframe transparent opacity={0.55} depthTest={false} />
+      </mesh>
+      {handles.map((handle) => (
+        <mesh
+          key={`${handle.axis}:${handle.direction}`}
+          position={resizeHandlePosition(center, previewSize, handle.axis, handle.direction)}
+          userData={{ flowEditHandle: 'resize', flowPartId: model.partId, axis: handle.axis, direction: handle.direction }}
+          onPointerDown={startResize(handle.axis, handle.direction)}
+          onPointerMove={moveResize}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+        >
+          <boxGeometry args={[handleRadius * 1.6, handleRadius * 1.6, handleRadius * 1.6]} />
+          <meshBasicMaterial color={handle.color} transparent opacity={0.82} depthTest={false} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
 function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode }) {
-  const { models, activeName, onModelActivate, fitRequest, frameSelectedRequest, rotationMode, measurementMode, clearMeasurementsRequest } = props
+  const {
+    models,
+    activeName,
+    onModelActivate,
+    fitRequest,
+    frameSelectedRequest,
+    rotationMode,
+    measurementMode,
+    clearMeasurementsRequest,
+    onEditEntityPatch,
+  } = props
+  const [editPreviewOffsets, setEditPreviewOffsets] = useState<Record<string, THREE.Vector3>>({})
+  const [editPreviewSizes, setEditPreviewSizes] = useState<Record<string, THREE.Vector3>>({})
+  const [editDragActive, setEditDragActive] = useState(false)
+  const activeEditableModel = measurementMode === 'off' && activeName?.startsWith('edit:')
+    ? models.find((model) => model.partId === activeName && model.capabilities.exact_editing)
+    : null
+  const setPreviewOffset = (partId: string, offset: THREE.Vector3 | null) => {
+    setEditPreviewOffsets((current) => {
+      const next = { ...current }
+      if (offset) {
+        next[partId] = offset.clone()
+      } else {
+        delete next[partId]
+      }
+      return next
+    })
+  }
+  const setPreviewSize = (partId: string, size: THREE.Vector3 | null) => {
+    setEditPreviewSizes((current) => {
+      const next = { ...current }
+      if (size) {
+        next[partId] = size.clone()
+      } else {
+        delete next[partId]
+      }
+      return next
+    })
+  }
+
   return (
     <>
       <ambientLight intensity={0.55} />
@@ -657,18 +1048,42 @@ function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode })
           key={model.partId}
           model={model}
           isActive={model.partId === activeName}
-          measurementActive={measurementMode !== 'off'}
+          measurementActive={measurementMode !== 'off' || editDragActive}
+          previewOffset={editPreviewOffsets[model.partId]}
           onClick={onModelActivate}
         />
       ))}
-      <MeasurementLayer models={models} mode={measurementMode} clearMeasurementsRequest={clearMeasurementsRequest} />
+      {activeEditableModel ? (
+        <>
+          <EditMoveHandle
+            model={activeEditableModel}
+            previewOffset={editPreviewOffsets[activeEditableModel.partId] ?? new THREE.Vector3()}
+            onPreviewOffsetChange={setPreviewOffset}
+            onCommit={onEditEntityPatch}
+            onDragActiveChange={setEditDragActive}
+          />
+          <EditResizeHandles
+            model={activeEditableModel}
+            previewSize={editPreviewSizes[activeEditableModel.partId] ?? activeEditableModel.bounds.size}
+            onPreviewSizeChange={setPreviewSize}
+            onCommit={onEditEntityPatch}
+            onDragActiveChange={setEditDragActive}
+          />
+        </>
+      ) : null}
+      <MeasurementLayer
+        models={models}
+        mode={measurementMode}
+        clearMeasurementsRequest={clearMeasurementsRequest}
+        onCreateEditPoint={props.onCreateEditPoint}
+      />
       <ViewportControls
         models={models}
         activeName={activeName}
         fitRequest={fitRequest}
         frameSelectedRequest={frameSelectedRequest}
         rotationMode={rotationMode}
-        measurementActive={measurementMode !== 'off'}
+        measurementActive={measurementMode !== 'off' || editDragActive}
       />
     </>
   )
@@ -910,6 +1325,45 @@ export function measurementResolveModesDiffer(start: MeasurementTarget, end: Mea
   )
 }
 
+export function editMoveCenterAfterDrag(
+  startCenter: THREE.Vector3,
+  startPointerPoint: THREE.Vector3,
+  currentPointerPoint: THREE.Vector3,
+) {
+  return startCenter.clone().add(currentPointerPoint.clone().sub(startPointerPoint))
+}
+
+export function editResizeSizeAfterDrag(
+  startSize: THREE.Vector3,
+  axis: AxisName,
+  direction: 1 | -1,
+  startPointerPoint: THREE.Vector3,
+  currentPointerPoint: THREE.Vector3,
+) {
+  const axisVector = EDIT_AXIS_VECTORS[axis]
+  const signedDelta = currentPointerPoint.clone().sub(startPointerPoint).dot(axisVector) * direction
+  const nextSize = startSize.clone()
+  nextSize[axis] = Math.max(MIN_EDIT_SIZE_MM, startSize[axis] + signedDelta * 2)
+  return nextSize
+}
+
+export function editPointPayloadForMeasurement(
+  point: THREE.Vector3,
+  qualityLabel: string,
+  label: string,
+  measurementId: string,
+) {
+  return {
+    position_mm: vectorToMmTuple(point),
+    quality: qualityLabel.toLowerCase() === 'exact' ? 'exact' as const : 'approximate' as const,
+    source: {
+      kind: 'measurement',
+      label,
+      measurement_id: measurementId,
+    },
+  }
+}
+
 export function pickedTapeTarget(target: MeasurementTarget): MeasurementTarget {
   if (!target.segment) return target
   return {
@@ -1123,4 +1577,31 @@ function freePointForEvent(event: PointerEvent, element: HTMLElement, camera: TH
   const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, anchor)
   const point = new THREE.Vector3()
   return freePointTarget(raycaster.ray.intersectPlane(plane, point) ?? anchor)
+}
+
+function worldPointOnCameraPlane(
+  event: { clientX: number; clientY: number },
+  element: HTMLElement,
+  camera: THREE.Camera,
+  raycaster: THREE.Raycaster,
+  planePoint: THREE.Vector3,
+) {
+  const rect = element.getBoundingClientRect()
+  raycaster.setFromCamera(screenPointToNdc(new THREE.Vector2(event.clientX, event.clientY), rect), camera)
+  const normal = camera.getWorldDirection(new THREE.Vector3())
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, planePoint)
+  const point = new THREE.Vector3()
+  return raycaster.ray.intersectPlane(plane, point)
+}
+
+function vectorToMmTuple(vector: THREE.Vector3): [number, number, number] {
+  return [
+    Number(vector.x.toFixed(4)),
+    Number(vector.y.toFixed(4)),
+    Number(vector.z.toFixed(4)),
+  ]
+}
+
+function resizeHandlePosition(center: THREE.Vector3, size: THREE.Vector3, axis: AxisName, direction: 1 | -1) {
+  return center.clone().add(EDIT_AXIS_VECTORS[axis].clone().multiplyScalar((size[axis] / 2) * direction))
 }

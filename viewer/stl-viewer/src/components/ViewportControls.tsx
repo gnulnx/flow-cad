@@ -9,6 +9,7 @@ const ROTATE_SPEED = 0.006
 const PAN_SPEED = 0.0015
 const MIN_DISTANCE = 2
 const MAX_TURNTABLE_PITCH = THREE.MathUtils.degToRad(89)
+export const EDIT_DRAG_LOCK_ATTRIBUTE = 'data-flow-cad-edit-drag'
 
 interface ViewportControlsProps {
   models: ModelData[]
@@ -260,6 +261,10 @@ function arcballOrbit(camera: THREE.PerspectiveCamera, drag: DragState, currentA
   setOrbitPose(camera, drag.startPivot, offset, up, false)
 }
 
+export function shouldBlockViewportDrag(measurementActive: boolean, editDragLocked: boolean, button: number) {
+  return editDragLocked || (measurementActive && button === 0)
+}
+
 export default function ViewportControls({
   models,
   activeName,
@@ -340,10 +345,20 @@ export default function ViewportControls({
     if (!(camera instanceof THREE.PerspectiveCamera)) return
 
     const element = gl.domElement
+    element.removeAttribute(EDIT_DRAG_LOCK_ATTRIBUTE)
+
+    const editDragLocked = () => element.getAttribute(EDIT_DRAG_LOCK_ATTRIBUTE) === 'true'
+
+    const cancelDrag = (pointerId: number) => {
+      dragRef.current = null
+      if (element.hasPointerCapture(pointerId)) {
+        element.releasePointerCapture(pointerId)
+      }
+    }
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0 && event.button !== 1 && event.button !== 2) return
-      if (measurementActiveRef.current && event.button === 0) return
+      if (shouldBlockViewportDrag(measurementActiveRef.current, editDragLocked(), event.button)) return
 
       const pivot = pivotRef.current.clone()
       const { right, back } = cameraBasis(camera.position, pivot, camera.up)
@@ -369,6 +384,10 @@ export default function ViewportControls({
     }
 
     const onPointerMove = (event: PointerEvent) => {
+      if (editDragLocked()) {
+        cancelDrag(event.pointerId)
+        return
+      }
       const drag = dragRef.current
       if (!drag || drag.pointerId !== event.pointerId) return
 
@@ -408,6 +427,10 @@ export default function ViewportControls({
     }
 
     const endDrag = (event: PointerEvent) => {
+      if (editDragLocked()) {
+        cancelDrag(event.pointerId)
+        return
+      }
       const drag = dragRef.current
       if (!drag || drag.pointerId !== event.pointerId) return
       dragRef.current = null

@@ -5,6 +5,7 @@ import FileDropZone from './components/FileDropZone'
 import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import SourcePanel from './components/SourcePanel'
+import EditEntityControls from './components/EditEntityControls'
 import { calculateMeshMetrics } from './meshMetrics'
 import {
   MODEL_WIREFRAME_COLOR,
@@ -16,6 +17,8 @@ import {
   type ViewerColorMode,
 } from './partMetadata'
 import type {
+  EditDocumentPayload,
+  EditPoint,
   GeometryCapabilities,
   ModelData,
   PartMetadataDraft,
@@ -65,6 +68,65 @@ async function responseDetail(response: Response) {
   }
 }
 
+interface EditOperationResponse {
+  entity?: {
+    id?: string
+  }
+  document?: EditDocumentPayload
+}
+
+interface EditPatchResponse {
+  document?: EditDocumentPayload
+}
+
+interface EditDeleteResponse {
+  document?: EditDocumentPayload
+}
+
+interface EditPointResponse {
+  point?: {
+    id?: string
+  }
+  document?: EditDocumentPayload
+}
+
+interface EditHoleResponse {
+  document?: EditDocumentPayload
+}
+
+interface EditBooleanResponse {
+  document?: EditDocumentPayload
+}
+
+interface EditSplitResponse {
+  document?: EditDocumentPayload
+}
+
+interface EditUndoResponse {
+  document?: EditDocumentPayload
+}
+
+interface EditRedoResponse {
+  redone_operation?: {
+    type?: string
+    entity_id?: string
+    target_entity_id?: string
+  }
+  document?: EditDocumentPayload
+}
+
+interface EditStatusResponse {
+  can_redo: boolean
+}
+
+function isEditComponentId(value: string | null) {
+  return Boolean(value?.startsWith('edit:'))
+}
+
+function editEntityIdFromComponentId(value: string) {
+  return value.replace(/^edit:/, '')
+}
+
 export default function App() {
   const apiBase = useMemo(() => backendBaseUrl(), [])
   const [parts, setParts] = useState<ViewerPart[]>([])
@@ -86,6 +148,9 @@ export default function App() {
   const [activeVersion, setActiveVersion] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ViewerColorMode>('workbench')
   const [partMetadataDrafts, setPartMetadataDrafts] = useState<Record<string, PartMetadataDraft>>({})
+  const [editDocument, setEditDocument] = useState<EditDocumentPayload | null>(null)
+  const [activePointId, setActivePointId] = useState<string | null>(null)
+  const [canRedoEdit, setCanRedoEdit] = useState(false)
   const loadingPartIdsRef = useRef<Set<string>>(new Set())
 
   // Resizing state hooks
@@ -286,6 +351,362 @@ export default function App() {
     await loadViewerState()
   }, [apiBase, loadViewerState])
 
+  const loadEditDocument = useCallback(async () => {
+    const response = await fetch(apiUrl(apiBase, '/api/edit/document'))
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as EditDocumentPayload
+    setEditDocument(payload)
+    return payload
+  }, [apiBase])
+
+  const refreshEditStatus = useCallback(async () => {
+    const response = await fetch(apiUrl(apiBase, '/api/edit/status'))
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as EditStatusResponse
+    setCanRedoEdit(Boolean(payload.can_redo))
+    return payload
+  }, [apiBase])
+
+  const handleAddCube = useCallback(async () => {
+    setStatusMessage('Adding cube...')
+    const response = await fetch(apiUrl(apiBase, '/api/edit/operations'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'create_box' }),
+    })
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+
+    const payload = await response.json() as EditOperationResponse
+    if (payload.document) {
+      setEditDocument(payload.document)
+    } else {
+      await loadEditDocument()
+    }
+    setCanRedoEdit(false)
+    await loadViewerState()
+    const entityId = payload.entity?.id
+    if (entityId) {
+      const componentId = `edit:${entityId}`
+      setSelectedIds([componentId])
+      setActiveName(componentId)
+      setTapeMode(false)
+      setStatusMessage(`Added ${entityId}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
+  const undoEditOperation = useCallback(async () => {
+    try {
+      setStatusMessage('Undoing edit...')
+      const response = await fetch(apiUrl(apiBase, '/api/edit/undo'), { method: 'POST' })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      const payload = await response.json() as EditUndoResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      await loadViewerState()
+      await refreshEditStatus()
+      setStatusMessage('Undid edit')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('Undo failed:', err)
+      setStatusMessage(`Undo failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState, refreshEditStatus])
+
+  const redoEditOperation = useCallback(async () => {
+    try {
+      setStatusMessage('Redoing edit...')
+      const response = await fetch(apiUrl(apiBase, '/api/edit/redo'), { method: 'POST' })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      const payload = await response.json() as EditRedoResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      await loadViewerState()
+      const redoneOperation = payload.redone_operation
+      const redoneEntityId = redoneOperation?.type === 'delete_entity'
+        ? null
+        : redoneOperation?.entity_id ?? redoneOperation?.target_entity_id ?? null
+      if (redoneEntityId) {
+        const componentId = `edit:${redoneEntityId}`
+        setSelectedIds([componentId])
+        setActiveName(componentId)
+      } else if (redoneOperation?.type === 'delete_entity' && redoneOperation.entity_id) {
+        const componentId = `edit:${redoneOperation.entity_id}`
+        setSelectedIds((prev) => prev.filter((id) => id !== componentId))
+        setActiveName(null)
+      }
+      await refreshEditStatus()
+      setStatusMessage('Redid edit')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('Redo failed:', err)
+      setStatusMessage(`Redo failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState, refreshEditStatus])
+
+  const patchEditEntity = useCallback(async (componentId: string, patch: Record<string, unknown>) => {
+    const entityId = editEntityIdFromComponentId(componentId)
+    try {
+      setStatusMessage(`Updating ${entityId}...`)
+      const response = await fetch(apiUrl(apiBase, `/api/edit/entities/${encodeURIComponent(componentId)}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditPatchResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      setCanRedoEdit(false)
+      await loadViewerState()
+      setSelectedIds([componentId])
+      setActiveName(componentId)
+      setStatusMessage(`Updated ${entityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Edit update failed for ${entityId}:`, err)
+      setStatusMessage(`Update failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
+  const deleteEditEntity = useCallback(async (componentId: string) => {
+    const entityId = editEntityIdFromComponentId(componentId)
+    try {
+      setStatusMessage(`Deleting ${entityId}...`)
+      const response = await fetch(apiUrl(apiBase, `/api/edit/entities/${encodeURIComponent(componentId)}`), {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditDeleteResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      setCanRedoEdit(false)
+      await loadViewerState()
+      setSelectedIds((prev) => prev.filter((id) => id !== componentId))
+      setActiveName(null)
+      setStatusMessage(`Deleted ${entityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Edit delete failed for ${entityId}:`, err)
+      setStatusMessage(`Delete failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
+  const createEditPoint = useCallback(async (
+    positionMm: [number, number, number],
+    quality: 'exact' | 'approximate' = 'exact',
+    source: Record<string, unknown> = { kind: 'typed_coordinates' },
+  ) => {
+    try {
+      setStatusMessage('Adding point...')
+      const response = await fetch(apiUrl(apiBase, '/api/edit/points'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          position_mm: positionMm,
+          quality,
+          source,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditPointResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      setCanRedoEdit(false)
+      const pointId = payload.point?.id
+      if (pointId) {
+        setActivePointId(pointId)
+        setStatusMessage(`Added ${pointId}`)
+      } else {
+        setStatusMessage('Added point')
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('Point creation failed:', err)
+      setStatusMessage(`Point failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument])
+
+  const patchEditPoint = useCallback(async (pointId: string, patch: Record<string, unknown>) => {
+    try {
+      setStatusMessage(`Updating ${pointId}...`)
+      const response = await fetch(apiUrl(apiBase, `/api/edit/points/${encodeURIComponent(pointId)}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditPointResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      setCanRedoEdit(false)
+      setActivePointId(pointId)
+      setStatusMessage(`Updated ${pointId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Point update failed for ${pointId}:`, err)
+      setStatusMessage(`Point update failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument])
+
+  const createEditHole = useCallback(async (
+    componentId: string,
+    pointId: string,
+    preset: string,
+    axis: [number, number, number],
+  ) => {
+    const entityId = editEntityIdFromComponentId(componentId)
+    try {
+      setStatusMessage(`Cutting ${preset} hole in ${entityId}...`)
+      const response = await fetch(apiUrl(apiBase, '/api/edit/holes'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_entity_id: componentId,
+          point_id: pointId,
+          preset,
+          axis,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditHoleResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      setCanRedoEdit(false)
+      await loadViewerState()
+      setSelectedIds([componentId])
+      setActiveName(componentId)
+      setActivePointId(pointId)
+      setStatusMessage(`Cut ${preset} hole in ${entityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Hole cut failed for ${entityId}:`, err)
+      setStatusMessage(`Hole failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
+  const createEditBoolean = useCallback(async (
+    operation: 'fuse' | 'cut',
+    targetComponentId: string,
+    toolComponentId: string,
+  ) => {
+    const targetEntityId = editEntityIdFromComponentId(targetComponentId)
+    const toolEntityId = editEntityIdFromComponentId(toolComponentId)
+    try {
+      setStatusMessage(`${operation === 'fuse' ? 'Fusing' : 'Cutting'} ${targetEntityId} with ${toolEntityId}...`)
+      const response = await fetch(apiUrl(apiBase, '/api/edit/booleans'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation,
+          target_entity_id: targetComponentId,
+          tool_entity_id: toolComponentId,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditBooleanResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      setCanRedoEdit(false)
+      await loadViewerState()
+      setSelectedIds([targetComponentId])
+      setActiveName(targetComponentId)
+      setStatusMessage(`${operation === 'fuse' ? 'Fused' : 'Cut'} ${targetEntityId} with ${toolEntityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Boolean ${operation} failed for ${targetEntityId}:`, err)
+      setStatusMessage(`Boolean failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
+  const createEditSplit = useCallback(async (
+    targetComponentId: string,
+    axis: [number, number, number],
+  ) => {
+    const targetEntityId = editEntityIdFromComponentId(targetComponentId)
+    try {
+      setStatusMessage(`Splitting ${targetEntityId}...`)
+      const response = await fetch(apiUrl(apiBase, '/api/edit/splits'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_entity_id: targetComponentId,
+          plane_normal: axis,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+
+      const payload = await response.json() as EditSplitResponse
+      if (payload.document) {
+        setEditDocument(payload.document)
+      } else {
+        await loadEditDocument()
+      }
+      setCanRedoEdit(false)
+      await loadViewerState()
+      setSelectedIds([targetComponentId])
+      setActiveName(targetComponentId)
+      setStatusMessage(`Split ${targetEntityId}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Split failed for ${targetEntityId}:`, err)
+      setStatusMessage(`Split failed: ${message}`)
+    }
+  }, [apiBase, loadEditDocument, loadViewerState])
+
   const loadStlFile = useCallback((file: File) => {
     const reader = new FileReader()
 
@@ -392,6 +813,26 @@ export default function App() {
       setSourceContext(null)
     })
   }, [activeName, apiBase, viewerParts])
+
+  useEffect(() => {
+    if (!isEditComponentId(activeName)) return
+    loadEditDocument().catch((err) => {
+      console.error(`Failed to load edit document for ${activeName}:`, err)
+      setStatusMessage(`Edit document unavailable: ${err.message}`)
+    })
+  }, [activeName, loadEditDocument])
+
+  useEffect(() => {
+    if (!editDocument) {
+      setActivePointId(null)
+      return
+    }
+    setActivePointId((current) => {
+      if (current && editDocument.points[current]) return current
+      const firstPointId = Object.keys(editDocument.points)[0] ?? null
+      return firstPointId
+    })
+  }, [editDocument])
 
   const handleFiles = useCallback((files: FileList) => {
     const stlFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.stl'))
@@ -546,6 +987,23 @@ export default function App() {
     () => Array.from(new Set(visibleModels.flatMap((model) => model.warnings))).slice(0, 3),
     [visibleModels],
   )
+  const activeEditEntity = useMemo(() => {
+    if (!activeName || !isEditComponentId(activeName) || !editDocument) return null
+    const entityId = editEntityIdFromComponentId(activeName)
+    const entity = editDocument.entities[entityId]
+    return entity ? { componentId: activeName, entityId, entity } : null
+  }, [activeName, editDocument])
+  const editPoints = useMemo<Record<string, EditPoint>>(() => editDocument?.points ?? {}, [editDocument])
+  const booleanToolOptions = useMemo(() => {
+    if (!editDocument || !activeEditEntity) return []
+    return Object.keys(editDocument.entities)
+      .filter((entityId) => entityId !== activeEditEntity.entityId)
+      .map((entityId) => ({
+        entityId,
+        componentId: `edit:${entityId}`,
+        label: entityId,
+      }))
+  }, [activeEditEntity, editDocument])
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -558,6 +1016,36 @@ export default function App() {
             setStatusMessage(`Reload failed: ${err.message}`)
           })
         }}
+        onAddCube={() => {
+          handleAddCube().catch((err) => {
+            console.error('Add cube failed:', err)
+            setStatusMessage(`Add cube failed: ${err.message}`)
+          })
+        }}
+        onUndo={() => {
+          undoEditOperation().catch((err) => {
+            console.error('Undo failed:', err)
+            setStatusMessage(`Undo failed: ${err.message}`)
+          })
+        }}
+        onRedo={() => {
+          redoEditOperation().catch((err) => {
+            console.error('Redo failed:', err)
+            setStatusMessage(`Redo failed: ${err.message}`)
+          })
+        }}
+        canRedo={canRedoEdit}
+        onDeleteSelected={() => {
+          if (!activeEditEntity) {
+            setStatusMessage('Select an edit entity to delete')
+            return
+          }
+          deleteEditEntity(activeEditEntity.componentId).catch((err) => {
+            console.error('Delete failed:', err)
+            setStatusMessage(`Delete failed: ${err.message}`)
+          })
+        }}
+        canDeleteSelected={Boolean(activeEditEntity)}
         statusMessage={statusMessage}
         rotationMode={rotationMode}
         onRotationModeChange={setRotationMode}
@@ -599,6 +1087,23 @@ export default function App() {
                 ))}
               </div>
             ) : null}
+            {activeEditEntity ? (
+              <EditEntityControls
+                componentId={activeEditEntity.componentId}
+                entityId={activeEditEntity.entityId}
+                entity={activeEditEntity.entity}
+                booleanToolOptions={booleanToolOptions}
+                points={editPoints}
+                activePointId={activePointId}
+                onActivePointChange={setActivePointId}
+                onPatch={patchEditEntity}
+                onCreatePoint={createEditPoint}
+                onPatchPoint={patchEditPoint}
+                onCreateHole={createEditHole}
+                onCreateBoolean={createEditBoolean}
+                onCreateSplit={createEditSplit}
+              />
+            ) : null}
             <Viewer
               models={visibleModels}
               activeName={activeName}
@@ -619,6 +1124,8 @@ export default function App() {
               }}
               onTapeModeChange={handleTapeModeChange}
               onClearMeasurements={handleClearMeasurements}
+              onEditEntityPatch={patchEditEntity}
+              onCreateEditPoint={createEditPoint}
             />
           </FileDropZone>
         </div>

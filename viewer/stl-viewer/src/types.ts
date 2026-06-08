@@ -43,7 +43,7 @@ export interface ViewerPart {
   artifact_format: 'step' | 'stl' | null
   artifact_path: string | null
   direct_stl_path: string | null
-  source_kind: 'flow_python' | 'step' | 'stl' | 'missing'
+  source_kind: 'flow_python' | 'flow_document' | 'flow_python_with_edits' | 'step' | 'stl' | 'missing'
   geometry_authority: 'step_kernel' | 'mesh' | 'missing'
   quality_label: 'exact' | 'approximate' | 'missing'
   capabilities: GeometryCapabilities
@@ -64,6 +64,62 @@ export interface ViewerPartsPayload {
   active_assembly_id?: string | null
   versions?: string[]
   parts: ViewerPart[]
+}
+
+export interface EditTransform {
+  translation_mm: [number, number, number]
+  rotation_deg: [number, number, number]
+}
+
+export interface EditHoleCut {
+  id: string
+  point_id: string
+  position_mm: [number, number, number]
+  axis: [number, number, number]
+  preset: string
+  diameter_mm: number
+  through: boolean
+}
+
+export interface EditBooleanOperation {
+  id: string
+  type: 'fuse' | 'cut'
+  tool_entity_id: string
+  keep_tool: boolean
+}
+
+export interface EditEntity {
+  kind: 'primitive_box' | 'derived_split'
+  name: string
+  size_mm: [number, number, number]
+  transform: EditTransform
+  role: string
+  holes?: EditHoleCut[]
+  booleans?: EditBooleanOperation[]
+  source_entity_id?: string | null
+  split_plane?: {
+    origin_mm: [number, number, number]
+    normal: [number, number, number]
+  }
+  split_keep?: 'top' | 'bottom'
+}
+
+export interface EditPoint {
+  position_mm: [number, number, number]
+  coordinate_space: string
+  quality: 'exact' | 'approximate'
+  source: Record<string, unknown>
+}
+
+export interface EditDocumentPayload {
+  schema_version: number
+  document_id: string
+  units: 'mm' | string
+  revision: number
+  document_path?: string
+  entities: Record<string, EditEntity>
+  points: Record<string, EditPoint>
+  operations: Array<Record<string, unknown>>
 }
 
 export interface SnapFeature {

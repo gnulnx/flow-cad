@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { arcballQuaternionForDrag, dollyCameraTowardPivot, turntableStateForDrag } from './ViewportControls'
+import { arcballQuaternionForDrag, dollyCameraTowardPivot, shouldBlockViewportDrag, turntableStateForDrag } from './ViewportControls'
 
 describe('ViewportControls camera dolly', () => {
   it('zooms along the existing pivot vector without changing orbit angle', () => {
@@ -56,5 +56,14 @@ describe('ViewportControls rotation direction', () => {
 
     expect(rightOffset.x).toBeLessThan(0)
     expect(downOffset.y).toBeGreaterThan(0)
+  })
+})
+
+describe('ViewportControls interaction locks', () => {
+  it('blocks camera rotation while an edit handle owns the drag gesture', () => {
+    expect(shouldBlockViewportDrag(false, true, 0)).toBe(true)
+    expect(shouldBlockViewportDrag(false, true, 1)).toBe(true)
+    expect(shouldBlockViewportDrag(true, false, 0)).toBe(true)
+    expect(shouldBlockViewportDrag(true, false, 1)).toBe(false)
   })
 })

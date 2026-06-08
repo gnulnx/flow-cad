@@ -9,7 +9,7 @@ DISPLAY_MESH_CONTRACT_VERSION = 1
 SNAP_FEATURE_SCHEMA_VERSION = 2
 SNAP_EXTRACTOR_CONTRACT_VERSION = 1
 
-SourceKind = Literal["flow_python", "step", "stl", "missing"]
+SourceKind = Literal["flow_python", "flow_document", "flow_python_with_edits", "step", "stl", "missing"]
 GeometryAuthority = Literal["step_kernel", "mesh", "missing"]
 QualityLabel = Literal["exact", "approximate", "missing"]
 
@@ -64,6 +64,38 @@ STEP_FLOW_GEOMETRY = PartGeometry(
     ),
 )
 
+FLOW_DOCUMENT_GEOMETRY = PartGeometry(
+    source_kind="flow_document",
+    geometry_authority="step_kernel",
+    quality_label="exact",
+    capabilities=GeometryCapabilities(
+        display_mesh=True,
+        mesh_metrics=True,
+        exact_topology=True,
+        exact_snap=True,
+        exact_measurement=True,
+        approximate_measurement=False,
+        exact_editing=True,
+        mesh_only=False,
+    ),
+)
+
+FLOW_PYTHON_WITH_EDITS_GEOMETRY = PartGeometry(
+    source_kind="flow_python_with_edits",
+    geometry_authority="step_kernel",
+    quality_label="exact",
+    capabilities=GeometryCapabilities(
+        display_mesh=True,
+        mesh_metrics=True,
+        exact_topology=True,
+        exact_snap=True,
+        exact_measurement=True,
+        approximate_measurement=False,
+        exact_editing=True,
+        mesh_only=False,
+    ),
+)
+
 STL_MESH_GEOMETRY = PartGeometry(
     source_kind="stl",
     geometry_authority="mesh",
@@ -105,6 +137,18 @@ def geometry_for_artifact(source_format: str | None) -> PartGeometry:
     if source_format == "step":
         return STEP_FLOW_GEOMETRY
     if source_format == "stl":
+        return STL_MESH_GEOMETRY
+    return MISSING_GEOMETRY
+
+
+def geometry_for_edit_source(source_kind: SourceKind) -> PartGeometry:
+    if source_kind == "flow_document":
+        return FLOW_DOCUMENT_GEOMETRY
+    if source_kind == "flow_python_with_edits":
+        return FLOW_PYTHON_WITH_EDITS_GEOMETRY
+    if source_kind == "flow_python":
+        return STEP_FLOW_GEOMETRY
+    if source_kind == "stl":
         return STL_MESH_GEOMETRY
     return MISSING_GEOMETRY
 

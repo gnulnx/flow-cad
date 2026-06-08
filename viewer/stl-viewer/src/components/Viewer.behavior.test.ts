@@ -4,6 +4,9 @@ import { resolveMeasurement } from '../measurement'
 import type { MeasurementTarget } from '../measurement'
 import {
   defaultTapeResolveMode,
+  editMoveCenterAfterDrag,
+  editPointPayloadForMeasurement,
+  editResizeSizeAfterDrag,
   measurementLabelOffsetAfterDrag,
   measurementResolveModesDiffer,
   pickedTapeTarget,
@@ -57,6 +60,59 @@ describe('viewer snap behavior contract', () => {
         { x: 132, y: 109 },
       ),
     ).toEqual({ x: 60, y: -119 })
+  })
+
+  it('moves edit centers by the camera-plane pointer delta', () => {
+    const nextCenter = editMoveCenterAfterDrag(
+      new Vector3(10, 20, 30),
+      new Vector3(1, 2, 3),
+      new Vector3(4, 0, 8),
+    )
+
+    expect(nextCenter.toArray()).toEqual([13, 18, 35])
+  })
+
+  it('resizes edit boxes along the dragged axis while preserving other dimensions', () => {
+    const nextSize = editResizeSizeAfterDrag(
+      new Vector3(20, 30, 40),
+      'x',
+      1,
+      new Vector3(10, 0, 0),
+      new Vector3(14, 5, 0),
+    )
+
+    expect(nextSize.toArray()).toEqual([28, 30, 40])
+  })
+
+  it('keeps edit box resize dimensions positive', () => {
+    const nextSize = editResizeSizeAfterDrag(
+      new Vector3(20, 30, 40),
+      'y',
+      -1,
+      new Vector3(0, -15, 0),
+      new Vector3(0, 10, 0),
+    )
+
+    expect(nextSize.toArray()).toEqual([20, 0.1, 40])
+  })
+
+  it('creates edit point payloads from measurement endpoints with provenance', () => {
+    const payload = editPointPayloadForMeasurement(
+      new Vector3(1.23456, 2, 3),
+      'Approximate',
+      'Line Edge -> Free Point',
+      'measurement:1',
+    )
+
+    expect(payload).toEqual({
+      position_mm: [1.2346, 2, 3],
+      quality: 'approximate',
+      source: {
+        kind: 'measurement',
+        label: 'Line Edge -> Free Point',
+        measurement_id: 'measurement:1',
+      },
+    })
   })
 
   it('does not switch to edge-length preview during an active tape drag', () => {

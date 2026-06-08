@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from flow_cad.core.metadata import PartDefinition, definition_export_subdir
+from flow_cad.editing.kernel import EditKernelError, export_entity_step
+from flow_cad.editing.models import EditDocument, EditEntity
+from flow_cad.editing.service import EditService, component_id_for_entity, entity_id_from_component_id, is_edit_component_id
 from flow_cad.project import FlowCadProject, load_project
 from flow_cad.viewer.geometry_authority import (
     GeometryAuthorityError,
@@ -15,11 +18,13 @@ from flow_cad.viewer.geometry_authority import (
     display_mesh_cache_metadata,
     extract_step_snap_features,
     geometry_for_artifact,
+    geometry_for_edit_source,
     snap_feature_cache_metadata,
 )
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+EDIT_STEP_CACHE_CONTRACT_VERSION = 1
 
 
 class ViewerError(RuntimeError):
@@ -125,6 +130,7 @@ class ViewerService:
         self.converter = converter
         self.revision = 0
         self.reloaded_at: datetime | None = None
+        self.edit_service = EditService(self.project)
 
     @property
     def exports_dir(self) -> Path:
@@ -138,6 +144,7 @@ class ViewerService:
         self.project = load_project(self.project_root)
         self.project_root = self.project.root
         self.params = self.project.make_params()
+        self.edit_service = EditService(self.project)
         self.revision += 1
         self.reloaded_at = datetime.now(UTC)
         return {
@@ -145,6 +152,62 @@ class ViewerService:
             "revision": self.revision,
             "reloaded_at": self.reloaded_at.isoformat(),
         }
+
+    def edit_status(self) -> dict[str, Any]:
+        return self.edit_service.status()
+
+    def edit_document(self) -> dict[str, Any]:
+        return self.edit_service.document()
+
+    def append_edit_operation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.append_operation(payload)
+        self.revision += 1
+        return result
+
+    def patch_edit_entity(self, entity_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.patch_entity(entity_id, payload)
+        self.revision += 1
+        return result
+
+    def delete_edit_entity(self, entity_id: str) -> dict[str, Any]:
+        result = self.edit_service.delete_entity(entity_id)
+        self.revision += 1
+        return result
+
+    def create_edit_point(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.create_point(payload)
+        self.revision += 1
+        return result
+
+    def patch_edit_point(self, point_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.patch_point(point_id, payload)
+        self.revision += 1
+        return result
+
+    def create_edit_hole(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.create_hole(payload)
+        self.revision += 1
+        return result
+
+    def create_edit_boolean(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.create_boolean(payload)
+        self.revision += 1
+        return result
+
+    def create_edit_split(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self.edit_service.create_split(payload)
+        self.revision += 1
+        return result
+
+    def undo_edit_operation(self) -> dict[str, Any]:
+        result = self.edit_service.undo()
+        self.revision += 1
+        return result
+
+    def redo_edit_operation(self) -> dict[str, Any]:
+        result = self.edit_service.redo()
+        self.revision += 1
+        return result
 
     def list_parts(self) -> dict[str, Any]:
         placement_map = self._placement_map()
@@ -159,6 +222,7 @@ class ViewerService:
             )
             for definition in self.project.iter_part_definitions()
         ]
+        parts.extend(self._edit_entity_payload(entity) for entity in self.edit_service.iter_entities())
         versions = self._versions(parts, active_version)
         return {
             "project_id": self.project.project_id,
@@ -171,6 +235,9 @@ class ViewerService:
         }
 
     def model_path(self, component_id: str) -> tuple[Path, str]:
+        if is_edit_component_id(component_id):
+            return self._edit_model_path(component_id)
+
         artifact = self._require_artifact(component_id)
         if artifact.source_format == "stl":
             return artifact.path, artifact.source_format
@@ -186,6 +253,9 @@ class ViewerService:
         return converted, artifact.source_format
 
     def snap_features(self, component_id: str) -> dict[str, Any]:
+        if is_edit_component_id(component_id):
+            return self._edit_snap_features(component_id)
+
         artifact = self._artifact(self._definition(component_id))
         if artifact is None:
             return self._empty_snap_features(component_id, None)
@@ -214,6 +284,9 @@ class ViewerService:
         return payload
 
     def source_context(self, component_id: str, *, context_lines: int = 16) -> dict[str, Any]:
+        if is_edit_component_id(component_id):
+            return self._edit_source_context(component_id)
+
         definition = self._definition(component_id)
         source_callable = _resolve_source_callable(
             definition.factory,
@@ -248,6 +321,144 @@ class ViewerService:
             "language": language,
             "content": content,
             "excerpt": excerpt,
+        }
+
+    def _edit_entity_payload(self, entity: EditEntity) -> dict[str, Any]:
+        component_id = component_id_for_entity(entity.id)
+        step_path = self._edit_step_path(entity.id)
+        geometry = geometry_for_edit_source("flow_document").to_payload()
+        return {
+            "id": component_id,
+            "module_id": "flow_document",
+            "version": "",
+            "family": "flow_document",
+            "assembly_ids": [],
+            "compatible_versions": [],
+            "filename": f"{entity.id}.step",
+            "role": entity.role,
+            "material": "",
+            "mass_kg": None,
+            "center_of_mass_mm": None,
+            "inertia_kg_m2": None,
+            "mass_source": "unset",
+            "is_printable": entity.role == "printable",
+            "artifact_format": "step",
+            "artifact_path": _relative_path(step_path, self.project_root),
+            "direct_stl_path": None,
+            "source_kind": geometry["source_kind"],
+            "geometry_authority": geometry["geometry_authority"],
+            "quality_label": geometry["quality_label"],
+            "capabilities": geometry["capabilities"],
+            "warnings": geometry["warnings"],
+            "model_url": f"/api/parts/{component_id}/model",
+            "source_url": f"/api/parts/{component_id}/source",
+            "snap_features_url": f"/api/parts/{component_id}/snap-features",
+            "occurrences": [
+                {
+                    "name": entity.id,
+                    "location": [0.0, 0.0, 0.0],
+                    "rotation": [0.0, 0.0, 0.0],
+                }
+            ],
+            "in_assembly": False,
+            "default_visible": True,
+        }
+
+    def _edit_model_path(self, component_id: str) -> tuple[Path, str]:
+        entity = self.edit_service.entity_for_component_id(component_id)
+        step_path = self._ensure_edit_entity_step(entity)
+        cached_stl = self._cached_edit_stl_path(entity.id)
+        metadata_path = self._cached_metadata_path(cached_stl)
+        if self._display_cache_is_fresh(step_path, cached_stl, metadata_path):
+            return cached_stl, "step"
+        converted = self.converter(step_path, cached_stl)
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(json.dumps(display_mesh_cache_metadata(step_path), indent=2, sort_keys=True))
+        return converted, "step"
+
+    def _edit_snap_features(self, component_id: str) -> dict[str, Any]:
+        entity = self.edit_service.entity_for_component_id(component_id)
+        step_path = self._ensure_edit_entity_step(entity)
+        cache_path = self._cached_edit_snap_features_path(entity.id)
+        cached = self._read_json_cache(cache_path)
+        if cached is not None and cache_metadata_matches(cached, snap_feature_cache_metadata(step_path)):
+            return cached
+
+        try:
+            payload = extract_step_snap_features(step_path)
+        except GeometryAuthorityError as exc:
+            raise ConversionUnavailableError(str(exc)) from exc
+        geometry = geometry_for_edit_source("flow_document").to_payload()
+        payload.update(
+            {
+                "component_id": component_id,
+                "artifact_path": _relative_path(step_path, self.project_root),
+                "geometry_authority": geometry["geometry_authority"],
+                "capabilities": geometry["capabilities"],
+            }
+        )
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+        return payload
+
+    def _edit_source_context(self, component_id: str) -> dict[str, Any]:
+        entity_id = entity_id_from_component_id(component_id)
+        document_path = self.edit_service.store.path
+        if not document_path.exists():
+            raise ArtifactNotFoundError(f"Edit document not found for entity: {entity_id}")
+
+        content = document_path.read_text(encoding="utf-8")
+        all_lines = content.splitlines()
+        highlight_line = next(
+            (line_no for line_no, line in enumerate(all_lines, start=1) if f'"{entity_id}"' in line),
+            1,
+        )
+        excerpt = "\n".join(
+            f"{line_no:4d}: {line}"
+            for line_no, line in enumerate(all_lines, start=1)
+        )
+        return {
+            "component_id": component_id,
+            "symbol": entity_id,
+            "file_path": str(document_path),
+            "relative_file_path": _relative_path(document_path, self.project_root),
+            "start_line": 1,
+            "end_line": len(all_lines),
+            "highlight_start_line": highlight_line,
+            "highlight_end_line": highlight_line,
+            "language": "json",
+            "content": content,
+            "excerpt": excerpt,
+        }
+
+    def _ensure_edit_entity_step(self, entity: EditEntity) -> Path:
+        document = self.edit_service.document_model()
+        step_path = self._edit_step_path(entity.id)
+        metadata_path = self._cached_metadata_path(step_path)
+        expected = self._edit_step_cache_metadata(document, entity)
+        cached = self._read_json_cache(metadata_path)
+        if step_path.exists() and cached is not None and cache_metadata_matches(cached, expected):
+            return step_path
+
+        try:
+            export_entity_step(entity, step_path, document=document)
+        except EditKernelError as exc:
+            raise ConversionUnavailableError(str(exc)) from exc
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(json.dumps(expected, indent=2, sort_keys=True))
+        return step_path
+
+    def _edit_step_cache_metadata(self, document: EditDocument, entity: EditEntity) -> dict[str, Any]:
+        document_path = self.edit_service.store.path
+        stat = document_path.stat()
+        return {
+            "contract_version": EDIT_STEP_CACHE_CONTRACT_VERSION,
+            "document_path": str(document_path),
+            "document_mtime_ns": stat.st_mtime_ns,
+            "document_size": stat.st_size,
+            "document_revision": document.revision,
+            "entity_id": entity.id,
+            "entity": entity.to_payload(),
         }
 
     def _part_payload(self, definition: PartDefinition, occurrences: list[dict[str, Any]], *, default_visible: bool) -> dict[str, Any]:
@@ -322,6 +533,15 @@ class ViewerService:
     def _cached_snap_features_path(self, step_path: Path) -> Path:
         rel_step = step_path.relative_to(self.exports_dir / "step")
         return self.viewer_cache_dir / "snap-features" / rel_step.with_suffix(".json")
+
+    def _edit_step_path(self, entity_id: str) -> Path:
+        return self.viewer_cache_dir / "edit-step" / f"{entity_id}.step"
+
+    def _cached_edit_stl_path(self, entity_id: str) -> Path:
+        return self.viewer_cache_dir / "stl-from-edit" / f"{entity_id}.stl"
+
+    def _cached_edit_snap_features_path(self, entity_id: str) -> Path:
+        return self.viewer_cache_dir / "snap-features-edit" / f"{entity_id}.json"
 
     @staticmethod
     def _cache_is_fresh(source_path: Path, cache_path: Path) -> bool:

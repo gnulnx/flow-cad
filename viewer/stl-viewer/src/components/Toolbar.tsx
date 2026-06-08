@@ -4,6 +4,12 @@ interface ToolbarProps {
   onFitToView: () => void
   onFrameSelected: () => void
   onReload: () => void
+  onAddCube: () => void
+  onUndo: () => void
+  onRedo: () => void
+  canRedo: boolean
+  onDeleteSelected: () => void
+  canDeleteSelected: boolean
   statusMessage: string
   rotationMode: RotationMode
   onRotationModeChange: (mode: RotationMode) => void
@@ -23,6 +29,12 @@ export default function Toolbar({
   onFitToView,
   onFrameSelected,
   onReload,
+  onAddCube,
+  onUndo,
+  onRedo,
+  canRedo,
+  onDeleteSelected,
+  canDeleteSelected,
   statusMessage,
   rotationMode,
   onRotationModeChange,
@@ -52,6 +64,10 @@ export default function Toolbar({
       </div>
       <div className="viewer-toolbar-actions">
         <button onClick={onReload} className="btn-tool">Reload</button>
+        <button onClick={onUndo} className="btn-tool">Undo</button>
+        <button onClick={onRedo} disabled={!canRedo} className="btn-tool">Redo</button>
+        <button onClick={onDeleteSelected} disabled={!canDeleteSelected} className="btn-tool">Delete</button>
+        <button onClick={onAddCube} className="btn-tool">Cube</button>
         <button onClick={onFitToView} className="btn-tool">Fit to View</button>
         <button onClick={onFrameSelected} className="btn-tool">Frame Selected</button>
         <button
