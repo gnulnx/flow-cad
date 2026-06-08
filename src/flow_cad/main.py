@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import json
+import inspect
 import rich_click as click
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 from flow_cad.core.exporter import Exporter
-from flow_cad.core.cache import write_active_cache
+from flow_cad.core.cache import latest_build_metadata, write_active_cache
 from flow_cad.core.metadata import definition_export_subdir
 from flow_cad.core.report import write_report
 from flow_cad.core.bundler import create_bundle
@@ -19,10 +20,6 @@ from flow_cad.profiler import (
     load_latest_build_profile,
     write_build_profile,
 )
-
-def build_parts(params):
-    project = load_project(Path.cwd())
-    return project.build_parts(params)
 
 def assert_printable(name: str, shape) -> None:
     bb = shape.bounding_box()
@@ -52,9 +49,9 @@ def _definition_metadata(definition) -> dict[str, str]:
     }
 
 
-def _build_parts_with_profile(project, params, profiler: FlowCadProfiler) -> dict[str, object]:
+def _build_parts_for_definitions(params, definitions, profiler: FlowCadProfiler) -> dict[str, object]:
     parts: dict[str, object] = {}
-    for definition in project.iter_part_definitions():
+    for definition in definitions:
         with profiler.measure(
             "part_generation",
             definition.id,
@@ -63,6 +60,63 @@ def _build_parts_with_profile(project, params, profiler: FlowCadProfiler) -> dic
         ):
             parts[definition.id] = definition.factory(params)
     return parts
+
+
+def _find_part_definition(project, part_id: str | None):
+    if not part_id:
+        return None
+    for definition in project.iter_part_definitions():
+        if definition.id == part_id:
+            return definition
+    return None
+
+
+def _definition_source_paths(definition, project) -> tuple[Path, ...]:
+    sources: list[Path] = []
+    raw_source = inspect.getsourcefile(getattr(definition, "factory", None))
+    if raw_source:
+        sources.append(Path(raw_source).resolve())
+    for wrapper in getattr(project, "source_wrapper_files", ()):
+        sources.append(Path(wrapper).resolve())
+    return tuple(sorted({path for path in sources if path.exists()}))
+
+
+def _definition_changed_since(definition, project, compiled_at: float | None) -> bool:
+    if compiled_at is None:
+        return True
+    for source_path in _definition_source_paths(definition, project):
+        try:
+            if source_path.stat().st_mtime >= compiled_at:
+                return True
+        except OSError:
+            return True
+    return not bool(_definition_source_paths(definition, project))
+
+
+def _build_profile_parts(project, profile: str, include_references: bool) -> list:
+    return list(project.iter_part_definitions_for_profile(profile, include_references=include_references))
+
+
+def _resolve_build_mode(
+    *,
+    handoff: bool,
+    part: str | None,
+    changed: bool,
+    assembly_preview: bool,
+) -> str:
+    if sum((bool(part), bool(changed), bool(assembly_preview), bool(handoff))) > 1:
+        raise click.ClickException(
+            "Choose one build profile mode only: --part, --changed, --assembly-preview, or --handoff."
+        )
+    if handoff:
+        return "handoff"
+    if part:
+        return "part"
+    if changed:
+        return "changed"
+    if assembly_preview:
+        return "assembly-preview"
+    return "default"
 
 @click.group()
 def cli():
@@ -73,13 +127,38 @@ def cli():
 @click.option("--bundle/--no-bundle", default=True, help="Automatically create a tar.gz bundle of exports.")
 @click.option("--cache/--no-cache", default=True, help="Update the generated SQLite active cache.")
 @click.option("--snapshots/--no-snapshots", default=True, help="Automatically generate 2D SVG snapshots of each part.")
+@click.option("--stl/--no-stl", "generate_stl", default=True, help="Generate STL meshes after STEP export.")
+@click.option("--reports/--no-reports", "generate_reports", default=True, help="Write a CAD report after export.")
 @click.option("--snapshots-only", is_flag=True, default=False, help="Only regenerate SVG snapshots without rebuilding STEP geometry.")
+@click.option("--part", default=None, help="Build one part and its direct facts.")
+@click.option("--changed", is_flag=True, default=False, help="Rebuild parts whose source changed since the last cached build.")
+@click.option("--assembly-preview", is_flag=True, default=False, help="Rebuild placement data for an updated viewer cache without handoff packaging.")
 @click.option("--profile", default="all", show_default=True, help="Export profile: all, active, or a project version such as b3_v2.")
+@click.option("--handoff", is_flag=True, default=False, help="Run full cache/report/assembly/hand off build for release review.")
 @click.pass_context
-def build(ctx, bundle, cache, snapshots, snapshots_only, profile):
-    """Build all chassis parts and export STEP files."""
+def build(
+    ctx,
+    bundle,
+    cache,
+    snapshots,
+    generate_stl,
+    generate_reports,
+    snapshots_only,
+    part,
+    changed,
+    assembly_preview,
+    profile,
+    handoff,
+):
+    """Build parts and exports from the active project."""
     project = load_project(Path.cwd())
     build_profile = (profile or "all").strip() or "all"
+    build_mode = _resolve_build_mode(
+        handoff=bool(handoff),
+        part=part,
+        changed=bool(changed),
+        assembly_preview=bool(assembly_preview),
+    )
     profiler = FlowCadProfiler(
         project_id=project.project_id,
         project_root=project.root,
@@ -91,10 +170,14 @@ def build(ctx, bundle, cache, snapshots, snapshots_only, profile):
             "build_total",
             "flow cad build",
             metadata={
+                "build_mode": build_mode,
                 "bundle": str(bool(bundle)),
                 "cache": str(bool(cache)),
                 "snapshots": str(bool(snapshots)),
                 "snapshots_only": str(bool(snapshots_only)),
+                "stl": str(bool(generate_stl)),
+                "reports": str(bool(generate_reports)),
+                "part": str(part or ""),
                 "build_profile": build_profile,
             },
         ):
@@ -112,23 +195,80 @@ def build(ctx, bundle, cache, snapshots, snapshots_only, profile):
             else:
                 profiler.record_skip("params_validation", "project params", reason="no_validate_params")
 
+            if build_mode == "handoff":
+                effective_bundle = True
+                effective_cache = True
+                effective_snapshots = True
+                effective_stl = True
+                effective_reports = True
+                should_clear_exports = True
+            elif build_mode in {"part", "changed", "assembly-preview"}:
+                effective_bundle = False
+                effective_cache = False
+                effective_snapshots = snapshots
+                effective_stl = generate_stl
+                effective_reports = generate_reports
+                should_clear_exports = False
+            else:
+                effective_bundle = bool(bundle)
+                effective_cache = bool(cache)
+                effective_snapshots = bool(snapshots)
+                effective_stl = bool(generate_stl)
+                effective_reports = bool(generate_reports)
+                should_clear_exports = True
+
+            include_references = build_mode in {"default", "handoff", "assembly-preview"}
+            if build_mode == "part":
+                target_definition = _find_part_definition(project, part)
+                if target_definition is None:
+                    raise click.ClickException(f"Part {part!r} not found in registry for project {project.project_id}.")
+                export_definitions = [target_definition]
+            elif build_mode == "changed":
+                latest_metadata = latest_build_metadata(project.paths.cache)
+                compiled_at = latest_metadata.compiled_at.timestamp() if latest_metadata else None
+                candidates = _build_profile_parts(
+                    project,
+                    build_profile,
+                    include_references=True,
+                )
+                export_definitions = [
+                    definition
+                    for definition in candidates
+                    if _definition_changed_since(definition, project, compiled_at)
+                ]
+                if not export_definitions:
+                    raise click.ClickException("No changed definitions were found since the last cached build.")
+            else:
+                export_definitions = _build_profile_parts(
+                    project,
+                    build_profile,
+                    include_references=include_references,
+                )
+
+            if not export_definitions:
+                raise click.ClickException(f"Build profile {build_profile!r} did not match any registered parts")
+
             exporter = Exporter(
                 project.root,
                 params,
-                enable_snapshots=snapshots,
+                enable_snapshots=effective_snapshots,
+                enable_stl=effective_stl,
                 snapshots_only=snapshots_only,
                 exports_dir=project.paths.exports,
                 reports_dir=project.paths.reports,
             )
-            if not snapshots_only:
+            if not snapshots_only and should_clear_exports:
                 exporter.clear(profiler=profiler)
-            else:
+            elif snapshots_only:
                 profiler.record_skip("export_cleanup", "clear previous exports", reason="snapshots_only")
+            else:
+                profiler.record_skip(
+                    "export_cleanup",
+                    "clear previous exports",
+                    reason="partial_profile",
+                )
 
-            parts = _build_parts_with_profile(project, params, profiler)
-            export_definitions = list(project.iter_part_definitions_for_profile(build_profile))
-            if not export_definitions:
-                raise click.ClickException(f"Build profile {build_profile!r} did not match any registered parts")
+            parts = _build_parts_for_definitions(params, export_definitions, profiler)
 
             for definition in export_definitions:
                 if definition.is_printable:
@@ -165,7 +305,8 @@ def build(ctx, bundle, cache, snapshots, snapshots_only, profile):
                 report_definitions.append(definition)
 
             assembly_definition = project.assembly_definition
-            if project.definition_matches_profile(assembly_definition, build_profile):
+            assembly_required = build_mode in {"default", "handoff", "assembly-preview"}
+            if assembly_required and project.definition_matches_profile(assembly_definition, build_profile):
                 with profiler.measure(
                     "assembly_generation",
                     assembly_definition.id,
@@ -202,7 +343,11 @@ def build(ctx, bundle, cache, snapshots, snapshots_only, profile):
                     metadata=_definition_metadata(assembly_definition),
                 )
 
-            if build_profile in {"all", "active", project.active_version}:
+            printable_occurrences = []
+            report_path = None
+            if not effective_reports:
+                profiler.record_skip("report_generation", "CAD report", reason="reports_disabled")
+            elif build_profile in {"all", "active", project.active_version}:
                 with profiler.measure(
                     "assembly_placement",
                     "printable report occurrences",
@@ -221,18 +366,19 @@ def build(ctx, bundle, cache, snapshots, snapshots_only, profile):
                     reason="profile_excluded",
                 )
 
-            with profiler.measure("report_generation", "CAD report", metadata={"reports_dir": str(exporter.report_dir)}):
-                report_path = write_report(
-                    params,
-                    parts,
-                    exported,
-                    exporter.report_dir,
-                    project.root,
-                    printable_occurrences=printable_occurrences,
-                    component_definitions=report_definitions,
-                )
+            if effective_reports:
+                with profiler.measure("report_generation", "CAD report", metadata={"reports_dir": str(exporter.report_dir)}):
+                    report_path = write_report(
+                        params,
+                        parts,
+                        exported,
+                        exporter.report_dir,
+                        project.root,
+                        printable_occurrences=printable_occurrences,
+                        component_definitions=report_definitions,
+                    )
 
-            if cache:
+            if effective_cache:
                 db_path = project.paths.cache
                 with profiler.measure("active_cache_write", "registry cache", metadata={"db_path": str(db_path)}):
                     build_id = write_active_cache(
@@ -252,12 +398,13 @@ def build(ctx, bundle, cache, snapshots, snapshots_only, profile):
                         fg="green",
                     )
                 )
-                click.echo(
-                    click.style(
-                        f"Exported {len(exported)} STL files to {exporter.stl_dir} using profile {build_profile}",
-                        fg="green",
+                if effective_stl:
+                    click.echo(
+                        click.style(
+                            f"Exported {len(exported)} STL files to {exporter.stl_dir} using profile {build_profile}",
+                            fg="green",
+                        )
                     )
-                )
             if exporter.enable_snapshots:
                 click.echo(
                     click.style(
@@ -265,9 +412,10 @@ def build(ctx, bundle, cache, snapshots, snapshots_only, profile):
                         fg="green",
                     )
                 )
-            click.echo(click.style(f"Wrote report to {report_path}", fg="green"))
+            if report_path is not None:
+                click.echo(click.style(f"Wrote report to {report_path}", fg="green"))
 
-            if bundle:
+            if effective_bundle:
                 handoff_dir = project.root / "handoff"
                 bundle_profile = "active" if build_profile == "all" else build_profile
                 with profiler.measure(

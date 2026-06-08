@@ -17,6 +17,7 @@ class Exporter:
         params: Any,
         enable_snapshots: bool = True,
         snapshots_only: bool = False,
+        enable_stl: bool = True,
         exports_dir: Path | None = None,
         reports_dir: Path | None = None,
     ):
@@ -30,6 +31,7 @@ class Exporter:
         self.snapshot_dir = export_root / "snapshots"
         self.enable_snapshots = enable_snapshots
         self.snapshots_only = snapshots_only
+        self.enable_stl = enable_stl
         self.snapshot_count = 0
         self.step_dir.mkdir(parents=True, exist_ok=True)
         self.stl_dir.mkdir(parents=True, exist_ok=True)
@@ -76,21 +78,30 @@ class Exporter:
                 with profiler.measure("step_normalize", filename, part_id=part_id, metadata={"path": str(path)}):
                     normalize_step_file(path)
 
-            stl_path = stl_dest_dir / filename.replace(".step", ".stl")
-            stl_dest_dir.mkdir(parents=True, exist_ok=True)
-            stl_metadata = {
-                "path": str(stl_path),
-                "module_id": str(module_id or ""),
-                "artifact_cache_status": "rebuilt",
-                "artifact_cache_reason": "full_build",
-            }
-            if profiler is None:
-                ok = export_stl(shape, stl_path)
-            else:
-                with profiler.measure("stl_export", stl_path.name, part_id=part_id, metadata=stl_metadata):
+            if self.enable_stl:
+                stl_path = stl_dest_dir / filename.replace(".step", ".stl")
+                stl_dest_dir.mkdir(parents=True, exist_ok=True)
+                stl_metadata = {
+                    "path": str(stl_path),
+                    "module_id": str(module_id or ""),
+                    "artifact_cache_status": "rebuilt",
+                    "artifact_cache_reason": "full_build",
+                }
+                if profiler is None:
                     ok = export_stl(shape, stl_path)
-            if not ok:
-                raise RuntimeError(f"STL export failed: {stl_path}")
+                else:
+                    with profiler.measure("stl_export", stl_path.name, part_id=part_id, metadata=stl_metadata):
+                        ok = export_stl(shape, stl_path)
+                if not ok:
+                    raise RuntimeError(f"STL export failed: {stl_path}")
+            elif profiler is not None:
+                profiler.record_skip(
+                    "stl_export",
+                    filename.replace(".step", ".stl"),
+                    part_id=part_id,
+                    reason="stl_disabled",
+                    metadata={"module_id": str(module_id or "")},
+                )
         elif profiler is not None:
             profiler.record_skip(
                 "step_export",

@@ -127,7 +127,6 @@ But it should not be the only loop. Flow CAD needs explicit profiles:
 flow cad build --part <part-id>
 flow cad build --changed
 flow cad build --assembly-preview
-flow cad build --no-stl --no-snapshots --no-reports
 flow cad build --handoff
 ```
 
@@ -137,9 +136,19 @@ Suggested meanings:
 - `--changed`: rebuild only changed source dependencies.
 - `--assembly-preview`: refresh placements and viewer cache without handoff
   packaging.
-- `--no-stl`: skip approximate mesh generation when exact STEP is enough.
-- `--no-snapshots`: skip screenshot/report work during source iteration.
 - `--handoff`: strict full build behavior for release/export review.
+
+Build control flags can still be combined with any profile mode:
+
+- `--stl/--no-stl` (default `--stl`)
+- `--snapshots/--no-snapshots` (default `--snapshots`)
+- `--reports/--no-reports` (default `--reports`)
+- `--bundle/--no-bundle` (default `--bundle`)
+- `--cache/--no-cache` (default `--cache`)
+- `--snapshots-only` (snapshot-only regeneration)
+
+Mode flags are mutually exclusive, and `--handoff` enforces the strict full
+build behavior used for release/handoff workflows.
 
 Project handoff commands should still run the full build and validators.
 Interactive work should start smaller.
