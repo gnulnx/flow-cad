@@ -104,11 +104,14 @@ Useful commands:
 
 ```bash
 flow cad profile
-flow cad build --profile
+flow cad build --profile <build-profile>
 flow cad profile --last
 ```
 
 The output should make the slowest five operations obvious.
+
+The implemented build-profiler contract is documented in
+`docs/FlowCadProfiler.md`.
 
 ### 2. Split Build Profiles
 
