@@ -74,6 +74,8 @@ const partsPayload = {
       center_of_mass_mm: null,
       inertia_kg_m2: null,
       mass_source: 'unset',
+      metadata_status: 'todo',
+      metadata_notes: '',
       is_printable: true,
       artifact_format: 'step',
       artifact_path: 'b3/exports/step/b3_v2/wheel_box/b3_wheel_box_test_body.step',

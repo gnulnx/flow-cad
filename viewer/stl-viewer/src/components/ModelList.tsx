@@ -245,6 +245,16 @@ function PartDetails({
           <dd>{familyLabel(part)}</dd>
         </div>
         <div>
+          <dt>Metadata</dt>
+          <dd>{part.metadata_status}</dd>
+        </div>
+        {part.metadata_notes ? (
+          <div>
+            <dt>Notes</dt>
+            <dd>{part.metadata_notes}</dd>
+          </div>
+        ) : null}
+        <div>
           <dt>Artifact</dt>
           <dd>{part.artifact_format ?? 'missing'}</dd>
         </div>

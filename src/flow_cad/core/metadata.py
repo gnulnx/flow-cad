@@ -14,6 +14,13 @@ class PartRole(StrEnum):
     LEGACY = "legacy"
 
 
+class PartMetadataStatus(StrEnum):
+    TODO = "todo"
+    PARTIAL = "partial"
+    COMPLETE = "complete"
+    BLOCKED = "blocked"
+
+
 PartFactory = Callable[[Any], object]
 
 
@@ -35,6 +42,8 @@ class PartDefinition:
     center_of_mass_mm: tuple[float, float, float] | None = None
     inertia_kg_m2: tuple[float, float, float, float, float, float] | None = None
     mass_source: str = "unset"
+    metadata_status: str = PartMetadataStatus.TODO
+    metadata_notes: str = ""
 
     @property
     def is_printable(self) -> bool:

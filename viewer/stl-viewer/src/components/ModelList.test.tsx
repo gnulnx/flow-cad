@@ -34,6 +34,8 @@ function part(
     center_of_mass_mm: null,
     inertia_kg_m2: null,
     mass_source: 'unset',
+    metadata_status: 'todo',
+    metadata_notes: '',
     is_printable: true,
     artifact_format: 'step',
     artifact_path: `b3/exports/step/b3_v2/${moduleId}/${id}.step`,
@@ -203,6 +205,31 @@ describe('ModelList', () => {
 
     fireEvent.change(screen.getByLabelText('wheel_box_tight_insert mass kg'), { target: { value: '0.125' } })
     expect(onMetadataChange).toHaveBeenLastCalledWith('wheel_box_tight_insert', { mass_kg: '0.125' })
+  })
+
+  it('shows source-controlled metadata completion status in part details', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <ModelList
+        parts={[part('wheel_box_test_body', 'wheel_box', {
+          metadata_status: 'complete',
+          metadata_notes: 'mass and inertia measured on scale',
+        })]}
+        selectedIds={['wheel_box_test_body']}
+        activeId="wheel_box_test_body"
+        activeVersion="b3_v2"
+        onActivate={vi.fn()}
+        collapsed={false}
+        onToggle={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByLabelText('Show details for wheel_box_test_body'))
+
+    expect(screen.getByText('Metadata')).toBeInTheDocument()
+    expect(screen.getByText('complete')).toBeInTheDocument()
+    expect(screen.getByText('mass and inertia measured on scale')).toBeInTheDocument()
   })
 
   it('toggles color mode from the parts panel', async () => {

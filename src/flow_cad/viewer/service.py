@@ -485,6 +485,8 @@ class ViewerService:
             "center_of_mass_mm": getattr(definition, "center_of_mass_mm", None),
             "inertia_kg_m2": getattr(definition, "inertia_kg_m2", None),
             "mass_source": getattr(definition, "mass_source", "unset"),
+            "metadata_status": str(getattr(definition, "metadata_status", "todo")),
+            "metadata_notes": getattr(definition, "metadata_notes", ""),
             "is_printable": definition.is_printable,
             "artifact_format": source_format,
             "artifact_path": artifact_path,
