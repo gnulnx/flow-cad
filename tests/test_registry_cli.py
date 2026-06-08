@@ -40,6 +40,8 @@ def _write_sample_cache(project_root):
         filename="sample_part.step",
         factory=lambda _params: _Shape(),
         role=PartRole.PRINTABLE,
+        metadata_status="partial",
+        metadata_notes="mass present, inertia missing",
     )
     return write_active_cache(
         project_root / "example" / "registry.db",
@@ -77,6 +79,7 @@ def test_registry_list_reads_active_cache(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0
     assert "sample_part" in result.output
     assert "lower_chassis" in result.output
+    assert "partial" in result.output
     assert "10.0 x 20.0 x 30.0" in result.output
     assert "Build: build-cli" in result.output
 
@@ -89,6 +92,8 @@ def test_registry_show_reads_component(tmp_path, monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "id: sample_part" in result.output
+    assert "metadata_status: partial" in result.output
+    assert "metadata_notes: mass present, inertia missing" in result.output
     assert "step_path: example/exports/step/lower_chassis/sample_part.step" in result.output
     assert "volume_mm3: 1234.500" in result.output
 

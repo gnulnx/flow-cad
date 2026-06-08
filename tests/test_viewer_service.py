@@ -55,6 +55,8 @@ def test_viewer_service_lists_example_parts_and_prefers_step(tmp_path) -> None:
     assert part["capabilities"]["exact_topology"] is True
     assert part["capabilities"]["exact_snap"] is True
     assert part["capabilities"]["mesh_only"] is False
+    assert part["metadata_status"] == "todo"
+    assert part["metadata_notes"] == ""
     assert part["warnings"] == []
     assert part["snap_features_url"] == "/api/parts/example_block/snap-features"
     assert part["in_assembly"] is True
@@ -82,6 +84,8 @@ def test_viewer_service_reports_active_version_and_hides_references_by_default(t
             version="b3_v2",
             family="wheel_box",
             assembly_ids=("b3_v2_wheel_box",),
+            metadata_status="complete",
+            metadata_notes="mass and inertia measured",
         ),
         PartDefinition(
             "reference_wheel_pair",
@@ -179,6 +183,8 @@ def test_viewer_service_reports_active_version_and_hides_references_by_default(t
     assert payload["active_assembly_id"] == "b3_v2_wheel_box"
     assert payload["versions"] == ["b3_v2", "b3_v1"]
     assert parts["wheel_box_test_body"]["default_visible"] is True
+    assert parts["wheel_box_test_body"]["metadata_status"] == "complete"
+    assert parts["wheel_box_test_body"]["metadata_notes"] == "mass and inertia measured"
     assert parts["reference_wheel_pair"]["default_visible"] is False
     assert parts["reference_wheel_pair"]["occurrences"][0]["location"] == [1.0, 2.0, 3.0]
     assert len(parts["reference_wheel_pair"]["occurrences"]) == 2

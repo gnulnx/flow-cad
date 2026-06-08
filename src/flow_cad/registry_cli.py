@@ -44,6 +44,7 @@ def list_components() -> None:
     table.add_column("ID")
     table.add_column("Module")
     table.add_column("Role")
+    table.add_column("Metadata")
     table.add_column("BBox mm", justify="right")
     table.add_column("Volume mm^3", justify="right")
     table.add_column("STEP")
@@ -53,6 +54,7 @@ def list_components() -> None:
             component.id,
             component.module_id,
             component.role,
+            component.metadata_status,
             f"{component.bbox_x:.1f} x {component.bbox_y:.1f} x {component.bbox_z:.1f}",
             f"{component.volume_mm3:.1f}",
             component.step_path,
@@ -78,6 +80,9 @@ def show_component(component_id: str) -> None:
     click.echo(f"id: {component.id}")
     click.echo(f"module: {component.module_id}")
     click.echo(f"role: {component.role}")
+    click.echo(f"metadata_status: {component.metadata_status}")
+    if component.metadata_notes:
+        click.echo(f"metadata_notes: {component.metadata_notes}")
     click.echo(f"step_path: {component.step_path}")
     click.echo(f"bbox_mm: {component.bbox_x:.3f}, {component.bbox_y:.3f}, {component.bbox_z:.3f}")
     click.echo(f"volume_mm3: {component.volume_mm3:.3f}")

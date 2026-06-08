@@ -37,6 +37,8 @@ export interface ViewerPart {
   center_of_mass_mm: [number, number, number] | null
   inertia_kg_m2: [number, number, number, number, number, number] | null
   mass_source: string
+  metadata_status: string
+  metadata_notes: string
   is_printable: boolean
   artifact_format: 'step' | 'stl' | null
   artifact_path: string | null

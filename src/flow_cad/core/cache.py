@@ -21,6 +21,8 @@ class ComponentCache(SQLModel, table=True):
     id: str = Field(primary_key=True)
     module_id: str
     role: str
+    metadata_status: str = Field(default="todo")
+    metadata_notes: str = Field(default="")
     step_path: str
     volume_mm3: float
     bbox_x: float
@@ -53,9 +55,28 @@ def create_cache_engine(db_path: Path):
     return create_engine(f"sqlite:///{db_path}", echo=False)
 
 
+def _ensure_component_cache_columns(engine) -> None:
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(componentcache)").all()
+        }
+        if not columns:
+            return
+        if "metadata_status" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE componentcache ADD COLUMN metadata_status TEXT NOT NULL DEFAULT 'todo'"
+            )
+        if "metadata_notes" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE componentcache ADD COLUMN metadata_notes TEXT NOT NULL DEFAULT ''"
+            )
+
+
 def init_cache(db_path: Path) -> None:
     engine = create_cache_engine(db_path)
     SQLModel.metadata.create_all(engine)
+    _ensure_component_cache_columns(engine)
 
 
 def params_as_json(params: Any) -> str:
@@ -77,6 +98,7 @@ def write_build_metadata(
 ) -> None:
     engine = create_cache_engine(db_path)
     SQLModel.metadata.create_all(engine)
+    _ensure_component_cache_columns(engine)
     timestamp = compiled_at or utc_now()
     param_values = asdict(params)
     metadata = BuildMetadata(
@@ -100,6 +122,7 @@ def write_build_metadata(
 def list_component_cache(db_path: Path) -> list[ComponentCache]:
     engine = create_cache_engine(db_path)
     SQLModel.metadata.create_all(engine)
+    _ensure_component_cache_columns(engine)
     with Session(engine) as session:
         return list(session.exec(select(ComponentCache).order_by(ComponentCache.module_id, ComponentCache.id)))
 
@@ -107,6 +130,7 @@ def list_component_cache(db_path: Path) -> list[ComponentCache]:
 def get_component_cache(db_path: Path, component_id: str) -> ComponentCache | None:
     engine = create_cache_engine(db_path)
     SQLModel.metadata.create_all(engine)
+    _ensure_component_cache_columns(engine)
     with Session(engine) as session:
         return session.get(ComponentCache, component_id)
 
@@ -114,6 +138,7 @@ def get_component_cache(db_path: Path, component_id: str) -> ComponentCache | No
 def latest_build_metadata(db_path: Path) -> BuildMetadata | None:
     engine = create_cache_engine(db_path)
     SQLModel.metadata.create_all(engine)
+    _ensure_component_cache_columns(engine)
     with Session(engine) as session:
         return session.exec(select(BuildMetadata).order_by(BuildMetadata.compiled_at.desc()).limit(1)).first()
 
@@ -177,6 +202,7 @@ def write_active_cache(
 ) -> str:
     engine = create_cache_engine(db_path)
     SQLModel.metadata.create_all(engine)
+    _ensure_component_cache_columns(engine)
 
     resolved_build_id = build_id or new_build_id()
     resolved_compiled_at = compiled_at or utc_now()
@@ -209,6 +235,8 @@ def write_active_cache(
                     id=definition.id,
                     module_id=definition.module_id,
                     role=str(definition.role),
+                    metadata_status=str(getattr(definition, "metadata_status", "todo")),
+                    metadata_notes=str(getattr(definition, "metadata_notes", "")),
                     step_path=_relative_path(step_path, project_root),
                     volume_mm3=shape_volume(shape),
                     bbox_x=bbox_x,

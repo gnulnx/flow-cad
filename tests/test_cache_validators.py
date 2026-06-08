@@ -30,6 +30,8 @@ def test_validators_can_consume_cache(tmp_path) -> None:
         filename="test.step",
         factory=lambda p: None,  # Not needed for cache-only test
         role=PartRole.PRINTABLE,
+        metadata_status="complete",
+        metadata_notes="mass measured on scale",
     )
     mock_shape = type("MockShape", (), {
         "bounding_box": lambda self: type("BBox", (), {
@@ -53,6 +55,8 @@ def test_validators_can_consume_cache(tmp_path) -> None:
     assert comp.volume_mm3 == 6000.0
     assert (comp.bbox_x, comp.bbox_y, comp.bbox_z) == (10.0, 20.0, 30.0)
     assert comp.role == "printable"
+    assert comp.metadata_status == "complete"
+    assert comp.metadata_notes == "mass measured on scale"
 
     # Verify we can list all printable parts from cache for batch validation
     all_cached = list_component_cache(db_path)
@@ -123,3 +127,56 @@ def test_cache_contains_all_given_parts(tmp_path) -> None:
 
     cached = {c.id for c in list_component_cache(db_path)}
     assert cached == {definition.id for definition in definitions}
+
+
+def test_existing_cache_schema_gets_metadata_columns(tmp_path) -> None:
+    import sqlite3
+
+    params = ExampleParams()
+    db_path = tmp_path / params.project_id / "registry.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE componentcache (
+                id TEXT PRIMARY KEY,
+                module_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                step_path TEXT NOT NULL,
+                volume_mm3 REAL NOT NULL,
+                bbox_x REAL NOT NULL,
+                bbox_y REAL NOT NULL,
+                bbox_z REAL NOT NULL,
+                compiled_at DATETIME NOT NULL,
+                build_id TEXT NOT NULL
+            )
+            """
+        )
+
+    definition = PartDefinition(
+        "alpha",
+        "test",
+        "alpha.step",
+        lambda _params: None,
+        metadata_status="partial",
+        metadata_notes="mass present, inertia missing",
+    )
+    mock_shape = type("MockShape", (), {
+        "bounding_box": lambda self: type("BBox", (), {
+            "min": type("Point", (), {"X": 0.0, "Y": 0.0, "Z": 0.0}),
+            "max": type("Point", (), {"X": 1.0, "Y": 1.0, "Z": 1.0})
+        })(),
+        "volume": 1.0,
+    })()
+
+    write_active_cache(
+        db_path,
+        project_root=tmp_path,
+        params=params,
+        components=[(definition, mock_shape, tmp_path / "alpha.step")],
+    )
+
+    cached = get_component_cache(db_path, "alpha")
+    assert cached is not None
+    assert cached.metadata_status == "partial"
+    assert cached.metadata_notes == "mass present, inertia missing"
