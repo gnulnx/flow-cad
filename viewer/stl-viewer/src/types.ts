@@ -126,6 +126,68 @@ export interface ThreadViewportState {
   }
 }
 
+export interface ThreadViewportAnnotationNote {
+  id?: string
+  kind: 'note'
+  text: string
+  x: number
+  y: number
+}
+
+export interface ThreadViewportAnnotationCircle {
+  id?: string
+  kind: 'circle'
+  x: number
+  y: number
+  radius: number
+}
+
+export interface ThreadViewportAnnotationFreehand {
+  id?: string
+  kind: 'freehand'
+  points: Array<{ x: number; y: number }>
+  color?: string
+  width?: number
+}
+
+export type ThreadViewportAnnotation =
+  | ThreadViewportAnnotationNote
+  | ThreadViewportAnnotationCircle
+  | ThreadViewportAnnotationFreehand
+
+export type ViewportMarkupTool = 'pen' | 'circle' | 'note'
+
+export interface ViewportScreenshotPayload {
+  kind: 'viewport_screenshot'
+  content_type: 'image/png'
+  data_url?: string
+  attachment_id?: string
+  selected_part_ids?: string[]
+  visible_part_ids?: string[]
+  annotations?: ThreadViewportAnnotation[]
+  backend_revision?: number | string | null
+  viewport?: {
+    width: number
+    height: number
+    client_width?: number
+    client_height?: number
+  }
+  camera?: ThreadViewportState['camera']
+}
+
+export interface ViewportAttachmentRecord {
+  attachment_id: string
+  kind: 'viewport_screenshot'
+  content_type: 'image/png'
+  filename: string
+  path: string
+  metadata_path: string
+  selected_part_ids: string[]
+  visible_part_ids: string[]
+  annotations: ThreadViewportAnnotation[]
+  created_at: string
+}
+
 export interface ThreadContextSnapshot {
   schema_version?: number
   thread_id?: string
@@ -139,7 +201,6 @@ export interface ThreadContextSnapshot {
   parts?: Record<string, unknown>
   viewport?: Record<string, unknown>
   camera?: Record<string, unknown> | null
-  viewer_state?: Record<string, unknown>
   draft_transaction?: {
     token: string
     status?: string
@@ -153,6 +214,10 @@ export interface ThreadContextSnapshot {
   camera_state?: ThreadViewportState
   active_project_revision?: number | null
   context_note?: string
+  viewer_state?: {
+    viewport_screenshot?: ViewportScreenshotPayload
+    [key: string]: unknown
+  }
 }
 
 export type DesignThreadEventType =
@@ -222,8 +287,10 @@ export interface DesignThreadRecord {
   warnings?: string[]
   message_count?: number
   snapshot_count?: number
+  attachment_count?: number
   messages: DesignThreadEvent[]
   context_snapshots?: ThreadContextSnapshot[]
+  attachments?: ViewportAttachmentRecord[]
 }
 
 export interface DesignThreadSummary {
@@ -254,6 +321,8 @@ export interface CreateDesignThreadPayload {
 export interface DesignThreadChatPayload {
   message: string
   context_snapshot?: Record<string, unknown>
+  attachments?: string[]
+  metadata?: Record<string, unknown>
 }
 
 export interface DesignThreadChatResponse {

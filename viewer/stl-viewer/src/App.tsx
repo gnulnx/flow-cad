@@ -14,6 +14,7 @@ import FileDropZone from './components/FileDropZone'
 import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import DesignThreadDock from './components/DesignThreadDock'
+import ViewportMarkupOverlay from './components/ViewportMarkupOverlay'
 import { calculateMeshMetrics } from './meshMetrics'
 import {
   MODEL_WIREFRAME_COLOR,
@@ -47,8 +48,11 @@ import type {
   DesignThreadChatPayload,
   DesignThreadChatResponse,
   DesignThreadsPayload,
-  ThreadContextSnapshot,
   ThreadViewportMeasurement,
+  ThreadViewportAnnotation,
+  ViewportMarkupTool,
+  ViewportAttachmentRecord,
+  ViewportScreenshotPayload,
 } from './types'
 
 const IDENTITY_OCCURRENCE: ViewerOccurrence = {
@@ -72,6 +76,37 @@ const CLIENT_STL_WARNING = 'STL-only mesh: viewing and approximate mesh measurem
 const PREVIEW_MODEL_COLOR = '#f97316'
 const PREVIEW_MODEL_WIREFRAME = '#fbbf24'
 const PREVIEW_MODEL_WARNINGS = ['Draft preview geometry: verify with source loop before accepting.']
+
+function extractThreadAttachmentIds(thread: DesignThreadRecord | null) {
+  if (!thread) return [] as string[]
+  const ids = new Set<string>()
+
+  for (const message of thread.messages ?? []) {
+    for (const attachment of message.attachments ?? []) {
+      if (typeof attachment === 'string') ids.add(attachment)
+    }
+  }
+
+  for (const attachment of thread.attachments ?? []) {
+    if (typeof attachment.attachment_id === 'string' && attachment.attachment_id.trim()) {
+      ids.add(attachment.attachment_id.trim())
+    }
+  }
+
+  for (const snapshot of thread.context_snapshots ?? []) {
+    if (snapshot && typeof snapshot === 'object') {
+      const viewerState = (snapshot as { viewer_state?: Record<string, unknown> }).viewer_state
+      if (!viewerState || typeof viewerState !== 'object') continue
+      const screenshot = viewerState.viewport_screenshot
+      if (screenshot && typeof screenshot === 'object') {
+        const attachmentId = (screenshot as { attachment_id?: unknown }).attachment_id
+        if (typeof attachmentId === 'string' && attachmentId.trim()) ids.add(attachmentId.trim())
+      }
+    }
+  }
+
+  return Array.from(ids)
+}
 
 type ModelStateWriter = (updater: (previous: ModelData[]) => ModelData[]) => void
 
@@ -273,7 +308,61 @@ function _uniqueModelPartIds(partIds: string[]) {
   return result
 }
 
-function captureViewportScreenshot() {
+function drawMarkupOnCanvas(
+  context: CanvasRenderingContext2D,
+  annotations: ThreadViewportAnnotation[],
+  width: number,
+  height: number,
+) {
+  context.save()
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  context.font = '600 18px Inter, sans-serif'
+  context.textBaseline = 'middle'
+
+  for (const annotation of annotations) {
+    if (annotation.kind === 'freehand') {
+      if (annotation.points.length < 2) continue
+      context.strokeStyle = annotation.color ?? '#f97316'
+      context.lineWidth = Math.max(2, Math.min(12, (annotation.width ?? 0.006) * Math.max(width, height)))
+      context.beginPath()
+      context.moveTo(annotation.points[0].x * width, annotation.points[0].y * height)
+      for (const point of annotation.points.slice(1)) {
+        context.lineTo(point.x * width, point.y * height)
+      }
+      context.stroke()
+      continue
+    }
+
+    if (annotation.kind === 'circle') {
+      context.strokeStyle = '#f97316'
+      context.lineWidth = 4
+      context.beginPath()
+      context.arc(annotation.x * width, annotation.y * height, annotation.radius * Math.max(width, height), 0, Math.PI * 2)
+      context.stroke()
+      continue
+    }
+
+    const x = annotation.x * width
+    const y = annotation.y * height
+    context.fillStyle = 'rgba(7, 10, 19, 0.82)'
+    context.strokeStyle = '#f97316'
+    context.lineWidth = 2
+    const textWidth = Math.min(width - x - 12, Math.max(72, context.measureText(annotation.text).width + 18))
+    context.fillRect(x + 12, y - 24, textWidth, 34)
+    context.strokeRect(x + 12, y - 24, textWidth, 34)
+    context.fillStyle = '#fff7ed'
+    context.fillText(annotation.text, x + 21, y - 7, textWidth - 18)
+    context.beginPath()
+    context.arc(x, y, 6, 0, Math.PI * 2)
+    context.fillStyle = '#f97316'
+    context.fill()
+  }
+
+  context.restore()
+}
+
+function captureViewportScreenshot(annotations: ThreadViewportAnnotation[] = []) {
   const canvas = document.querySelector('.workspace-canvas canvas') as HTMLCanvasElement | null
   if (!canvas) return { viewportSize: null, screenshot: null }
 
@@ -285,6 +374,24 @@ function captureViewportScreenshot() {
   }
 
   try {
+    if (annotations.length) {
+      const compositeCanvas = document.createElement('canvas')
+      compositeCanvas.width = canvas.width
+      compositeCanvas.height = canvas.height
+      const context = compositeCanvas.getContext('2d')
+      if (context) {
+        context.drawImage(canvas, 0, 0, canvas.width, canvas.height)
+        drawMarkupOnCanvas(context, annotations, canvas.width, canvas.height)
+        return {
+          viewportSize,
+          screenshot: {
+            kind: 'viewport_screenshot',
+            content_type: 'image/png',
+            data_url: compositeCanvas.toDataURL('image/png'),
+          },
+        }
+      }
+    }
     return {
       viewportSize,
       screenshot: {
@@ -351,6 +458,12 @@ export default function App() {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [activeThread, setActiveThread] = useState<DesignThreadRecord | null>(null)
   const [threadBusy, setThreadBusy] = useState(false)
+  const [threadAttachmentIds, setThreadAttachmentIds] = useState<string[]>([])
+  const [latestAttachmentId, setLatestAttachmentId] = useState<string | null>(null)
+  const [markupActive, setMarkupActive] = useState(false)
+  const [markupTool, setMarkupTool] = useState<ViewportMarkupTool>('pen')
+  const [markupNoteText, setMarkupNoteText] = useState('')
+  const [viewportAnnotations, setViewportAnnotations] = useState<ThreadViewportAnnotation[]>([])
 
   // Resizing state hooks
   const [sourceWidth, setSourceWidth] = useState(380)
@@ -492,6 +605,9 @@ export default function App() {
     const payload = await response.json() as DesignThreadRecord
     setActiveThread(payload)
     setActiveThreadId(threadId)
+    const attachmentIds = extractThreadAttachmentIds(payload)
+    setThreadAttachmentIds(attachmentIds)
+    setLatestAttachmentId(attachmentIds.at(-1) ?? null)
     return payload
   }, [apiBase])
 
@@ -550,29 +666,69 @@ export default function App() {
     return payload
   }, [apiBase, activeThreadId, loadThreadSummaries])
 
-  const createContextSnapshot = useCallback(async (threadId: string, snapshotPayload: Record<string, unknown>) => {
-    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/context-snapshots`), {
-      ...buildHeaders(snapshotPayload),
+  const createViewportAttachment = useCallback(async (threadId: string, payload: ViewportScreenshotPayload) => {
+    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/attachments/viewport-screenshot`), {
+      ...buildHeaders(payload),
     })
     if (!response.ok) {
       throw new Error(await responseDetail(response))
     }
-    const snapshot = await response.json() as ThreadContextSnapshot
+    const attachment = await response.json() as ViewportAttachmentRecord
     await loadThread(threadId)
-    return snapshot
+    setLatestAttachmentId(attachment.attachment_id)
+    setThreadAttachmentIds((current) =>
+      current.includes(attachment.attachment_id) ? current : [...current, attachment.attachment_id],
+    )
+    return attachment
   }, [apiBase, loadThread])
 
   const sendThreadChatMessage = useCallback(async (threadId: string, payload: DesignThreadChatPayload) => {
-    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat`), buildHeaders(payload))
+    const contextSnapshot = payload.context_snapshot
+    const normalizedContextSnapshot =
+      contextSnapshot && typeof contextSnapshot === 'object' && !Array.isArray(contextSnapshot)
+        ? { ...contextSnapshot }
+        : {}
+    if ('viewport_screenshot' in normalizedContextSnapshot) {
+      delete normalizedContextSnapshot.viewport_screenshot
+    }
+    const payloadWithAttachment = {
+      ...payload,
+      ...(latestAttachmentId
+        ? {
+          attachments: [latestAttachmentId],
+          metadata: {
+            ...(payload.metadata ?? {}),
+            viewport_screenshot: {
+              kind: 'viewport_screenshot',
+              attachment_id: latestAttachmentId,
+            },
+          },
+        }
+        : {}),
+      context_snapshot: {
+        ...normalizedContextSnapshot,
+        ...(latestAttachmentId
+          ? {
+            viewport_screenshot: {
+              kind: 'viewport_screenshot',
+              attachment_id: latestAttachmentId,
+            },
+          }
+          : {}),
+      },
+    }
+    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat`), buildHeaders(payloadWithAttachment))
     if (!response.ok) {
       throw new Error(await responseDetail(response))
     }
     const chat = await response.json() as DesignThreadChatResponse
     setActiveThread(chat.thread)
     setActiveThreadId(threadId)
+    setThreadAttachmentIds(extractThreadAttachmentIds(chat.thread))
+    setLatestAttachmentId((chat.thread.context_snapshots ?? []).at(-1)?.viewer_state?.viewport_screenshot?.attachment_id ?? latestAttachmentId)
     await loadThreadSummaries()
     return chat
-  }, [apiBase, loadThreadSummaries])
+  }, [apiBase, loadThreadSummaries, latestAttachmentId])
 
   const viewerParts = useMemo(
     () => parts.map((part) => mergePartDraft(part, partMetadataDrafts[part.id])),
@@ -1185,8 +1341,9 @@ export default function App() {
       : [],
     [previewModelPayload],
   )
-  const buildViewerContextPayload = useCallback(() => {
-    const capture = captureViewportScreenshot()
+  const buildViewerContextPayload = useCallback((options: { includeViewportScreenshot?: boolean } = {}) => {
+    const { includeViewportScreenshot = false } = options
+    const capture = captureViewportScreenshot(includeViewportScreenshot ? viewportAnnotations : [])
     return {
       selected_part_ids: selectedIds,
       visible_part_ids: visiblePartIds,
@@ -1199,7 +1356,8 @@ export default function App() {
       active_project_revision: backendRevisionRef.current,
       context_note: 'viewport attached from chat',
       viewport_size: capture.viewportSize,
-      viewport_screenshot: capture.screenshot,
+      annotations: viewportAnnotations,
+      ...(includeViewportScreenshot ? { viewport_screenshot: capture.screenshot } : {}),
     }
   }, [
     activeAssemblyId,
@@ -1207,9 +1365,11 @@ export default function App() {
     previewContext,
     previewModelPayload,
     selectedIds,
+    viewportAnnotations,
     viewportMeasurements,
     visiblePartIds,
   ])
+
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -1271,8 +1431,18 @@ export default function App() {
           onActivateThread={loadThread}
           onPatchThread={patchThread}
           onSendChatMessage={sendThreadChatMessage}
+          onCreateViewportAttachment={createViewportAttachment}
           onBuildViewerContext={buildViewerContextPayload}
-          onCreateContextSnapshot={createContextSnapshot}
+          threadAttachmentIds={threadAttachmentIds}
+          markupActive={markupActive}
+          markupTool={markupTool}
+          markupNoteText={markupNoteText}
+          markupAnnotations={viewportAnnotations}
+          onMarkupActiveChange={setMarkupActive}
+          onMarkupToolChange={setMarkupTool}
+          onMarkupNoteTextChange={setMarkupNoteText}
+          onClearMarkup={() => setViewportAnnotations([])}
+          onUndoMarkup={() => setViewportAnnotations((current) => current.slice(0, -1))}
         />
         {sourceCollapsed ? null : (
           <div 
@@ -1315,6 +1485,13 @@ export default function App() {
               }}
               onTapeModeChange={handleTapeModeChange}
               onClearMeasurements={handleClearMeasurements}
+            />
+            <ViewportMarkupOverlay
+              active={markupActive}
+              tool={markupTool}
+              noteText={markupNoteText}
+              annotations={viewportAnnotations}
+              onChange={setViewportAnnotations}
             />
           </FileDropZone>
         </div>

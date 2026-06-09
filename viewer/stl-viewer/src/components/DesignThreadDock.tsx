@@ -7,9 +7,12 @@ import type {
   DesignThreadRecord,
   DesignThreadSummary,
   SourceContext,
-  ThreadContextSnapshot,
   DesignThreadChatPayload,
   DesignThreadChatResponse,
+  ThreadViewportAnnotation,
+  ViewportMarkupTool,
+  ViewportAttachmentRecord,
+  ViewportScreenshotPayload,
 } from '../types'
 import type { PreviewContext, ProposedPreviewOperation, DraftAcceptanceArtifacts, DraftPreviewModelPayload } from '../types'
 
@@ -56,8 +59,18 @@ interface DesignThreadDockProps {
   onActivateThread: (threadId: string) => Promise<unknown>
   onPatchThread: (threadId: string, patch: Record<string, unknown>) => Promise<unknown>
   onSendChatMessage: (threadId: string, payload: DesignThreadChatPayload) => Promise<DesignThreadChatResponse>
-  onBuildViewerContext: () => Record<string, unknown>
-  onCreateContextSnapshot: (threadId: string, payload: Record<string, unknown>) => Promise<ThreadContextSnapshot | null>
+  onCreateViewportAttachment: (threadId: string, payload: ViewportScreenshotPayload) => Promise<ViewportAttachmentRecord | null>
+  onBuildViewerContext: (options?: { includeViewportScreenshot?: boolean }) => Record<string, unknown>
+  threadAttachmentIds: string[]
+  markupActive: boolean
+  markupTool: ViewportMarkupTool
+  markupNoteText: string
+  markupAnnotations: ThreadViewportAnnotation[]
+  onMarkupActiveChange: (active: boolean) => void
+  onMarkupToolChange: (tool: ViewportMarkupTool) => void
+  onMarkupNoteTextChange: (value: string) => void
+  onClearMarkup: () => void
+  onUndoMarkup: () => void
 }
 
 function eventContentText(event: DesignThreadEvent) {
@@ -113,11 +126,20 @@ export default function DesignThreadDock({
   onPatchThread,
   onSendChatMessage,
   onBuildViewerContext,
-  onCreateContextSnapshot,
+  onCreateViewportAttachment,
+  threadAttachmentIds,
+  markupActive,
+  markupTool,
+  markupNoteText,
+  markupAnnotations,
+  onMarkupActiveChange,
+  onMarkupToolChange,
+  onMarkupNoteTextChange,
+  onClearMarkup,
+  onUndoMarkup,
 }: DesignThreadDockProps) {
   const [composerText, setComposerText] = useState('')
   const [createTitle, setCreateTitle] = useState('')
-  const [pendingSnapshotId, setPendingSnapshotId] = useState<string | null>(null)
   const [snapshotError, setSnapshotError] = useState<string | null>(null)
   const [snapshotBusy, setSnapshotBusy] = useState(false)
   const [chatBusy, setChatBusy] = useState(false)
@@ -167,14 +189,44 @@ export default function DesignThreadDock({
     setRenameTitle('')
   }
 
-  const createSnapshot = async () => {
+  const createViewportAttachment = async () => {
     if (!activeThreadId) return
     setSnapshotBusy(true)
     setSnapshotError(null)
     try {
-      const payload = onBuildViewerContext()
-      const snapshot = await onCreateContextSnapshot(activeThreadId, payload)
-      setPendingSnapshotId(snapshot?.snapshot_id ?? null)
+      const payload = onBuildViewerContext({ includeViewportScreenshot: true })
+      const screenshotPayload = (payload.viewport_screenshot as { data_url?: unknown } | undefined)
+      const payloadForAttachment = {
+        kind: 'viewport_screenshot',
+        content_type: 'image/png',
+        selected_part_ids: payload.selected_part_ids as string[],
+        visible_part_ids: payload.visible_part_ids as string[],
+        annotations: markupAnnotations,
+        backend_revision: payload.active_project_revision,
+      } as ViewportScreenshotPayload
+
+      if (typeof screenshotPayload?.data_url === 'string' && screenshotPayload.data_url.trim()) {
+        payloadForAttachment.data_url = screenshotPayload.data_url
+      } else {
+        throw new Error('Viewport screenshot is unavailable')
+      }
+
+      if (payload.viewport_size && typeof payload.viewport_size === 'object') {
+        const sizeCandidate = payload.viewport_size as { width?: unknown; height?: unknown; client_width?: unknown; client_height?: unknown }
+        if (typeof sizeCandidate.width === 'number' && typeof sizeCandidate.height === 'number') {
+          payloadForAttachment.viewport = {
+            width: sizeCandidate.width,
+            height: sizeCandidate.height,
+            client_width: typeof sizeCandidate.client_width === 'number' ? sizeCandidate.client_width : undefined,
+            client_height: typeof sizeCandidate.client_height === 'number' ? sizeCandidate.client_height : undefined,
+          }
+        }
+      }
+
+      const attachment = await onCreateViewportAttachment(activeThreadId, payloadForAttachment)
+      if (attachment) {
+        // Parent state updates latestAttachmentId from the returned attachment record.
+      }
     } catch (error) {
       setSnapshotError(error instanceof Error ? error.message : 'Failed to capture context')
     } finally {
@@ -184,7 +236,6 @@ export default function DesignThreadDock({
 
   const clearComposer = () => {
     setComposerText('')
-    setPendingSnapshotId(null)
     setSnapshotError(null)
   }
 
@@ -374,20 +425,94 @@ export default function DesignThreadDock({
               <button
                 type="button"
                 className="btn-tool"
-                onClick={() => void createSnapshot()}
+                onClick={() => void createViewportAttachment()}
                 disabled={snapshotBusy || !activeThreadId || isThreadMuted}
               >
                 {snapshotBusy ? 'Capturing...' : 'Attach view'}
               </button>
-              {pendingSnapshotId ? (
-                <span className="context-pill" role="status">
-                  View attached:
-                  {' '}
-                  <span>{pendingSnapshotId}</span>
-                </span>
-              ) : null}
               {snapshotError ? <span className="thread-error">{snapshotError}</span> : null}
               {chatError ? <span className="thread-error">{chatError}</span> : null}
+            </div>
+
+            <div className="chat-context-actions" aria-label="Attachment tray">
+              <div className="attachment-tray-title">Visual evidence</div>
+              {threadAttachmentIds.length ? (
+                <div className="attachment-tray-list" role="list">
+                  {threadAttachmentIds.map((attachmentId) => (
+                    <span key={attachmentId} className="context-pill" role="listitem">
+                      {attachmentId}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="thread-error">No attachments yet.</span>
+              )}
+            </div>
+
+            <div className="chat-context-actions">
+              <div className="markup-controls" aria-label="Markup controls">
+                <button
+                  type="button"
+                  className={`btn-tool ${markupActive ? 'active' : ''}`}
+                  aria-pressed={markupActive}
+                  onClick={() => onMarkupActiveChange(!markupActive)}
+                  disabled={!activeThreadId || isThreadMuted}
+                >
+                  Markup view
+                </button>
+                {(['pen', 'circle', 'note'] as ViewportMarkupTool[]).map((tool) => (
+                  <button
+                    key={tool}
+                    type="button"
+                    className={`btn-tool ${markupTool === tool ? 'active' : ''}`}
+                    aria-pressed={markupTool === tool}
+                    onClick={() => onMarkupToolChange(tool)}
+                    disabled={!markupActive || commandBusyState}
+                  >
+                    {tool === 'pen' ? 'Pen' : tool === 'circle' ? 'Circle' : 'Text'}
+                  </button>
+                ))}
+                <input
+                  type="text"
+                  className="markup-note-input"
+                  aria-label="Markup text"
+                  placeholder="Text label"
+                  value={markupNoteText}
+                  onChange={(event) => onMarkupNoteTextChange(event.target.value)}
+                  disabled={!markupActive || commandBusyState}
+                />
+                <button
+                  type="button"
+                  className="btn-tool"
+                  onClick={onUndoMarkup}
+                  disabled={!markupAnnotations.length || commandBusyState}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  className="btn-tool"
+                  onClick={onClearMarkup}
+                  disabled={!markupAnnotations.length || commandBusyState}
+                >
+                  Clear
+                </button>
+                <span className="context-pill">{markupAnnotations.length} markups</span>
+              </div>
+
+              {markupAnnotations.length ? (
+                <ul className="thread-message-attachments" aria-label="Markup list">
+                  {markupAnnotations.map((annotation, index) => (
+                    <li key={`${annotation.kind}-${index}`}>
+                      {annotation.kind === 'freehand'
+                        ? `pen stroke: ${annotation.points.length} points`
+                        : annotation.kind === 'note'
+                          ? `text: ${annotation.text}`
+                          : `circle: (${annotation.x.toFixed(2)}, ${annotation.y.toFixed(2)}), r=${annotation.radius.toFixed(2)}`}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
 
             <div className="chat-message-list" aria-label="Message history">

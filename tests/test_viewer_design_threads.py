@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -11,6 +12,13 @@ def _write_example_step(project_root: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
     return path
+
+
+def _tiny_png_data_url() -> str:
+    return (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X9nSAAAAAASUVORK5CYII="
+    )
 
 
 def test_viewer_design_threads_crud_and_list(tmp_path) -> None:
@@ -270,3 +278,158 @@ def test_viewer_design_threads_chat_turn_persists_user_assistant_and_view_contex
     reloaded = client.get(f"/api/design-threads/{thread_id}").json()
     assert [message["type"] for message in reloaded["messages"]] == ["user_message", "assistant_message"]
     assert reloaded["context_snapshots"][0]["viewer_state"]["viewport_screenshot"]["data_url"].startswith("data:image/png")
+
+
+def test_viewer_design_threads_viewport_screenshot_attachment_stores_png_and_sidecar(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Screenshot thread"}).json()["thread_id"]
+
+    response = client.post(
+        f"/api/design-threads/{thread_id}/attachments/viewport-screenshot",
+        json={
+            "data_url": _tiny_png_data_url(),
+            "selected_part_ids": ["example_block", 123],
+            "visible_part_ids": ["example_block"],
+            "backend_revision": 5,
+            "camera": {"position": [1.0, 2.0, 3.0], "target": [0.0, 0.0, 0.0]},
+            "viewport": {"width": 64, "height": 48},
+            "annotations": [
+                {"id": "../note 1", "kind": "note", "text": "Check this edge", "x": 0.9, "y": 0.1},
+                {"kind": "circle", "x": 0.25, "y": 0.25, "radius": 0.12},
+                {
+                    "kind": "freehand",
+                    "points": [{"x": -0.1, "y": 0.2}, {"x": 0.4, "y": 1.2}],
+                    "width": 0.2,
+                },
+                {"kind": "unsupported", "text": "drop"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["kind"] == "viewport_screenshot"
+    assert payload["content_type"] == "image/png"
+    assert payload["selected_part_ids"] == ["example_block", "123"]
+    assert payload["visible_part_ids"] == ["example_block"]
+    assert payload["annotations"][0] == {
+        "id": "note-1",
+        "kind": "note",
+        "text": "Check this edge",
+        "x": 0.9,
+        "y": 0.1,
+    }
+    assert payload["annotations"][1]["kind"] == "circle"
+    assert payload["annotations"][1]["id"].startswith("ann_")
+    assert payload["annotations"][1]["radius"] == 0.12
+    assert payload["annotations"][2]["kind"] == "freehand"
+    assert payload["annotations"][2]["points"] == [{"x": 0.0, "y": 0.2}, {"x": 0.4, "y": 1.0}]
+    assert payload["annotations"][2]["width"] == 0.05
+    assert payload["metadata_path"].endswith(".json")
+
+    threads_root = service.project.paths.local_state / "design-threads"
+    png_path = threads_root / payload["path"]
+    meta_path = threads_root / payload["metadata_path"]
+    assert png_path.exists()
+    assert png_path.read_bytes().startswith(b"\x89PNG")
+    assert meta_path.exists()
+
+    metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert metadata["attachment_id"] == payload["attachment_id"]
+    assert metadata["backend_revision"] == 5
+    assert metadata["camera"]["position"] == [1.0, 2.0, 3.0]
+    assert metadata["viewport"] == {"width": 64, "height": 48}
+    assert metadata["annotations"][0]["kind"] == "note"
+
+    assert png_path.resolve().is_relative_to(threads_root.resolve())
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert reloaded["attachment_count"] == 1
+    assert reloaded["attachments"][0]["attachment_id"] == payload["attachment_id"]
+    assert reloaded["attachments"][0]["annotations"][0]["id"] == "note-1"
+
+
+def test_viewer_design_threads_viewport_screenshot_rejects_missing_image_data(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Rejected screenshot thread"}).json()["thread_id"]
+
+    response = client.post(
+        f"/api/design-threads/{thread_id}/attachments/viewport-screenshot",
+        json={"selected_part_ids": ["example_block"]},
+    )
+    assert response.status_code == 400
+
+    unsupported = client.post(
+        f"/api/design-threads/{thread_id}/attachments/viewport-screenshot",
+        json={"data_url": "data:text/plain;base64,SGVsbG8="},
+    )
+    assert unsupported.status_code == 400
+
+
+def test_viewer_design_threads_context_snapshot_can_reference_attachment_id(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Attachment ref"}).json()["thread_id"]
+    attachment_id = client.post(
+        f"/api/design-threads/{thread_id}/attachments/viewport-screenshot",
+        json={"data_url": _tiny_png_data_url()},
+    ).json()["attachment_id"]
+
+    snapshot = client.post(
+        f"/api/design-threads/{thread_id}/context-snapshots",
+        json={
+            "viewport_screenshot": {"kind": "viewport_screenshot", "attachment_id": attachment_id},
+            "visible_part_ids": ["example_block"],
+            "selected_part_ids": ["example_block"],
+        },
+    )
+    assert snapshot.status_code == 200
+    snapshot_payload = snapshot.json()
+    assert snapshot_payload["viewer_state"]["viewport_screenshot"]["attachment_id"] == attachment_id
+
+    chat_response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": "How do I improve this?",
+            "context_snapshot": {
+                "viewport_screenshot": {"kind": "viewport_screenshot", "attachment_id": attachment_id},
+                "visible_part_ids": ["example_block"],
+                "selected_part_ids": ["example_block"],
+            },
+        },
+    )
+    assert chat_response.status_code == 200
+    chat_payload = chat_response.json()
+    assert chat_payload["messages"][0]["metadata"]["viewport_screenshot"] is True
+    assert chat_payload["messages"][0]["metadata"]["viewport_attachment_id"] == attachment_id
+    assert chat_payload["messages"][0]["attachments"] == [attachment_id]
+    assert chat_payload["thread"]["attachments"][0]["attachment_id"] == attachment_id
+
+
+def test_viewer_design_threads_viewport_attachment_id_sanitization_and_thread_containment(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Attachment id safety"}).json()["thread_id"]
+    threads_root = service.project.paths.local_state / "design-threads"
+
+    response = client.post(
+        f"/api/design-threads/{thread_id}/attachments/viewport-screenshot",
+        json={"attachment_id": "../../outside/path", "data_url": _tiny_png_data_url()},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert "/" not in payload["attachment_id"] and "\\" not in payload["attachment_id"]
+    assert ".." not in payload["attachment_id"]
+    png_path = threads_root / payload["path"]
+    assert png_path.resolve().is_relative_to(threads_root.resolve())

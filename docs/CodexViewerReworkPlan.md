@@ -375,12 +375,185 @@ space.
 
 ### CVR-4: Screenshot And Annotation MVP
 
-Capture viewport screenshots into thread attachments and store annotation JSON.
-Start with screenshot capture plus note/circle annotations; arrows and richer
-regions can follow.
+Capture viewport screenshots into thread attachments and store 2D markup JSON.
+Start with screenshot capture plus freehand pen strokes, text notes, and circles;
+arrows and richer regions can follow.
 
-Done means a user can attach the current viewport and a visual note to a design
-thread.
+Done means a user can draw over the current 3D viewport in-app, attach that
+marked-up screenshot to a design thread, and keep the structured markup data
+with the thread.
+
+Break CVR-4 into these implementation tickets:
+
+#### CVR-4A: Thread Attachment Storage Contract
+
+Add first-class design-thread attachments under each thread directory:
+
+```text
+.flow/design-threads/<thread-id>/attachments/
+  <attachment-id>.png
+  <attachment-id>.json
+```
+
+The backend should accept a viewport screenshot payload, sanitize any requested
+attachment id, write PNG bytes plus a JSON sidecar atomically, and return a
+stable attachment record. Attachment writes must stay contained inside the
+thread's `attachments/` directory.
+
+Tests:
+
+- posting a PNG data URL writes `<attachment-id>.png`
+- posting the same payload writes a JSON sidecar with `kind`,
+  `content_type`, selected/visible ids, backend revision, viewport/camera
+  metadata, and annotations
+- malicious attachment ids such as `../outside` are sanitized and cannot escape
+  `.flow/design-threads/<thread-id>/attachments`
+- unsupported content types or malformed image payloads return a 400
+
+Done means screenshot bytes and sidecar metadata are durable project-local
+thread artifacts rather than inline-only snapshot fields.
+
+#### CVR-4B: Viewport Screenshot Attachment API
+
+Add:
+
+```text
+POST /api/design-threads/{thread_id}/attachments/viewport-screenshot
+```
+
+The endpoint should accept `data_url` or base64 image data plus the current
+viewer context. It should return an attachment record that can be referenced by
+context snapshots and chat turns:
+
+```json
+{
+  "attachment_id": "att_...",
+  "kind": "viewport_screenshot",
+  "content_type": "image/png",
+  "filename": "att_....png",
+  "metadata_filename": "att_....json",
+  "selected_part_ids": ["..."],
+  "visible_part_ids": ["..."],
+  "annotations": []
+}
+```
+
+Tests:
+
+- route registration includes the new endpoint
+- a missing thread returns 404
+- a valid request returns a stable attachment record with no absolute local
+  paths required by the frontend
+- context snapshots and chat payloads can reference `viewport_attachment_id`
+  without losing existing inline screenshot compatibility
+
+Done means the frontend has a small, stable API for visual evidence instead of
+knowing the backend storage layout.
+
+#### CVR-4C: Markup JSON MVP
+
+Normalize freehand, note, and circle annotations into predictable JSON sidecars:
+
+```json
+{
+  "annotations": [
+    {
+      "id": "ann_...",
+      "kind": "freehand",
+      "points": [{"x": 0.12, "y": 0.20}, {"x": 0.40, "y": 0.32}],
+      "color": "#f97316",
+      "width": 0.006
+    },
+    {
+      "id": "ann_...",
+      "kind": "note",
+      "x": 0.52,
+      "y": 0.34,
+      "text": "move this rib"
+    },
+    {
+      "id": "ann_...",
+      "kind": "circle",
+      "x": 0.50,
+      "y": 0.50,
+      "radius": 0.18
+    }
+  ]
+}
+```
+
+Coordinates should be viewport-relative numbers clamped to `[0, 1]`. Unknown
+annotation types should be ignored or rejected consistently; the first pass needs
+freehand, note, and circle.
+
+Tests:
+
+- freehand stroke points are normalized and preserved
+- note annotation text is trimmed and preserved
+- circle center/radius values are normalized and clamped
+- unknown annotation types do not corrupt the sidecar schema
+- annotation ids are generated when omitted and sanitized when provided
+
+Done means visual markup is structured data that future multimodal or text-only
+assistant adapters can consume.
+
+#### CVR-4D: React Attachment Tray And Annotation Controls
+
+Add a compact visual-evidence area in the Chat workspace:
+
+- an `Attach view` action that posts a viewport screenshot attachment
+- a live 2D markup mode over the rendered 3D viewport
+- pen, text, and circle tools that place annotations directly on the viewport
+- an attachment tray showing captured attachment ids and annotation summaries
+
+The UI should keep threads collapsible and preserve the advanced command tools
+as a secondary section.
+
+Tests:
+
+- drawing on the markup overlay creates structured freehand/text/circle
+  annotations
+- `Attach view` posts selected ids, visible ids, assembly/revision, viewport
+  metadata, marked-up screenshot data, and annotation JSON
+- the returned attachment id appears in the chat workspace
+- switching threads restores returned attachment records from persisted thread
+  data when present
+- no canvas available in the test environment is handled without crashing
+
+Done means a user can attach the current render plus visual markup from the
+first-class chat surface without leaving Flow CAD for a slide editor.
+
+#### CVR-4E: Chat-Turn Attachment References
+
+When a user sends a chat message, include the latest viewport attachment id in
+the context payload and message metadata. Keep selected/visible part context
+automatic.
+
+Tests:
+
+- sending a message after `Attach view` includes
+  `viewport_attachment_id`/attachment metadata in the chat request
+- the message history displays the user message, assistant response, and linked
+  view attachment
+- browser reload keeps thread messages and attachment references visible
+
+Done means chat turns can refer to durable visual evidence instead of ephemeral
+canvas state.
+
+#### CVR-4F: Integration And Regression Gate
+
+Run the backend and frontend suites that cover the screenshot/annotation path:
+
+```bash
+python -m pytest tests/test_viewer_design_threads.py tests/test_viewer_service.py
+npm --prefix viewer/stl-viewer test -- --run App.test.tsx
+npm --prefix viewer/stl-viewer test
+npm --prefix viewer/stl-viewer run build
+git diff --check
+```
+
+Done means CVR-4 is not just storage or UI in isolation: the API, React
+workspace, chat context payload, persistence behavior, and build all agree.
 
 ### CVR-5: Draft And Validator Event Integration
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BufferGeometry, Float32BufferAttribute } from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -259,6 +259,7 @@ let healthRevision = 0
 let activeParts = partsPayload.parts
 let designThreads: MockDesignThread[] = []
 let snapshotCounter = 0
+let attachmentCounter = 0
 let snapFeaturesPayload = {
   component_id: 'wheel_box_test_body',
   artifact_path: 'b3/exports/step/wheel_box/b3_wheel_box_test_body.step',
@@ -302,11 +303,58 @@ interface MockDesignThread {
   context_snapshots: Record<string, unknown>[]
 }
 
+interface MockAttachmentPayload {
+  attachment_id: string
+  kind: 'viewport_screenshot'
+  content_type: 'image/png'
+  selected_part_ids: string[]
+  visible_part_ids: string[]
+  annotations: Array<Record<string, unknown>>
+  created_at: string
+  metadata_path: string
+  path: string
+  filename: string
+}
+
+function viewportCaptureDataUrl() {
+  return 'data:image/png;base64,VGhpcyBpcyBhIHRlc3QgZGF0YSB1cmw='
+}
+
 function jsonResponse(payload: unknown) {
   return Promise.resolve(new Response(JSON.stringify(payload), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   }))
+}
+
+function mockViewportCanvas({ dataUrl }: { dataUrl: string }) {
+  const originalQuerySelector = document.querySelector.bind(document)
+  const spy = vi.spyOn(document, 'querySelector')
+  spy.mockImplementation((selector: string) => {
+    if (selector === '.workspace-canvas canvas') {
+      return {
+        width: 640,
+        height: 480,
+        clientWidth: 640,
+        clientHeight: 480,
+        toDataURL: () => dataUrl,
+      } as unknown as HTMLCanvasElement
+    }
+    return originalQuerySelector(selector)
+  })
+  return () => spy.mockRestore()
+}
+
+function mockMissingViewportCanvas() {
+  const originalQuerySelector = document.querySelector.bind(document)
+  const spy = vi.spyOn(document, 'querySelector')
+  spy.mockImplementation((selector: string) => {
+    if (selector === '.workspace-canvas canvas') {
+      return null
+    }
+    return originalQuerySelector(selector)
+  })
+  return () => spy.mockRestore()
 }
 
 function mockArrayBufferResponse() {
@@ -342,6 +390,11 @@ async function openThreadDrawer(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: 'Threads' }))
 }
 
+function findFetchCall(suffix: string) {
+  const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls as Array<[RequestInfo | URL, RequestInit]>
+  return calls.find(([url]) => String(url).endsWith(suffix))
+}
+
 describe('App source loading', () => {
   beforeEach(() => {
     viewerRenderProps.length = 0
@@ -350,6 +403,7 @@ describe('App source loading', () => {
     activeParts = partsPayload.parts
     designThreads = []
     snapshotCounter = 0
+    attachmentCounter = 0
     snapFeaturesPayload = {
       ...snapFeaturesPayload,
       features: [...snapFeaturesPayload.features],
@@ -383,17 +437,56 @@ describe('App source loading', () => {
           threads: designThreads.map(threadSummary),
         })
       }
-      const designThreadMatch = url.match(/\/api\/design-threads\/([^/]+)(?:\/([^/]+))?$/)
+      const designThreadMatch = url.match(/\/api\/design-threads\/([^/]+)(?:\/(.*))?$/)
       if (designThreadMatch) {
         const threadId = designThreadMatch[1]
-        const route = designThreadMatch[2]
+        const route = designThreadMatch[2] ?? ''
         const thread = designThreads.find((candidate) => candidate.thread_id === threadId)
         if (!thread) return Promise.resolve(new Response('not found', { status: 404 }))
+        if (route === 'attachments/viewport-screenshot' && method === 'POST') {
+          const body = jsonBody(init)
+          attachmentCounter += 1
+          const attachmentId = `att-${String(attachmentCounter).padStart(2, '0')}`
+          const attachment: MockAttachmentPayload = {
+            attachment_id: attachmentId,
+            kind: 'viewport_screenshot',
+            content_type: 'image/png',
+            selected_part_ids: body.selected_part_ids as string[] ?? [],
+            visible_part_ids: body.visible_part_ids as string[] ?? [],
+            annotations: Array.isArray(body.annotations) ? body.annotations as Array<Record<string, unknown>> : [],
+            created_at: '2026-06-09T12:00:30Z',
+            path: `attachments/${attachmentId}.png`,
+            filename: `${attachmentId}.png`,
+            metadata_path: `attachments/${attachmentId}.json`,
+          }
+
+          thread.context_snapshots.push({
+            schema_version: 1,
+            thread_id: thread.thread_id,
+            snapshot_id: `snap-att-${attachmentCounter}`,
+            selected_part_ids: attachment.selected_part_ids,
+            visible_part_ids: attachment.visible_part_ids,
+            viewer_state: {
+              viewport_screenshot: {
+                kind: 'viewport_screenshot',
+                attachment_id: attachment.attachment_id,
+              },
+              annotations: attachment.annotations,
+            },
+          })
+
+          return jsonResponse(attachment)
+        }
         if (route === 'chat' && method === 'POST') {
           const body = jsonBody(init)
           const context = typeof body.context_snapshot === 'object' && body.context_snapshot !== null
             ? body.context_snapshot as Record<string, unknown>
             : {}
+          const viewportScreenshot =
+            typeof context.viewport_screenshot === 'object' && context.viewport_screenshot !== null
+              ? context.viewport_screenshot as { attachment_id?: string }
+              : undefined
+          const attachmentId = viewportScreenshot?.attachment_id
           snapshotCounter += 1
           const snapshot = {
             schema_version: 1,
@@ -406,6 +499,12 @@ describe('App source loading', () => {
             active_project_revision: context.active_project_revision,
             viewer_state: context,
           }
+          if (attachmentId) {
+            snapshot.viewer_state.viewport_screenshot = {
+              kind: 'viewport_screenshot',
+              attachment_id: attachmentId,
+            }
+          }
           thread.context_snapshots.push(snapshot)
           const userMessage: MockDesignThreadMessage = {
             message_id: `msg-${thread.messages.length + 1}`,
@@ -414,8 +513,11 @@ describe('App source loading', () => {
             type: 'user_message',
             role: 'user',
             content: String(body.message || ''),
-            attachments: [],
+            attachments: attachmentId ? [attachmentId] : [],
             metadata: { context_snapshot_id: snapshot.snapshot_id },
+          }
+          if (attachmentId) {
+            userMessage.metadata.viewport_screenshot = true
           }
           const assistantMessage: MockDesignThreadMessage = {
             message_id: `msg-${thread.messages.length + 2}`,
@@ -425,7 +527,11 @@ describe('App source loading', () => {
             role: 'assistant',
             content: 'Stub assistant response with view context.',
             attachments: [],
-            metadata: { runtime: 'flow_cad_stub', context_snapshot_id: snapshot.snapshot_id },
+            metadata: {
+              runtime: 'flow_cad_stub',
+              context_snapshot_id: snapshot.snapshot_id,
+              ...(attachmentId ? { viewport_screenshot: true } : {}),
+            },
           }
           thread.messages.push(userMessage, assistantMessage)
           return jsonResponse({
@@ -698,47 +804,139 @@ describe('App source loading', () => {
 
   it('creates a design thread, attaches viewer context, and appends a chat message', async () => {
     const user = userEvent.setup()
+    const restoreCanvas = mockViewportCanvas({ dataUrl: viewportCaptureDataUrl() })
 
-    render(<App />)
+    try {
+      render(<App />)
 
-    await screen.findByText('wheel_box_test_body')
-    await user.click(screen.getByText('wheel_box_test_body'))
-    await openThreadDrawer(user)
-    await user.type(screen.getByLabelText('New thread title'), 'Panel review')
-    await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+      await screen.findByText('wheel_box_test_body')
+      await user.click(screen.getByText('wheel_box_test_body'))
+      await openThreadDrawer(user)
+      await user.type(screen.getByLabelText('New thread title'), 'Panel review')
+      await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
 
-    await screen.findByText('Panel review')
-    await user.click(screen.getByRole('button', { name: 'Attach view' }))
-    await screen.findByText('snap-1')
+      await screen.findByText('Panel review')
+      await user.click(screen.getByRole('button', { name: 'Markup view' }))
+      const markupSurface = await screen.findByLabelText('Viewport markup surface')
+      vi.spyOn(markupSurface, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        right: 640,
+        bottom: 480,
+        width: 640,
+        height: 480,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect)
 
-    await user.type(screen.getByLabelText('Thread message composer'), 'Move the holes to the front face')
-    await user.click(screen.getByRole('button', { name: 'Send' }))
+      fireEvent.pointerDown(markupSurface, { clientX: 64, clientY: 96, pointerId: 1 })
+      fireEvent.pointerMove(markupSurface, { clientX: 128, clientY: 132, pointerId: 1 })
+      fireEvent.pointerMove(markupSurface, { clientX: 220, clientY: 160, pointerId: 1 })
+      fireEvent.pointerUp(markupSurface, { clientX: 220, clientY: 160, pointerId: 1 })
+      await screen.findByText('pen stroke: 3 points')
 
-    await screen.findByText('Move the holes to the front face')
-    await screen.findByText('Stub assistant response with view context.')
-    expect(designThreads[0].context_snapshots[0]).toMatchObject({
-      selected_part_ids: ['wheel_box_test_body'],
-      visible_part_ids: ['wheel_box_test_body'],
-      active_assembly_id: 'b3_v2_wheel_box',
-      active_project_revision: 0,
-    })
-    expect(designThreads[0].messages[0]).toMatchObject({
-      type: 'user_message',
-      role: 'user',
-      content: 'Move the holes to the front face',
-      metadata: {
-        context_snapshot_id: 'snap-2',
-      },
-    })
-    expect(designThreads[0].messages[1]).toMatchObject({
-      type: 'assistant_message',
-      role: 'assistant',
-      content: 'Stub assistant response with view context.',
-      metadata: {
-        runtime: 'flow_cad_stub',
-        context_snapshot_id: 'snap-2',
-      },
-    })
+      await user.click(screen.getByRole('button', { name: 'Text' }))
+      await user.type(screen.getByLabelText('Markup text'), 'Check this edge alignment')
+      fireEvent.pointerDown(markupSurface, { clientX: 320, clientY: 240, pointerId: 2 })
+      await screen.findByText('text: Check this edge alignment')
+
+      await user.click(screen.getByRole('button', { name: 'Attach view' }))
+      const attachmentCall = await waitFor(() => {
+        const value = findFetchCall('/attachments/viewport-screenshot')
+        expect(value).toBeDefined()
+        return value
+      })
+
+      const attachmentBody = jsonBody(attachmentCall![1] as RequestInit)
+      expect(attachmentBody).toMatchObject({
+        selected_part_ids: ['wheel_box_test_body'],
+        visible_part_ids: ['wheel_box_test_body'],
+        backend_revision: 0,
+        viewport: {
+          width: 640,
+          height: 480,
+          client_width: 640,
+          client_height: 480,
+        },
+        data_url: viewportCaptureDataUrl(),
+        annotations: [
+          {
+            kind: 'freehand',
+            points: [
+              { x: 0.1, y: 0.2 },
+              { x: 0.2, y: 0.275 },
+              { x: 0.34375, y: 0.3333333333333333 },
+            ],
+            color: '#f97316',
+            width: 0.006,
+          },
+          {
+            kind: 'note',
+            text: 'Check this edge alignment',
+            x: 0.5,
+            y: 0.5,
+          },
+        ],
+      })
+
+      await waitFor(() => expect(screen.getAllByText('att-01').length).toBeGreaterThan(0))
+
+      await user.type(screen.getByLabelText('Thread message composer'), 'Move the holes to the front face')
+      await user.click(screen.getByRole('button', { name: 'Send' }))
+
+      await screen.findByText('Move the holes to the front face')
+      await screen.findByText('Stub assistant response with view context.')
+      await waitFor(() => {
+        const chatCall = findFetchCall(`/api/design-threads/thread-1/chat`)
+        expect(chatCall).toBeDefined()
+        const chatBody = jsonBody(chatCall![1] as RequestInit)
+        expect(chatBody.context_snapshot).toMatchObject({
+          viewport_screenshot: {
+            kind: 'viewport_screenshot',
+            attachment_id: 'att-01',
+          },
+        })
+        expect(chatBody.context_snapshot).toMatchObject({
+          selected_part_ids: ['wheel_box_test_body'],
+          visible_part_ids: ['wheel_box_test_body'],
+        })
+        expect(chatBody.attachments).toEqual(['att-01'])
+        expect(chatBody.metadata).toMatchObject({
+          viewport_screenshot: {
+            kind: 'viewport_screenshot',
+            attachment_id: 'att-01',
+          },
+        })
+      })
+      expect(designThreads[0].context_snapshots[0]).toMatchObject({
+        selected_part_ids: ['wheel_box_test_body'],
+        visible_part_ids: ['wheel_box_test_body'],
+      })
+      expect(designThreads[0].messages[0]).toMatchObject({
+        type: 'user_message',
+        role: 'user',
+        content: 'Move the holes to the front face',
+        attachments: ['att-01'],
+        metadata: {
+          context_snapshot_id: 'snap-1',
+          viewport_screenshot: true,
+        },
+      })
+      expect(designThreads[0].messages[1]).toMatchObject({
+        type: 'assistant_message',
+        role: 'assistant',
+        content: 'Stub assistant response with view context.',
+        metadata: {
+          runtime: 'flow_cad_stub',
+          context_snapshot_id: 'snap-1',
+        },
+      })
+
+      await waitFor(() => expect(screen.getAllByText('att-01').length).toBeGreaterThan(0))
+    } finally {
+      restoreCanvas()
+    }
   })
 
   it('recovers persisted design thread history on browser reload', async () => {
@@ -763,14 +961,127 @@ describe('App source loading', () => {
             metadata: {},
           },
         ],
-        context_snapshots: [],
+        context_snapshots: [
+          {
+            schema_version: 1,
+            thread_id: 'thread-existing',
+            snapshot_id: 'snap-recovered',
+            selected_part_ids: ['wheel_box_test_body'],
+            visible_part_ids: ['wheel_box_test_body'],
+            viewer_state: {
+              viewport_screenshot: {
+                kind: 'viewport_screenshot',
+                attachment_id: 'att-existing',
+              },
+            },
+          },
+        ],
       },
     ]
 
+    const { unmount } = render(<App />)
+
+    await screen.findByText('Recovered thread')
+    await screen.findByText('Persisted design note')
+    await waitFor(() => {
+      expect(screen.getByText('att-existing')).toBeInTheDocument()
+    })
+
+    unmount()
     render(<App />)
 
     await screen.findByText('Recovered thread')
     await screen.findByText('Persisted design note')
+    await waitFor(() => {
+      expect(screen.getByText('att-existing')).toBeInTheDocument()
+    })
+  })
+
+  it('does not post an attachment when screenshot capture is unavailable', async () => {
+    const user = userEvent.setup()
+    const restoreCanvas = mockMissingViewportCanvas()
+
+    render(<App />)
+    try {
+      await screen.findByText('wheel_box_test_body')
+      await user.click(screen.getByText('wheel_box_test_body'))
+      await openThreadDrawer(user)
+      await user.type(screen.getByLabelText('New thread title'), 'No canvas thread')
+      await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+
+      await waitFor(() => expect(screen.getByText('No canvas thread')).toBeInTheDocument())
+      await user.click(screen.getByRole('button', { name: 'Attach view' }))
+
+      await screen.findByText('Viewport screenshot is unavailable')
+      expect(findFetchCall('/attachments/viewport-screenshot')).toBeUndefined()
+    } finally {
+      restoreCanvas()
+    }
+  })
+
+  it('switches between threads and preserves attachment history per thread', async () => {
+    designThreads = [
+      {
+        schema_version: 1,
+        thread_id: 'thread-a',
+        title: 'Alpha thread',
+        status: 'active',
+        archived: false,
+        created_at: '2026-06-09T12:00:00Z',
+        updated_at: '2026-06-09T12:02:00Z',
+        messages: [],
+        context_snapshots: [
+          {
+            schema_version: 1,
+            thread_id: 'thread-a',
+            snapshot_id: 'snap-a',
+            selected_part_ids: ['wheel_box_test_body'],
+            visible_part_ids: ['wheel_box_test_body'],
+            viewer_state: {
+              viewport_screenshot: {
+                kind: 'viewport_screenshot',
+                attachment_id: 'att-alpha',
+              },
+            },
+          },
+        ],
+      },
+      {
+        schema_version: 1,
+        thread_id: 'thread-b',
+        title: 'Beta thread',
+        status: 'active',
+        archived: false,
+        created_at: '2026-06-09T12:10:00Z',
+        updated_at: '2026-06-09T12:11:00Z',
+        messages: [],
+        context_snapshots: [],
+      },
+    ]
+
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('Alpha thread')
+    await waitFor(() => {
+      expect(screen.getByText('att-alpha')).toBeInTheDocument()
+    })
+
+    await openThreadDrawer(user)
+    await user.click(await screen.findByRole('button', { name: 'Open thread Beta thread' }))
+
+    await screen.findByText('Beta thread')
+    await waitFor(() => {
+      expect(screen.queryByText('att-alpha')).not.toBeInTheDocument()
+      expect(screen.getByText('No attachments yet.')).toBeInTheDocument()
+    })
+
+    await openThreadDrawer(user)
+    await user.click(await screen.findByRole('button', { name: 'Open thread Alpha thread' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('att-alpha')).toBeInTheDocument()
+    })
   })
 
   it('clears draft preview state on discard and accept', async () => {

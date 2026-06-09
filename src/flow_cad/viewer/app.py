@@ -97,6 +97,14 @@ def create_app(
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
+    @app.post("/api/design-threads/{thread_id}/attachments/viewport-screenshot")
+    def create_viewport_screenshot_attachment(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.add_viewport_screenshot_attachment(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
     @app.get("/api/parts")
     def parts() -> dict[str, object]:
         return viewer_service.list_parts()

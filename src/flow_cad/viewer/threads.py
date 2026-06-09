@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
 import re
@@ -29,6 +31,171 @@ DESIGN_THREADS_SCHEMA_VERSION = 1
 THREAD_SCHEMA_VERSION = 1
 THREAD_MESSAGE_SCHEMA_VERSION = 1
 THREAD_CONTEXT_SNAPSHOT_SCHEMA_VERSION = 1
+VALID_ANNOTATION_KINDS = {"note", "circle", "freehand"}
+
+
+def _clamp_normalized(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(1.0, number))
+
+
+def _is_png_payload(mime_type: str | None) -> bool:
+    return bool(mime_type and mime_type.split(";", maxsplit=1)[0].strip().lower() == "image/png")
+
+
+def _parse_data_url(value: str) -> tuple[bytes, str]:
+    prefix = "data:"
+    if not value.startswith(prefix):
+        raise ThreadValidationError("data_url must start with 'data:'")
+
+    header, _, encoded = value.partition(",")
+    if not encoded:
+        raise ThreadValidationError("data_url is missing encoded payload")
+    header = header[5:]
+    content_type = "image/png"
+    if ";base64" not in header:
+        raise ThreadValidationError("data_url must be base64 encoded")
+    mime_type = header.split(";", maxsplit=1)[0].strip().lower()
+    if mime_type:
+        content_type = mime_type
+
+    try:
+        return _decode_base64_bytes(encoded), content_type
+    except ValueError as exc:
+        raise ThreadValidationError("data_url does not contain valid base64 data") from exc
+
+
+def _decode_base64_bytes(value: str) -> bytes:
+    payload = value.strip()
+    try:
+        return base64.b64decode(payload, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ThreadValidationError("image_data is not valid base64") from exc
+
+
+def _normalize_viewport_screenshot_input(payload: Any) -> tuple[bytes, str]:
+    if not isinstance(payload, dict):
+        raise ThreadValidationError("viewport screenshot payload must be an object")
+
+    data_url = payload.get("data_url")
+    image_data = payload.get("image_data")
+    content_type = payload.get("content_type")
+
+    if isinstance(data_url, str) and data_url.strip():
+        image_bytes, detected_type = _parse_data_url(data_url.strip())
+    elif isinstance(image_data, str) and image_data.strip():
+        image_bytes = _decode_base64_bytes(image_data.strip())
+        detected_type = str(content_type).strip().lower() if isinstance(content_type, str) else "image/png"
+    else:
+        raise ThreadValidationError("viewport screenshot requires data_url or image_data")
+
+    final_content_type = str(content_type).strip().lower() if isinstance(content_type, str) else detected_type
+    if not _is_png_payload(final_content_type):
+        raise ThreadValidationError("viewport screenshot content_type must be image/png")
+
+    if not image_bytes:
+        raise ThreadValidationError("viewport screenshot payload is empty")
+    return image_bytes, final_content_type
+
+
+def _normalize_annotations(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+
+    items = list(raw)
+    normalized: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind", "")).strip().lower()
+        if kind not in VALID_ANNOTATION_KINDS:
+            continue
+        annotation_id = _safe_thread_id(str(item.get("id") or f"ann_{uuid.uuid4().hex}"), fallback="ann")
+        if kind == "note":
+            annotation = {
+                "id": annotation_id,
+                "kind": "note",
+                "text": str(item.get("text", "")).strip(),
+                "x": _clamp_normalized(item.get("x", 0.0)),
+                "y": _clamp_normalized(item.get("y", 0.0)),
+            }
+        else:
+            if kind == "freehand":
+                raw_points = item.get("points")
+                if not isinstance(raw_points, list):
+                    continue
+                points: list[dict[str, float]] = []
+                for point in raw_points:
+                    if not isinstance(point, dict):
+                        continue
+                    points.append(
+                        {
+                            "x": _clamp_normalized(point.get("x", 0.0)),
+                            "y": _clamp_normalized(point.get("y", 0.0)),
+                        }
+                    )
+                if len(points) < 2:
+                    continue
+                width = item.get("width", 0.006)
+                try:
+                    normalized_width = max(0.001, min(0.05, float(width)))
+                except (TypeError, ValueError):
+                    normalized_width = 0.006
+                annotation = {
+                    "id": annotation_id,
+                    "kind": "freehand",
+                    "points": points,
+                    "color": str(item.get("color") or "#f97316"),
+                    "width": normalized_width,
+                }
+                normalized.append(annotation)
+                continue
+            center = item.get("center")
+            if isinstance(center, dict):
+                x = center.get("x", 0.0)
+                y = center.get("y", 0.0)
+            else:
+                x = item.get("x", 0.0)
+                y = item.get("y", 0.0)
+            annotation = {
+                "id": annotation_id,
+                "kind": "circle",
+                "x": _clamp_normalized(x),
+                "y": _clamp_normalized(y),
+                "radius": _clamp_normalized(item.get("radius", 0.0)),
+            }
+        normalized.append(annotation)
+    return normalized
+
+
+def _normalize_viewport_screenshot_for_snapshot(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    normalized: dict[str, Any] = {
+        "kind": str(value.get("kind") or "viewport_screenshot"),
+    }
+    annotations = _normalize_annotations(value.get("annotations"))
+    if annotations:
+        normalized["annotations"] = annotations
+
+    attachment_id = value.get("attachment_id")
+    if isinstance(attachment_id, str) and attachment_id.strip():
+        normalized["attachment_id"] = _safe_thread_id(attachment_id, fallback="att")
+    elif isinstance(value.get("data_url"), str) and value.get("data_url").strip():
+        normalized["data_url"] = value.get("data_url").strip()
+    else:
+        return None
+
+    if isinstance(value.get("content_type"), str) and value.get("content_type"):
+        normalized["content_type"] = str(value.get("content_type")).strip()
+    if isinstance(value.get("backend_revision"), (int, float, str)) and str(value.get("backend_revision")).strip():
+        normalized["backend_revision"] = str(value.get("backend_revision")).strip()
+
+    return normalized
 
 
 def _utc_now() -> str:
@@ -80,6 +247,22 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
+        tmp_path.replace(path)
+    except Exception:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _write_bytes_atomic(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix="tmp-", suffix=path.suffix, dir=str(path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
         tmp_path.replace(path)
     except Exception:
         try:
@@ -245,10 +428,13 @@ class DesignThreadService:
         thread_id = thread["thread_id"]
         messages = _read_jsonl(self._thread_messages_path(thread_id))
         snapshots = self._thread_snapshots(thread_id)
+        attachments = self._thread_attachments(thread_id)
         thread["messages"] = messages
         thread["context_snapshots"] = snapshots
+        thread["attachments"] = attachments
         thread["message_count"] = len(messages)
         thread["snapshot_count"] = len(snapshots)
+        thread["attachment_count"] = len(attachments)
         return thread
 
     def patch_thread(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -329,12 +515,21 @@ class DesignThreadService:
 
         context_payload = payload.get("context_snapshot")
         snapshot: dict[str, Any] | None = None
-        metadata: dict[str, Any] = {}
+        incoming_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        metadata: dict[str, Any] = dict(incoming_metadata)
+        attachments = _normalize_part_ids(payload.get("attachments"))
         if isinstance(context_payload, dict):
             snapshot = self.create_context_snapshot(thread_id, context_payload)
             metadata["context_snapshot_id"] = snapshot["snapshot_id"]
             if _snapshot_has_view_image(snapshot):
                 metadata["viewport_screenshot"] = True
+                viewer_state = snapshot.get("viewer_state")
+                screenshot = viewer_state.get("viewport_screenshot") if isinstance(viewer_state, dict) else None
+                if isinstance(screenshot, dict) and isinstance(screenshot.get("attachment_id"), str):
+                    attachment_id = _safe_thread_id(str(screenshot["attachment_id"]), fallback="att")
+                    metadata["viewport_attachment_id"] = attachment_id
+                    if attachment_id not in attachments:
+                        attachments.append(attachment_id)
 
         user_message = self.append_message(
             thread_id,
@@ -342,6 +537,7 @@ class DesignThreadService:
                 "type": "user_message",
                 "role": "user",
                 "content": text.strip(),
+                "attachments": attachments,
                 "metadata": metadata,
             },
         )
@@ -365,6 +561,70 @@ class DesignThreadService:
             "thread": self.get_thread(thread_id),
         }
 
+    def add_viewport_screenshot_attachment(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._require_thread(thread_id)
+        image_bytes, content_type = _normalize_viewport_screenshot_input(payload)
+
+        attachment_id = _safe_thread_id(
+            str(payload.get("attachment_id") or f"att_{uuid.uuid4().hex}"),
+            fallback="att",
+        )
+        selected_part_ids = _normalize_part_ids(payload.get("selected_part_ids"))
+        visible_part_ids = _normalize_part_ids(payload.get("visible_part_ids"))
+        annotations = _normalize_annotations(payload.get("annotations"))
+
+        backend_revision: int | None = None
+        if isinstance(payload.get("backend_revision"), bool):
+            backend_revision = int(payload["backend_revision"])
+        elif isinstance(payload.get("backend_revision"), int):
+            backend_revision = payload["backend_revision"]
+        elif isinstance(payload.get("backend_revision"), str) and str(payload["backend_revision"]).strip():
+            try:
+                backend_revision = int(float(payload["backend_revision"]))
+            except ValueError:
+                backend_revision = None
+        elif isinstance(payload.get("backend_revision"), float):
+            backend_revision = int(payload["backend_revision"])
+
+        camera = payload.get("camera") if isinstance(payload.get("camera"), dict) else None
+        viewport = payload.get("viewport") if isinstance(payload.get("viewport"), dict) else None
+
+        self._thread_attachments_dir(thread_id).mkdir(parents=True, exist_ok=True)
+        png_path = self._thread_attachment_png_path(thread_id, attachment_id)
+        metadata_path = self._thread_attachment_metadata_path(thread_id, attachment_id)
+        _write_bytes_atomic(png_path, image_bytes)
+
+        created_at = _utc_now()
+        metadata = {
+            "attachment_id": attachment_id,
+            "kind": "viewport_screenshot",
+            "content_type": content_type,
+            "filename": png_path.name,
+            "path": str(png_path.relative_to(self.threads_root)),
+            "created_at": created_at,
+            "selected_part_ids": selected_part_ids,
+            "visible_part_ids": visible_part_ids,
+            "backend_revision": backend_revision,
+            "camera": camera,
+            "viewport": viewport,
+            "annotations": annotations,
+            "metadata_path": str(metadata_path.relative_to(self.threads_root)),
+        }
+        _write_json_atomic(metadata_path, metadata)
+
+        return {
+            "attachment_id": attachment_id,
+            "kind": "viewport_screenshot",
+            "content_type": content_type,
+            "filename": png_path.name,
+            "path": metadata["path"],
+            "metadata_path": metadata["metadata_path"],
+            "selected_part_ids": selected_part_ids,
+            "visible_part_ids": visible_part_ids,
+            "annotations": annotations,
+            "created_at": created_at,
+        }
+
     def create_context_snapshot(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         thread = self._require_thread(thread_id)
         snapshot_id = _safe_thread_id(
@@ -373,6 +633,12 @@ class DesignThreadService:
         )
         now = _utc_now()
         viewer_state = dict(payload)
+        if "viewport_screenshot" in viewer_state:
+            normalized_screenshot = _normalize_viewport_screenshot_for_snapshot(viewer_state["viewport_screenshot"])
+            if normalized_screenshot is not None:
+                viewer_state["viewport_screenshot"] = normalized_screenshot
+            else:
+                viewer_state.pop("viewport_screenshot")
         visible_part_ids = _normalize_part_ids(viewer_state.pop("visible_part_ids", []))
         selected_part_ids = _normalize_part_ids(viewer_state.pop("selected_part_ids", []))
 
@@ -388,7 +654,7 @@ class DesignThreadService:
             "thread_id": thread["thread_id"],
             "snapshot_id": snapshot_id,
             "created_at": now,
-            "viewer_state": payload,
+            "viewer_state": viewer_state,
             "project": self.viewer_service.runtime_context(),
             "warnings": expanded["warnings"],
             "parts": {
@@ -531,9 +797,23 @@ class DesignThreadService:
     def _thread_attachments_dir(self, thread_id: str) -> Path:
         return self._thread_dir(thread_id) / "attachments"
 
+    def _thread_attachment_png_path(self, thread_id: str, attachment_id: str) -> Path:
+        return self._thread_attachments_dir(thread_id) / f"{_safe_thread_id(attachment_id, fallback='att')}.png"
+
+    def _thread_attachment_metadata_path(self, thread_id: str, attachment_id: str) -> Path:
+        return self._thread_attachment_png_path(thread_id, attachment_id).with_suffix(".json")
+
     def _thread_snapshot_path(self, thread_id: str, snapshot_id: str) -> Path:
         safe_snapshot_id = _safe_thread_id(snapshot_id, fallback="snapshot")
         return self._thread_snapshots_dir(thread_id) / f"{safe_snapshot_id}.json"
+
+    def _thread_attachments(self, thread_id: str) -> list[dict[str, Any]]:
+        attachments_dir = self._thread_attachments_dir(thread_id)
+        return [
+            _read_json(path) or {"attachment_id": path.stem, "kind": "unknown"}
+            for path in _ordered_json_files(attachments_dir)
+            if path.is_file()
+        ]
 
     def _thread_snapshots(self, thread_id: str) -> list[dict[str, Any]]:
         snapshot_dir = self._thread_snapshots_dir(thread_id)
