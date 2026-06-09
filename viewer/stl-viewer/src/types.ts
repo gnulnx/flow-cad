@@ -232,11 +232,38 @@ export type DesignThreadEventType =
   | 'system'
 
 export interface DesignThreadMessagePayload {
-  type: 'user_message' | 'assistant_message' | 'tool_call' | 'tool_result' | 'status' | 'system'
+  type: DesignThreadEventType
   role: 'user' | 'assistant' | 'system'
   content: string | Record<string, unknown>
   attachments?: string[]
   metadata?: Record<string, unknown>
+}
+
+export type DraftThreadAction = 'propose' | 'apply' | 'preview' | 'accept' | 'discard' | 'reset'
+
+export interface DesignThreadDraftEventPayload {
+  type: 'draft_event'
+  role: 'assistant' | 'system'
+  content: string | Record<string, unknown>
+  metadata?: Record<string, unknown>
+  action?: DraftThreadAction
+  summary?: string
+}
+
+export interface DesignThreadDraftEventRequest {
+  message_id: string
+  thread_id: string
+  created_at: string
+  type: 'draft_event'
+  role: 'assistant' | 'system'
+  content: string | Record<string, unknown>
+  metadata?: Record<string, unknown>
+}
+
+export interface DesignThreadDraftEventResponse {
+  thread?: DesignThreadRecord
+  messages?: DesignThreadEvent[]
+  message?: DesignThreadEvent
 }
 
 export interface DesignThreadToolCallPayload {
@@ -440,8 +467,12 @@ export interface DraftPreviewModelPayload {
   transaction_token: string
   part_id: string
   model_url: string
+  preview_step_path?: string | null
+  preview_step_relative_path?: string | null
   display_stl_path: string | null
+  display_stl_relative_path?: string | null
   source_step_path: string | null
+  source_format?: string
   geometry_authority: 'step_kernel' | 'mesh' | 'missing'
   quality_label: 'exact' | 'approximate' | 'missing'
   facts: string[]
@@ -452,9 +483,13 @@ export interface DraftPreviewModelPayload {
 export interface DraftAcceptanceArtifacts {
   transaction_token: string
   source_patch_path: string
+  source_patch_relative_path?: string
   generated_source_path: string
+  generated_source_relative_path?: string
   validator_stub_path: string
+  validator_stub_relative_path?: string
   acceptance_manifest_path: string
+  acceptance_manifest_relative_path?: string
   source_loop_commands?: string[]
   source_patch_preview?: string
   command_source?: string

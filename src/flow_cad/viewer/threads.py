@@ -31,6 +31,7 @@ DESIGN_THREADS_SCHEMA_VERSION = 1
 THREAD_SCHEMA_VERSION = 1
 THREAD_MESSAGE_SCHEMA_VERSION = 1
 THREAD_CONTEXT_SNAPSHOT_SCHEMA_VERSION = 1
+THREAD_DRAFT_EVENT_SCHEMA_VERSION = 1
 VALID_ANNOTATION_KINDS = {"note", "circle", "freehand"}
 
 
@@ -218,6 +219,47 @@ def _unique_preserve_order(items: list[str]) -> list[str]:
         result.append(value)
     return result
 
+
+def _as_mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item is not None and str(item).strip()]
+
+
+def _safe_relative_path(value: Any, *, base: Path | None = None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    candidate = Path(text)
+    if any(part in {"", "..", "."} for part in candidate.parts):
+        return None
+    if candidate.is_absolute():
+        if base is None:
+            return None
+        try:
+            resolved = candidate.resolve()
+            return str(resolved.relative_to(base))
+        except (OSError, ValueError):
+            return None
+    return text.replace("\\", "/")
+
+
+def _normalize_string_list(value: Any) -> list[str]:
+    return _unique_preserve_order([item for item in _as_str_list(value) if item])
+
+
+def _read_reports(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, dict):
+        return [payload]
+    if isinstance(payload, list):
+        return [value for value in payload if isinstance(value, dict)]
+    return []
 
 def _safe_thread_id(value: str, *, fallback: str = "thread") -> str:
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip())
@@ -486,17 +528,154 @@ class DesignThreadService:
 
     def append_message(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         thread = self._require_thread(thread_id)
+        return self._append_event_message(
+            thread,
+            {
+                "type": str(payload.get("type") or "user_message"),
+                "role": str(payload.get("role") or "user"),
+                "content": payload.get("content", payload.get("text") or payload.get("message")),
+                "attachments": _as_list(payload.get("attachments")),
+                "metadata": _as_mapping(payload.get("metadata")),
+            },
+        )
+
+    def append_draft_event(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        thread = self._require_thread(thread_id)
+        raw_content = _as_mapping(payload.get("content"))
+        nested_content = _as_mapping(raw_content.get("content"))
+        content = dict(nested_content or raw_content)
+        if nested_content:
+            for key, value in raw_content.items():
+                if key == "content":
+                    continue
+                content.setdefault(key, value)
+        metadata = _as_mapping(payload.get("metadata"))
+        action = str(
+            payload.get("action")
+            or payload.get("event")
+            or content.get("action")
+            or metadata.get("action")
+            or ""
+        ).strip().lower()
+        if not action:
+            raise ThreadValidationError("draft event action is required")
+        content["action"] = action
+        content["status"] = str(content.get("status") or payload.get("status") or "ok")
+
+        token_candidates: list[str] = _normalize_string_list(
+            [
+                content.get("draft_transaction_token"),
+                content.get("transaction_token"),
+                content.get("token"),
+                payload.get("transaction_token"),
+                payload.get("draft_transaction_token"),
+                payload.get("token"),
+                metadata.get("transaction_token"),
+                metadata.get("draft_transaction_token"),
+                metadata.get("token"),
+            ]
+        )
+        if not token_candidates and action in {"accept", "accepted", "discard", "applied", "apply", "preview", "begin", "reset"}:
+            operation = _as_mapping(content.get("operation"))
+            extra = _as_mapping(operation.get("transaction"))
+            token_candidates = _normalize_string_list([extra.get("transaction_token"), extra.get("token")])
+        if token_candidates:
+            token = token_candidates[0]
+        else:
+            token = None
+        if token is not None:
+            content["draft_transaction_token"] = token
+            thread["linked_draft_transaction_tokens"] = _unique_preserve_order(
+                _as_str_list(thread.get("linked_draft_transaction_tokens", [])) + [token]
+            )
+
+        accepted_paths = self._draft_accept_artifact_paths(action=action, payload=payload, content=content)
+        if accepted_paths:
+            thread["accepted_artifact_paths"] = _unique_preserve_order(
+                _normalize_string_list(thread.get("accepted_artifact_paths", [])) + accepted_paths
+            )
+            metadata["accepted_artifact_paths"] = accepted_paths
+
+        metadata["action"] = action
+        metadata["thread_version"] = thread["thread_id"]
+        if token is not None:
+            metadata["draft_transaction_token"] = token
+
+        return self._append_event_message(
+            thread,
+            {
+                "schema_version": THREAD_DRAFT_EVENT_SCHEMA_VERSION,
+                "type": "draft_event",
+                "role": "system",
+                "content": content,
+                "attachments": _as_list(payload.get("attachments")),
+                "metadata": metadata,
+            },
+        )
+
+    def append_validator_event(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        thread = self._require_thread(thread_id)
+        event_type = str(payload.get("event_type") or payload.get("type") or "tool_result").lower()
+        if event_type not in {"tool_result", "review_event"}:
+            event_type = "tool_result"
+
+        content = _as_mapping(payload.get("content"))
+        base = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"metadata", "type", "event_type"}
+        }
+        if content:
+            base.update(content)
+        content = base
+        metadata = _as_mapping(payload.get("metadata"))
+        report_ids, report_summaries = self._collect_report_evidence(payload, content, metadata)
+        profile_ids, profile_summaries = self._collect_profile_evidence(payload, content, metadata)
+        if report_ids:
+            metadata["report_ids"] = report_ids
+        if report_summaries:
+            metadata["report_summaries"] = report_summaries
+        if profile_ids:
+            metadata["profile_ids"] = profile_ids
+        if profile_summaries:
+            metadata["profile_summaries"] = profile_summaries
+
+        return self._append_event_message(
+            thread,
+            {
+                "schema_version": THREAD_MESSAGE_SCHEMA_VERSION,
+                "type": event_type,
+                "role": "system",
+                "content": content,
+                "attachments": _as_list(payload.get("attachments")),
+                "metadata": metadata,
+            },
+        )
+
+    def _append_event_message(
+        self,
+        thread: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        thread_id = thread["thread_id"]
         message = {
-            "schema_version": THREAD_MESSAGE_SCHEMA_VERSION,
             "message_id": f"msg_{uuid.uuid4().hex}",
-            "thread_id": thread["thread_id"],
-            "created_at": _utc_now(),
+            "thread_id": thread_id,
+            "created_at": created_at or _utc_now(),
             "type": str(payload.get("type") or "user_message"),
             "role": str(payload.get("role") or "user"),
-            "content": payload.get("content", payload.get("text") or payload.get("message")),
+            "content": payload.get("content"),
             "attachments": _as_list(payload.get("attachments")),
-            "metadata": payload.get("metadata", {}),
+            "metadata": _as_mapping(payload.get("metadata")),
+            "schema_version": THREAD_MESSAGE_SCHEMA_VERSION,
         }
+        if message["type"] == "draft_event" and message.get("schema_version") != THREAD_DRAFT_EVENT_SCHEMA_VERSION:
+            message["schema_version"] = THREAD_DRAFT_EVENT_SCHEMA_VERSION
+        if payload.get("schema_version"):
+            message["schema_version"] = payload["schema_version"]
+
         if message["content"] is None:
             raise ThreadValidationError("message content is required")
 
@@ -508,10 +687,168 @@ class DesignThreadService:
         self._sync_index_entry(thread_id, thread)
         return message
 
+    def _draft_accept_artifact_paths(
+        self,
+        *,
+        action: str,
+        payload: dict[str, Any],
+        content: dict[str, Any],
+    ) -> list[str]:
+        if action not in {"accept", "accepted"}:
+            return []
+        candidates: list[str] = []
+        keys = [
+            "source_patch_path",
+            "source_patch_relative_path",
+            "generated_source_path",
+            "generated_source_relative_path",
+            "validator_stub_path",
+            "validator_stub_relative_path",
+            "acceptance_manifest_path",
+            "acceptance_manifest_relative_path",
+        ]
+        for source in (
+            payload,
+            content,
+            _as_mapping(payload.get("acceptance")),
+            _as_mapping(content.get("acceptance")),
+        ):
+            for key in keys:
+                path = _safe_relative_path(source.get(key), base=self.root)
+                if path is not None and path not in candidates:
+                    candidates.append(path)
+            accepted_artifacts = _as_mapping(source.get("artifacts"))
+            for item in accepted_artifacts.values() if isinstance(accepted_artifacts, dict) else []:
+                path = _safe_relative_path(item, base=self.root)
+                if path is not None and path not in candidates:
+                    candidates.append(path)
+
+        candidate_paths = _normalize_string_list(payload.get("accepted_artifact_paths"))
+        candidate_paths.extend(_normalize_string_list(content.get("accepted_artifact_paths")))
+        for path in candidate_paths:
+            normalized = _safe_relative_path(path, base=self.root)
+            if normalized is not None and normalized not in candidates:
+                candidates.append(normalized)
+        return candidates
+
+    def _collect_report_evidence(
+        self,
+        payload: dict[str, Any],
+        content: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> tuple[list[str], list[str]]:
+        ids: list[str] = []
+        summaries: list[str] = []
+        for source in (payload, content, metadata, _as_mapping(payload.get("data")), _as_mapping(content.get("data"))):
+            ids.extend(self._collect_ids_from_reports(source))
+            summaries.extend(self._collect_summaries_from_reports(source))
+        return _unique_preserve_order(ids), _unique_preserve_order(summaries)
+
+    def _collect_profile_evidence(
+        self,
+        payload: dict[str, Any],
+        content: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> tuple[list[str], list[str]]:
+        ids: list[str] = []
+        summaries: list[str] = []
+        for source in (payload, content, metadata, _as_mapping(payload.get("data")), _as_mapping(content.get("data"))):
+            ids.extend(self._collect_ids_from_profiles(source))
+            summaries.extend(self._collect_summaries_from_profiles(source))
+        return _unique_preserve_order(ids), _unique_preserve_order(summaries)
+
+    @staticmethod
+    def _collect_ids_from_reports(payload: dict[str, Any]) -> list[str]:
+        ids: list[str] = []
+        direct = payload.get("report_id")
+        if isinstance(direct, str) and direct.strip():
+            ids.append(direct.strip())
+        for report in _read_reports(payload.get("reports")):
+            if isinstance(report.get("metadata"), dict):
+                report_id = report.get("metadata").get("id")
+                if isinstance(report_id, str) and report_id.strip():
+                    ids.append(report_id.strip())
+            if isinstance(report.get("id"), str) and report["id"].strip():
+                ids.append(report["id"].strip())
+            if isinstance(report.get("report_id"), str) and report["report_id"].strip():
+                ids.append(report["report_id"].strip())
+        return ids
+
+    @staticmethod
+    def _collect_ids_from_profiles(payload: dict[str, Any]) -> list[str]:
+        ids: list[str] = []
+        direct = payload.get("profile_id")
+        if isinstance(direct, str) and direct.strip():
+            ids.append(direct.strip())
+        for profile in _read_reports(payload.get("profiles")):
+            if isinstance(profile.get("profile_id"), str) and profile["profile_id"].strip():
+                ids.append(profile["profile_id"].strip())
+            metadata = _as_mapping(profile.get("metadata"))
+            nested = metadata.get("profile_id")
+            if isinstance(nested, str) and nested.strip():
+                ids.append(nested.strip())
+        return ids
+
+    @staticmethod
+    def _collect_summaries_from_reports(payload: dict[str, Any]) -> list[str]:
+        summaries: list[str] = []
+        direct = payload.get("summary")
+        if isinstance(direct, str) and direct.strip():
+            summaries.append(direct.strip())
+        for report in _read_reports(payload.get("reports")):
+            if isinstance(report.get("summary"), str) and report["summary"].strip():
+                summaries.append(str(report["summary"]).strip())
+            metadata = _as_mapping(report.get("metadata"))
+            for key in ("summary", "status", "result_summary"):
+                if isinstance(metadata.get(key), str) and metadata[key].strip():
+                    summaries.append(metadata[key].strip())
+        return summaries
+
+    @staticmethod
+    def _collect_summaries_from_profiles(payload: dict[str, Any]) -> list[str]:
+        summaries: list[str] = []
+        direct = payload.get("summary")
+        if isinstance(direct, str) and direct.strip():
+            summaries.append(direct.strip())
+        for profile in _read_reports(payload.get("profiles")):
+            if isinstance(profile.get("summary"), str) and profile["summary"].strip():
+                summaries.append(profile["summary"].strip())
+            status = profile.get("status")
+            if isinstance(status, str) and status.strip():
+                summaries.append(status.strip())
+        return summaries
+
     def chat_turn(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        prepared = self.begin_chat_turn(thread_id, payload)
+        text = prepared["message_text"]
+        snapshot = prepared["context_snapshot"]
+
+        assistant_metadata = {
+            "runtime": "flow_cad_stub",
+            "runtime_status": "configured_stub",
+            **({"context_snapshot_id": snapshot["snapshot_id"]} if snapshot else {}),
+        }
+        assistant_message = self.append_message(
+            thread_id,
+            {
+                "type": "assistant_message",
+                "role": "assistant",
+                "content": self._assistant_reply(text, snapshot),
+                "metadata": assistant_metadata,
+            },
+        )
+        return {
+            "thread_id": thread_id,
+            "messages": [prepared["user_message"], assistant_message],
+            "context_snapshot": snapshot,
+            "thread": self.get_thread(thread_id),
+        }
+
+    def begin_chat_turn(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         text = payload.get("message", payload.get("content"))
         if not isinstance(text, str) or not text.strip():
             raise ThreadValidationError("chat message content is required")
+        message_text = text.strip()
 
         context_payload = payload.get("context_snapshot")
         snapshot: dict[str, Any] | None = None
@@ -536,29 +873,76 @@ class DesignThreadService:
             {
                 "type": "user_message",
                 "role": "user",
-                "content": text.strip(),
+                "content": message_text,
                 "attachments": attachments,
                 "metadata": metadata,
             },
         )
-        assistant_message = self.append_message(
-            thread_id,
-            {
-                "type": "assistant_message",
-                "role": "assistant",
-                "content": self._assistant_reply(text.strip(), snapshot),
-                "metadata": {
-                    "runtime": "flow_cad_stub",
-                    "runtime_status": "configured_stub",
-                    **({"context_snapshot_id": snapshot["snapshot_id"]} if snapshot else {}),
-                },
-            },
-        )
         return {
             "thread_id": thread_id,
-            "messages": [user_message, assistant_message],
+            "message_text": message_text,
+            "user_message": user_message,
             "context_snapshot": snapshot,
             "thread": self.get_thread(thread_id),
+        }
+
+    def assistant_context_packet(
+        self,
+        thread_id: str,
+        *,
+        context_snapshot: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        thread = self.get_thread(thread_id)
+        snapshots = thread.get("context_snapshots") if isinstance(thread.get("context_snapshots"), list) else []
+        snapshot = context_snapshot or (snapshots[-1] if snapshots else None)
+        snapshot = snapshot if isinstance(snapshot, dict) else {}
+        viewer_state = snapshot.get("viewer_state") if isinstance(snapshot.get("viewer_state"), dict) else {}
+        screenshot = viewer_state.get("viewport_screenshot")
+        viewport_screenshot: str | None = None
+        if isinstance(screenshot, dict) and isinstance(screenshot.get("attachment_id"), str):
+            viewport_screenshot = str(screenshot["attachment_id"])
+
+        validator_report_ids: list[str] = []
+        profile_ids: list[str] = []
+        for message in thread.get("messages", []):
+            if not isinstance(message, dict):
+                continue
+            metadata = _as_mapping(message.get("metadata"))
+            validator_report_ids.extend(_as_str_list(metadata.get("report_ids")))
+            profile_ids.extend(_as_str_list(metadata.get("profile_ids")))
+
+        return {
+            "thread_id": thread_id,
+            "project": snapshot.get("project") if isinstance(snapshot.get("project"), dict) else self.viewer_service.runtime_context(),
+            "viewer": {
+                "selected_part_ids": snapshot.get("selected_part_ids", []),
+                "visible_part_ids": snapshot.get("visible_part_ids", []),
+                "measurements": snapshot.get("measurements", []),
+                "viewport_size": snapshot.get("viewport", {}).get("size") if isinstance(snapshot.get("viewport"), dict) else None,
+                "viewport_screenshot": viewport_screenshot,
+            },
+            "draft_transaction_token": (
+                snapshot.get("draft_transaction", {}).get("transaction_token")
+                if isinstance(snapshot.get("draft_transaction"), dict)
+                else None
+            )
+            or (
+                snapshot.get("draft_transaction", {}).get("token")
+                if isinstance(snapshot.get("draft_transaction"), dict)
+                else None
+            ),
+            "validator_report_ids": _unique_preserve_order(validator_report_ids),
+            "profile_ids": _unique_preserve_order(profile_ids),
+            "attachments": [
+                {
+                    "attachment_id": item.get("attachment_id"),
+                    "kind": item.get("kind"),
+                    "annotation_count": len(item.get("annotations", [])) if isinstance(item.get("annotations"), list) else 0,
+                }
+                for item in thread.get("attachments", [])
+                if isinstance(item, dict)
+            ],
+            "message_count": len(thread.get("messages", [])) if isinstance(thread.get("messages"), list) else 0,
         }
 
     def add_viewport_screenshot_attachment(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:

@@ -47,7 +47,11 @@ import type {
   CreateDesignThreadPayload,
   DesignThreadChatPayload,
   DesignThreadChatResponse,
+  DesignThreadDraftEventRequest,
+  DesignThreadDraftEventResponse,
   DesignThreadsPayload,
+  DesignThreadEvent,
+  DraftThreadAction,
   ThreadViewportMeasurement,
   ThreadViewportAnnotation,
   ViewportMarkupTool,
@@ -106,6 +110,32 @@ function extractThreadAttachmentIds(thread: DesignThreadRecord | null) {
   }
 
   return Array.from(ids)
+}
+
+function extractLatestAttachmentId(thread: DesignThreadRecord | null) {
+  if (!thread) return null
+
+  const snapshots = thread.context_snapshots ?? []
+  for (let index = snapshots.length - 1; index >= 0; index -= 1) {
+    const snapshot = snapshots[index]
+    const viewportScreenshot = snapshot?.viewer_state?.viewport_screenshot
+    if (viewportScreenshot && typeof viewportScreenshot === 'object') {
+      const attachmentId = (viewportScreenshot as ViewportScreenshotPayload).attachment_id
+      if (typeof attachmentId === 'string' && attachmentId.trim()) {
+        return attachmentId.trim()
+      }
+    }
+  }
+
+  const threadAttachments = thread.attachments ?? []
+  for (let index = threadAttachments.length - 1; index >= 0; index -= 1) {
+    const attachmentId = threadAttachments[index]?.attachment_id
+    if (typeof attachmentId === 'string' && attachmentId.trim()) {
+      return attachmentId.trim()
+    }
+  }
+
+  return null
 }
 
 type ModelStateWriter = (updater: (previous: ModelData[]) => ModelData[]) => void
@@ -261,6 +291,83 @@ function buildHeaders(body: unknown) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   } satisfies RequestInit
+}
+
+function isDesignThreadEvent(value: unknown): value is DesignThreadEvent {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as {
+    type?: unknown
+    message_id?: unknown
+    thread_id?: unknown
+    content?: unknown
+  }
+  return (
+    typeof candidate.type === 'string'
+    && typeof candidate.message_id === 'string'
+    && typeof candidate.thread_id === 'string'
+    && (typeof candidate.content === 'string' || typeof candidate.content === 'object')
+  )
+}
+
+function parseStreamLine(line: string): unknown {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+  if (trimmed.startsWith('data:')) {
+    const value = trimmed.slice(5).trim()
+    if (!value || value === '[DONE]') return null
+    try {
+      return JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return null
+  }
+}
+
+function extractThreadMessagesFromStreamPayload(payload: unknown): DesignThreadEvent[] {
+  if (!payload || typeof payload !== 'object') return []
+
+  const record = payload as {
+    message?: unknown
+    messages?: unknown
+    event?: unknown
+    events?: unknown
+    thread?: unknown
+  }
+
+  const events: DesignThreadEvent[] = []
+  if (isDesignThreadEvent(record)) {
+    events.push(record)
+  }
+  if (isDesignThreadEvent(record.message)) {
+    events.push(record.message)
+  }
+  if (Array.isArray(record.messages)) {
+    for (const item of record.messages) {
+      if (isDesignThreadEvent(item)) events.push(item)
+    }
+  }
+  if (isDesignThreadEvent(record.event)) {
+    events.push(record.event)
+  }
+  if (Array.isArray(record.events)) {
+    for (const item of record.events) {
+      if (isDesignThreadEvent(item)) events.push(item)
+    }
+  }
+
+  return events
+}
+
+function extractDraftEventMessage(action: DraftThreadAction, body: Record<string, unknown>) {
+  return {
+    summary: `${action}: ${body.summary ?? action}`,
+    content: body,
+  } as const
 }
 
 function normalizeDraftEndpoint(base: string, token: string, route: string) {
@@ -460,6 +567,7 @@ export default function App() {
   const [threadBusy, setThreadBusy] = useState(false)
   const [threadAttachmentIds, setThreadAttachmentIds] = useState<string[]>([])
   const [latestAttachmentId, setLatestAttachmentId] = useState<string | null>(null)
+  const [chatStreamUnavailable, setChatStreamUnavailable] = useState(false)
   const [markupActive, setMarkupActive] = useState(false)
   const [markupTool, setMarkupTool] = useState<ViewportMarkupTool>('pen')
   const [markupNoteText, setMarkupNoteText] = useState('')
@@ -470,6 +578,8 @@ export default function App() {
   const [partsWidth, setPartsWidth] = useState(380)
   const [isResizingSource, setIsResizingSource] = useState(false)
   const [isResizingParts, setIsResizingParts] = useState(false)
+  const draftEventCounter = useRef(0)
+  const draftChatParserRef = useRef<string>('')
 
   const loadStlBuffer = useCallback((
     name: string,
@@ -607,9 +717,84 @@ export default function App() {
     setActiveThreadId(threadId)
     const attachmentIds = extractThreadAttachmentIds(payload)
     setThreadAttachmentIds(attachmentIds)
-    setLatestAttachmentId(attachmentIds.at(-1) ?? null)
+    setLatestAttachmentId(extractLatestAttachmentId(payload))
     return payload
   }, [apiBase])
+
+  const syncThreadFromPayload = useCallback((payload: DesignThreadRecord | null) => {
+    if (!payload) return
+    setActiveThread(payload)
+    setThreadAttachmentIds(extractThreadAttachmentIds(payload))
+    setLatestAttachmentId(extractLatestAttachmentId(payload))
+  }, [])
+
+  const appendThreadEvents = useCallback((threadId: string, messages: DesignThreadEvent[]) => {
+    if (!messages.length) return
+    setActiveThread((previous) => {
+      if (!previous || previous.thread_id !== threadId) return previous
+      const existing = new Set(previous.messages.map((event) => event.message_id))
+      const unique = messages.filter((message) => !existing.has(message.message_id))
+      if (!unique.length) return previous
+
+      const next = {
+        ...previous,
+        messages: [...previous.messages, ...unique],
+      }
+
+      const threadAttachmentIds = extractThreadAttachmentIds(next)
+      setThreadAttachmentIds(threadAttachmentIds)
+      setLatestAttachmentId(extractLatestAttachmentId(next))
+
+      return next
+    })
+  }, [])
+
+  const appendDraftThreadEvent = useCallback(async (
+    threadId: string,
+    action: DraftThreadAction,
+    summary: string,
+    metadata: Record<string, unknown> = {},
+  ) => {
+    const eventId = `draft-event-${threadId}-${++draftEventCounter.current}`
+    const requestPayload = {
+      message_id: eventId,
+      thread_id: threadId,
+      created_at: new Date().toISOString(),
+      type: 'draft_event' as const,
+      role: 'assistant' as const,
+      content: extractDraftEventMessage(action, { action, summary, ...metadata }),
+      metadata: {
+        ...metadata,
+        action,
+      },
+    } as DesignThreadDraftEventRequest
+    try {
+      const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/draft-events`), buildHeaders(requestPayload))
+      if (!response.ok) {
+        console.warn('Draft event append endpoint unavailable:', response.status)
+        return
+      }
+      const streamPayload = await response.json() as DesignThreadDraftEventResponse
+      if (streamPayload.thread) {
+        syncThreadFromPayload(streamPayload.thread)
+      } else if (streamPayload.message) {
+        appendThreadEvents(threadId, [streamPayload.message])
+      } else if (streamPayload.messages) {
+        appendThreadEvents(threadId, streamPayload.messages)
+      }
+    } catch (error) {
+      console.warn('Unable to append draft event:', error instanceof Error ? error.message : error)
+    }
+  }, [apiBase, appendThreadEvents, syncThreadFromPayload])
+
+  const recordDraftEvent = useCallback(async (
+    action: DraftThreadAction,
+    summary: string,
+    metadata: Record<string, unknown> = {},
+  ) => {
+    if (!activeThreadId) return
+    await appendDraftThreadEvent(activeThreadId, action, summary, metadata)
+  }, [activeThreadId, appendDraftThreadEvent])
 
   const loadThreadSummaries = useCallback(async (options: { autoSelect?: boolean } = {}) => {
     const { autoSelect = false } = options
@@ -717,18 +902,97 @@ export default function App() {
           : {}),
       },
     }
-    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat`), buildHeaders(payloadWithAttachment))
-    if (!response.ok) {
-      throw new Error(await responseDetail(response))
+
+    const syncThreadState = (thread: DesignThreadRecord | null | undefined) => {
+      if (!thread) return
+      syncThreadFromPayload(thread)
+      setActiveThreadId(threadId)
     }
-    const chat = await response.json() as DesignThreadChatResponse
-    setActiveThread(chat.thread)
-    setActiveThreadId(threadId)
-    setThreadAttachmentIds(extractThreadAttachmentIds(chat.thread))
-    setLatestAttachmentId((chat.thread.context_snapshots ?? []).at(-1)?.viewer_state?.viewport_screenshot?.attachment_id ?? latestAttachmentId)
+
+    const applyThreadStreamPayload = (record: unknown) => {
+      if (!record || typeof record !== 'object') return
+
+      const streamPayload = record as {
+        thread?: unknown
+        event?: unknown
+        message?: unknown
+        messages?: unknown
+        events?: unknown
+      }
+
+      if (streamPayload.thread && typeof streamPayload.thread === 'object' && (streamPayload.thread as { thread_id?: unknown }).thread_id === threadId) {
+        syncThreadState(streamPayload.thread as DesignThreadRecord)
+      }
+
+      const threadMessages = extractThreadMessagesFromStreamPayload(streamPayload)
+      appendThreadEvents(threadId, threadMessages)
+    }
+
+    const streamChatResponse = async (response: Response) => {
+      if (!response.body) {
+        throw new Error('Chat stream response has no body')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      draftChatParserRef.current = ''
+      let buffer = draftChatParserRef.current
+
+      while (true) {
+        const chunkResult = await reader.read()
+        if (chunkResult.done) break
+        buffer += decoder.decode(chunkResult.value, { stream: true })
+
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          const parsed = parseStreamLine(line)
+          if (!parsed) continue
+          applyThreadStreamPayload(parsed)
+        }
+      }
+
+      const tail = parseStreamLine(buffer)
+      if (tail) {
+        applyThreadStreamPayload(tail)
+      }
+
+      draftChatParserRef.current = ''
+    }
+
+    if (!chatStreamUnavailable) {
+      try {
+        const streamResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat/stream`), buildHeaders(payloadWithAttachment))
+        if (streamResponse.ok) {
+          await streamChatResponse(streamResponse)
+          const updatedThread = await loadThread(threadId)
+          syncThreadState(updatedThread)
+          await loadThreadSummaries()
+          return {
+            thread_id: threadId,
+            messages: updatedThread.messages,
+            thread: updatedThread,
+          } as DesignThreadChatResponse
+        }
+
+        if (streamResponse.status === 404 || streamResponse.status === 405 || streamResponse.status === 501) {
+          setChatStreamUnavailable(true)
+        }
+      } catch (error) {
+        console.warn('Streaming chat request failed, using fallback:', error instanceof Error ? error.message : error)
+      }
+    }
+
+    const fallbackResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat`), buildHeaders(payloadWithAttachment))
+    if (!fallbackResponse.ok) {
+      throw new Error(await responseDetail(fallbackResponse))
+    }
+    const chat = await fallbackResponse.json() as DesignThreadChatResponse
+    syncThreadState(chat.thread)
+    appendThreadEvents(threadId, chat.messages)
     await loadThreadSummaries()
     return chat
-  }, [apiBase, loadThreadSummaries, latestAttachmentId])
+  }, [apiBase, appendThreadEvents, chatStreamUnavailable, latestAttachmentId, loadThread, loadThreadSummaries, syncThreadFromPayload])
 
   const viewerParts = useMemo(
     () => parts.map((part) => mergePartDraft(part, partMetadataDrafts[part.id])),
@@ -1044,10 +1308,23 @@ export default function App() {
       } else {
         setStatusMessage(`Proposed ${parsed.operations.length} operation${parsed.operations.length === 1 ? '' : 's'}.`)
       }
+
+      await recordDraftEvent('propose', `Proposed ${parsed.operations.length} operations`, {
+        command: previewCommand,
+        selected_part_id: selectedPart?.id,
+        operation_count: parsed.operations.length,
+        operations: parsed.operations.map((operation) => ({
+          kind: operation.kind,
+          endpoint: operation.endpoint,
+          summary: operation.summary,
+          payload: operation.payload,
+        })),
+        warnings: parsed.warnings,
+      })
     } finally {
       setBusy('propose', false)
     }
-  }, [apiBase, previewCommand, selectedPart])
+  }, [apiBase, previewCommand, recordDraftEvent, selectedPart])
 
   const applyOperations = useCallback(async (transactionToken: string) => {
     if (!selectedPart) return
@@ -1091,13 +1368,24 @@ export default function App() {
       setPreviewModelPayload(null)
       setPreviewModels([])
       setStatusMessage('Draft operations applied. Generate preview when ready.')
+      await recordDraftEvent('apply', 'Draft operations applied', {
+        draft_transaction_token: transactionToken,
+        selected_part_id: selectedPart.id,
+        operation_count: proposedOperations.length,
+        operations: proposedOperations.map((operation) => ({
+          kind: operation.kind,
+          endpoint: operation.endpoint,
+          summary: operation.summary,
+          payload: operation.payload,
+        })),
+      })
     } catch (err) {
       console.error('Failed to apply operations:', err)
       setStatusMessage(`Failed to apply draft operations: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusy('apply', false)
     }
-  }, [activeName, applyOperations, apiBase, draftTransactionToken, proposedOperations, selectedPart])
+  }, [activeName, applyOperations, apiBase, draftTransactionToken, proposedOperations, recordDraftEvent, selectedPart])
 
   const loadPreviewModel = useCallback(async (token: string) => {
     let response = await fetch(normalizeDraftEndpoint(apiBase, token, 'preview-model'), { method: 'POST' })
@@ -1141,20 +1429,36 @@ export default function App() {
       setPreviewModels,
     )
     setStatusMessage('Preview model loaded.')
+    return payload
   }, [apiBase, selectedPart, loadStlBuffer])
 
   const handlePreview = useCallback(async () => {
     if (!draftTransactionToken) return
     setBusy('preview', true)
     try {
-      await loadPreviewModel(draftTransactionToken)
+      const payload = await loadPreviewModel(draftTransactionToken)
+      await recordDraftEvent('preview', 'Draft preview generated', {
+        draft_transaction_token: draftTransactionToken,
+        selected_part_id: payload?.part_id ?? selectedPart?.id,
+        model_url: payload?.model_url,
+        geometry_authority: payload?.geometry_authority,
+        quality_label: payload?.quality_label,
+        source_format: payload?.source_format,
+        warnings: payload?.warnings,
+        facts: payload?.facts,
+        dimensions: payload?.dimensions,
+        preview_step_path: payload?.preview_step_path,
+        preview_step_relative_path: payload?.preview_step_relative_path,
+        display_stl_path: payload?.display_stl_path,
+        display_stl_relative_path: payload?.display_stl_relative_path,
+      })
     } catch (err) {
       console.error('Failed to load preview model:', err)
       setStatusMessage(`Failed to preview: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusy('preview', false)
     }
-  }, [draftTransactionToken, loadPreviewModel])
+  }, [draftTransactionToken, loadPreviewModel, recordDraftEvent, selectedPart])
 
   const handleAccept = useCallback(async () => {
     if (!draftTransactionToken) return
@@ -1166,6 +1470,25 @@ export default function App() {
         throw new Error(await responseDetail(response))
       }
       const payload = await response.json() as DraftAcceptanceArtifacts
+      await recordDraftEvent('accept', 'Draft accepted', {
+        draft_transaction_token: draftTransactionToken,
+        selected_part_id: selectedPart?.id,
+        source_patch_path: payload.source_patch_path,
+        source_patch_relative_path: payload.source_patch_relative_path,
+        generated_source_path: payload.generated_source_path,
+        generated_source_relative_path: payload.generated_source_relative_path,
+        validator_stub_path: payload.validator_stub_path,
+        validator_stub_relative_path: payload.validator_stub_relative_path,
+        acceptance_manifest_path: payload.acceptance_manifest_path,
+        acceptance_manifest_relative_path: payload.acceptance_manifest_relative_path,
+        source_loop_commands: payload.source_loop_commands,
+        accepted_artifact_paths: [
+          payload.source_patch_path,
+          payload.generated_source_path,
+          payload.validator_stub_path,
+          payload.acceptance_manifest_path,
+        ].filter((value): value is string => Boolean(value)),
+      })
       setAcceptanceArtifacts(payload)
       setStatusMessage(`Draft accepted: ${payload.acceptance_manifest_path}`)
       setPreviewModelPayload(null)
@@ -1179,7 +1502,7 @@ export default function App() {
     } finally {
       setBusy('accept', false)
     }
-  }, [apiBase, draftTransactionToken])
+  }, [apiBase, draftTransactionToken, recordDraftEvent, selectedPart])
 
   const handleDiscard = useCallback(async () => {
     if (!draftTransactionToken) return
@@ -1190,6 +1513,10 @@ export default function App() {
       if (!response.ok) {
         throw new Error(await responseDetail(response))
       }
+      await recordDraftEvent('discard', 'Draft discarded', {
+        draft_transaction_token: draftTransactionToken,
+        selected_part_id: selectedPart?.id,
+      })
       clearDraftState()
       setStatusMessage('Draft transaction discarded.')
     } catch (err) {
@@ -1198,13 +1525,17 @@ export default function App() {
     } finally {
       setBusy('discard', false)
     }
-  }, [apiBase, clearDraftState, draftTransactionToken])
+  }, [apiBase, clearDraftState, draftTransactionToken, recordDraftEvent, selectedPart])
 
   const handleResetCommand = useCallback(() => {
+    void recordDraftEvent('reset', 'Draft command reset', {
+      draft_transaction_token: draftTransactionToken,
+      selected_part_id: selectedPart?.id,
+    })
     setPreviewCommand('')
     setProposedOperations([])
     setProposalWarnings([])
-  }, [])
+  }, [draftTransactionToken, recordDraftEvent, selectedPart])
 
   const handleFitToView = useCallback(() => {
     setFitRequest((value) => value + 1)

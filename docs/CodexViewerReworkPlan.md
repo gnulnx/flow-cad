@@ -563,6 +563,93 @@ into thread events.
 Done means draft previews and focused-validation evidence are no longer hidden
 inside transient UI state.
 
+Break CVR-5 into these implementation tickets:
+
+#### CVR-5A: Thread Event API Contract
+
+Add explicit thread event endpoints:
+
+```text
+POST /api/design-threads/{thread_id}/draft-events
+POST /api/design-threads/{thread_id}/validator-events
+```
+
+Draft events should persist as `draft_event` records. Validator, profile, and
+focused review evidence should persist as `tool_result` or `review_event`
+records with structured content. Both endpoints should update the thread's
+linked draft transaction tokens, accepted artifact paths, and updated timestamp
+when the payload contains those facts.
+
+Tests:
+
+- posting begin/apply/preview/accept/discard draft events appends durable JSONL
+  records
+- accepted draft events link source patch, generated source, validator stub,
+  acceptance manifest, and source-loop commands
+- validator/profile events persist report ids, summaries, status, warnings, and
+  profile ids
+- missing thread returns 404 and malformed payloads return 400
+
+Done means draft and validation facts have a stable backend event contract
+independent of the transient React state that produced them.
+
+#### CVR-5B: Frontend Draft Event Emission
+
+Wire the advanced draft controls to append thread events after each meaningful
+draft action:
+
+- proposal parsed
+- operations applied to a transaction
+- preview model generated and rendered
+- focused validator/profile evidence attached
+- transaction accepted or discarded
+- command state reset
+
+Each event should include the active thread id, selected part id, transaction
+token, operation summaries, preview facts, authority labels, warnings, and any
+accepted artifact paths already returned by the backend.
+
+Tests:
+
+- applying operations posts an `apply` draft event and renders it in history
+- previewing posts a `preview` draft event with preview model/source facts
+- accepting posts an `accept` draft event and links acceptance artifacts
+- discarding posts a `discard` draft event and clears live preview state without
+  erasing thread history
+
+Done means a user can inspect the thread history and understand exactly which
+draft operations produced the visible preview or accepted artifacts.
+
+#### CVR-5C: Validator And Profile Evidence Attachment
+
+Add the first narrow event path for focused validator and profile results. The
+initial UI may post these records from the assistant/tool stream or from an
+advanced tool result block; the data contract should not require a model host.
+
+Tests:
+
+- a focused validator summary appears in the thread as a structured result
+- a profile summary can be linked to the same draft transaction
+- validator/profile events remain readable after browser reload
+
+Done means validation evidence can be attached to a design decision even before
+full model-driven tool orchestration exists.
+
+#### CVR-5D: Integration Gate
+
+Run:
+
+```bash
+python -m pytest tests/test_viewer_design_threads.py tests/test_viewer_service.py
+npm --prefix viewer/stl-viewer test -- --run App.test.tsx
+npm --prefix viewer/stl-viewer test
+npm --prefix viewer/stl-viewer run build
+git diff --check
+```
+
+Done means backend event persistence, React event emission, persisted history,
+and the production frontend build agree.
+
 ### CVR-6: Streaming Assistant Adapter
 
 Add a runtime-neutral streaming adapter with fake-runtime tests first, then a
@@ -571,6 +658,128 @@ compact context packets and CAD-safe tool schemas.
 
 Done means a thread can stream assistant output and tool events without giving
 the assistant broad filesystem or shell access.
+
+Break CVR-6 into these implementation tickets:
+
+#### CVR-6A: Runtime-Neutral Streaming Interface
+
+Add a small internal adapter boundary:
+
+```text
+AgentRuntimeClient.stream_chat(thread_id, messages, context_packet, tools, model_profile)
+```
+
+The stream should normalize model-host output into typed events such as
+`assistant_delta`, `assistant_message`, `tool_call`, `tool_result`, `done`, and
+`error`. Start with a deterministic fake runtime so the backend and frontend can
+be tested without a running model server.
+
+Tests:
+
+- fake runtime streams deterministic assistant text and tool events in order
+- errors become structured stream events instead of uncaught exceptions
+- streamed events include the target thread id and runtime/profile metadata
+
+Done means Flow CAD can test streaming behavior without binding to a specific
+LLM process.
+
+#### CVR-6B: Compact Context Packet And CAD-Safe Tools
+
+Build a compact assistant context packet from the active thread, latest context
+snapshot, selected/visible part facts, active draft state, attachments, and
+linked validator evidence. Expose only Flow CAD safe tools:
+
+- `read_viewer_context`
+- `create_draft_transaction`
+- `apply_draft_operations`
+- `generate_preview_model`
+- `run_focused_validator`
+- `read_profile_summary`
+- `summarize_acceptance_artifacts`
+
+Do not expose generic `write_file`, `run_command`, shell, or broad filesystem
+tools on the default viewer assistant path.
+
+Tests:
+
+- context packets omit bulky screenshots but keep attachment ids and annotation
+  summaries
+- tool schemas include the CAD-safe tools above
+- tool schemas exclude broad filesystem and shell capabilities
+
+Done means a model receives enough design context to be useful without bypassing
+the existing draft, validation, and source-loop boundaries.
+
+#### CVR-6C: Streaming Chat API
+
+Add:
+
+```text
+POST /api/design-threads/{thread_id}/chat/stream
+```
+
+The endpoint should append the user message and context snapshot, stream
+assistant/tool events as Server-Sent Events, persist the final assistant/tool
+records into the thread, and return clean `error`/`done` events. It should fall
+back to the fake runtime unless a compatible local runtime endpoint is
+configured.
+
+Tests:
+
+- SSE event formatting is valid with a fake runtime client
+- assistant deltas are persisted as an assistant message when the stream ends
+- tool events are persisted with structured inputs/results
+- missing thread returns 404 before any stream body is emitted
+
+Done means the browser can receive incremental assistant output from the Flow
+CAD backend with the same persisted thread contract as non-streaming chat.
+
+#### CVR-6D: LlamaStudio Or llama.cpp-Compatible Client
+
+Add a runtime implementation that can consume a local HTTP streaming endpoint
+using a LlamaStudio or llama.cpp-compatible event format. Keep it configurable
+through environment variables or service construction, and keep it optional so
+tests do not need a model server.
+
+Tests:
+
+- line-oriented `data: {...}` chunks normalize into Flow CAD stream events
+- malformed chunks become structured warnings/errors without crashing the
+  stream
+- runtime configuration is optional and defaults to fake runtime in tests
+
+Done means Flow CAD has a concrete adapter path for a local model server without
+embedding another application's UI or generic workspace tool surface.
+
+#### CVR-6E: Frontend Streaming Rendering
+
+Teach the React chat workspace to consume the streaming endpoint when available,
+render assistant text incrementally, display tool-call/tool-result blocks, and
+fall back to the existing JSON `/chat` response if streaming is unavailable.
+
+Tests:
+
+- streamed assistant deltas render before the final `done` event
+- tool call/result events appear in the message list
+- fallback JSON chat still works for older backends or failed stream setup
+
+Done means chat feels like a first-class design assistant surface rather than a
+submit-and-wait form.
+
+#### CVR-6F: Integration Gate
+
+Run:
+
+```bash
+python -m pytest tests/test_viewer_agent_runtime.py tests/test_viewer_design_threads.py
+npm --prefix viewer/stl-viewer test -- --run App.test.tsx
+npm --prefix viewer/stl-viewer test
+npm --prefix viewer/stl-viewer run build
+git diff --check
+```
+
+Done means the runtime adapter, streaming API, persisted thread events,
+frontend incremental rendering, and production build are verified together.
 
 ### CVR-7: LlamaStudio Shared Runtime Evaluation
 

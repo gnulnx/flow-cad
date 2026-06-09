@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from flow_cad.draft_geometry import DraftGeometryError
+from flow_cad.viewer.agent_runtime import (
+    AgentRuntimeClient,
+    AgentRuntimeError,
+    FakeAgentRuntimeClient,
+    LlamaCppAgentRuntimeClient,
+)
 from flow_cad.viewer.threads import (
     DesignThreadService,
     ThreadNotFoundError,
@@ -21,16 +29,113 @@ def _project_root_from_env() -> Path | None:
     return Path(value).resolve() if value else None
 
 
+def _agent_runtime_from_env() -> AgentRuntimeClient:
+    endpoint = os.environ.get("FLOW_CAD_AGENT_RUNTIME_ENDPOINT")
+    if endpoint:
+        return LlamaCppAgentRuntimeClient(
+            endpoint=endpoint,
+            model=os.environ.get("FLOW_CAD_AGENT_RUNTIME_MODEL", "llama3"),
+            default_profile=os.environ.get("FLOW_CAD_AGENT_RUNTIME_PROFILE", "default"),
+        )
+    return FakeAgentRuntimeClient()
+
+
+def _cad_safe_tools() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "read_viewer_context",
+            "description": "Read the active Flow CAD design-thread and viewport context.",
+            "parameters": {"properties": {"thread_id": {"type": "string"}}},
+        },
+        {
+            "name": "create_draft_transaction",
+            "description": "Create a draft transaction for a registered CAD part.",
+            "parameters": {"properties": {"part_id": {"type": "string"}}, "required": ["part_id"]},
+        },
+        {
+            "name": "apply_draft_operations",
+            "description": "Apply explicit Flow CAD draft operations to a draft transaction.",
+            "parameters": {
+                "properties": {
+                    "transaction_token": {"type": "string"},
+                    "operations": {"type": "array"},
+                },
+                "required": ["transaction_token", "operations"],
+            },
+        },
+        {
+            "name": "generate_preview_model",
+            "description": "Generate a reviewable draft preview model.",
+            "parameters": {"properties": {"transaction_token": {"type": "string"}}, "required": ["transaction_token"]},
+        },
+        {
+            "name": "run_focused_validator",
+            "description": "Run a focused Flow CAD validator against explicit draft or project context.",
+            "parameters": {"properties": {"validator_id": {"type": "string"}, "transaction_token": {"type": "string"}}},
+        },
+        {
+            "name": "read_profile_summary",
+            "description": "Read an existing Flow CAD profile summary.",
+            "parameters": {"properties": {"profile_id": {"type": "string"}}, "required": ["profile_id"]},
+        },
+        {
+            "name": "summarize_acceptance_artifacts",
+            "description": "Summarize review artifacts created by accepted draft transactions.",
+            "parameters": {"properties": {"transaction_token": {"type": "string"}}, "required": ["transaction_token"]},
+        },
+    ]
+
+
+def _sse(payload: dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n\n"
+
+
+def _assistant_delta_text(event: dict[str, Any]) -> str:
+    value = event.get("text", event.get("delta", ""))
+    return value if isinstance(value, str) else str(value)
+
+
+def _tool_call_content(event: dict[str, Any]) -> dict[str, Any]:
+    tool_name = str(event.get("tool") or event.get("name") or "unknown")
+    arguments = event.get("arguments") if isinstance(event.get("arguments"), dict) else {}
+    return {
+        "kind": "tool_call",
+        "tool": tool_name,
+        "summary": f"Calling {tool_name}",
+        "inputs": arguments,
+    }
+
+
+def _tool_result_content(event: dict[str, Any]) -> dict[str, Any]:
+    tool_name = str(event.get("tool") or event.get("name") or "unknown")
+    result = event.get("result") if isinstance(event.get("result"), dict) else {"value": event.get("result")}
+    status = str(result.get("status") or event.get("status") or "success") if isinstance(result, dict) else "success"
+    content = {
+        "kind": "tool_result",
+        "tool": tool_name,
+        "status": status,
+        "summary": str(result.get("summary") or result.get("message") or f"{tool_name} completed"),
+        "details": result,
+    }
+    for key in ("report_id", "profile_id"):
+        if isinstance(result.get(key), str) and result[key].strip():
+            content[key] = result[key].strip()
+    return content
+
+
 def create_app(
     service: ViewerService | None = None,
     project_root: Path | None = None,
     thread_service: DesignThreadService | None = None,
+    agent_runtime_client: AgentRuntimeClient | None = None,
 ) -> FastAPI:
     viewer_service = service or ViewerService(project_root or _project_root_from_env())
     design_threads = thread_service or DesignThreadService(viewer_service)
+    agent_runtime = agent_runtime_client or _agent_runtime_from_env()
     app = FastAPI(title="Flow CAD Viewer API")
     app.state.viewer_service = viewer_service
     app.state.design_threads = design_threads
+    app.state.agent_runtime = agent_runtime
 
     app.add_middleware(
         CORSMiddleware,
@@ -81,6 +186,22 @@ def create_app(
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
+    @app.post("/api/design-threads/{thread_id}/draft-events")
+    def post_design_thread_draft_event(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.append_draft_event(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/validator-events")
+    def post_design_thread_validator_event(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.append_validator_event(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
     @app.post("/api/design-threads/{thread_id}/chat")
     def post_design_thread_chat(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
         try:
@@ -88,6 +209,112 @@ def create_app(
         except (ThreadStorageError, ThreadNotFoundError) as exc:
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/chat/stream")
+    def post_design_thread_chat_stream(thread_id: str, payload: dict[str, object]) -> StreamingResponse:
+        try:
+            prepared = design_threads.begin_chat_turn(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+        def event_stream():
+            assistant_chunks: list[str] = []
+            context_packet = design_threads.assistant_context_packet(
+                thread_id,
+                context_snapshot=prepared.get("context_snapshot") if isinstance(prepared.get("context_snapshot"), dict) else None,
+            )
+            thread = prepared.get("thread") if isinstance(prepared.get("thread"), dict) else design_threads.get_thread(thread_id)
+            messages = thread.get("messages", []) if isinstance(thread.get("messages"), list) else []
+            model_profile = payload.get("model_profile") if isinstance(payload.get("model_profile"), (str, dict)) else None
+            metadata_base = {
+                "runtime": agent_runtime.__class__.__name__,
+                **(
+                    {"context_snapshot_id": prepared["context_snapshot"]["snapshot_id"]}
+                    if isinstance(prepared.get("context_snapshot"), dict)
+                    else {}
+                ),
+            }
+
+            yield _sse({"message": prepared["user_message"]})
+            try:
+                for event in agent_runtime.stream_chat(
+                    thread_id,
+                    messages,
+                    context_packet,
+                    _cad_safe_tools(),
+                    model_profile,
+                ):
+                    event["thread_id"] = thread_id
+                    event_type = str(event.get("type") or "")
+                    if event_type == "assistant_delta":
+                        assistant_chunks.append(_assistant_delta_text(event))
+                        yield _sse({"event": event})
+                    elif event_type == "tool_call":
+                        message = design_threads.append_message(
+                            thread_id,
+                            {
+                                "type": "tool_call",
+                                "role": "assistant",
+                                "content": _tool_call_content(event),
+                                "metadata": {
+                                    **metadata_base,
+                                    "tool": event.get("tool"),
+                                    **({"tool_call_id": event["tool_call_id"]} if isinstance(event.get("tool_call_id"), str) else {}),
+                                },
+                            },
+                        )
+                        yield _sse({"event": event, "message": message})
+                    elif event_type == "tool_result":
+                        message = design_threads.append_validator_event(
+                            thread_id,
+                            {
+                                "type": "tool_result",
+                                "content": _tool_result_content(event),
+                                "metadata": {
+                                    **metadata_base,
+                                    "tool": event.get("tool"),
+                                },
+                            },
+                        )
+                        yield _sse({"event": event, "message": message})
+                    elif event_type == "error":
+                        message = design_threads.append_message(
+                            thread_id,
+                            {
+                                "type": "status",
+                                "role": "system",
+                                "content": {
+                                    "summary": str(event.get("error") or "Assistant stream error"),
+                                    "details": event,
+                                },
+                                "metadata": metadata_base,
+                            },
+                        )
+                        yield _sse({"event": event, "message": message})
+                    elif event_type == "done":
+                        yield _sse({"event": event})
+
+                if assistant_chunks:
+                    assistant_message = design_threads.append_message(
+                        thread_id,
+                        {
+                            "type": "assistant_message",
+                            "role": "assistant",
+                            "content": "".join(assistant_chunks),
+                            "metadata": metadata_base,
+                        },
+                    )
+                    yield _sse({"message": assistant_message})
+
+                yield _sse({"done": True, "thread": design_threads.get_thread(thread_id)})
+                yield "data: [DONE]\n\n"
+            except AgentRuntimeError as exc:
+                yield _sse({"event": {"type": "error", "thread_id": thread_id, "error": str(exc)}})
+            except Exception as exc:  # pragma: no cover - defensive stream boundary
+                yield _sse({"event": {"type": "error", "thread_id": thread_id, "error": f"Assistant stream failed: {exc}"}})
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @app.post("/api/design-threads/{thread_id}/context-snapshots")
     def create_design_thread_context_snapshot(thread_id: str, payload: dict[str, object]) -> dict[str, object]:

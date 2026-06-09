@@ -88,6 +88,12 @@ function eventContentText(event: DesignThreadEvent) {
   return ''
 }
 
+function eventActor(event: DesignThreadEvent) {
+  if (event.role === 'user') return 'You'
+  if (event.type === 'draft_event') return 'Draft'
+  return 'AI'
+}
+
 export default function DesignThreadDock({
   activeTab,
   onTabChange,
@@ -519,7 +525,7 @@ export default function DesignThreadDock({
               {events.length ? (
                 events.map((event) => (
                   <article key={event.message_id} className={`chat-message chat-message-${event.role ?? event.type}`}>
-                    <div className="chat-message-avatar">{event.role === 'assistant' ? 'AI' : 'You'}</div>
+                    <div className="chat-message-avatar">{eventActor(event)}</div>
                     <div className="chat-message-bubble">
                       <div className="chat-message-meta">
                         <span>{event.type}</span>

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from flow_cad.viewer.agent_runtime import FakeAgentRuntimeClient
 from flow_cad.viewer.app import create_app
 from flow_cad.viewer.service import ViewerService
 
@@ -280,6 +281,90 @@ def test_viewer_design_threads_chat_turn_persists_user_assistant_and_view_contex
     assert reloaded["context_snapshots"][0]["viewer_state"]["viewport_screenshot"]["data_url"].startswith("data:image/png")
 
 
+def _sse_payloads(stream_text: str) -> list[dict[str, object]]:
+    payloads: list[dict[str, object]] = []
+    for line in stream_text.splitlines():
+        if not line.startswith("data:"):
+            continue
+        value = line.removeprefix("data:").strip()
+        if not value or value == "[DONE]":
+            continue
+        decoded = json.loads(value)
+        assert isinstance(decoded, dict)
+        payloads.append(decoded)
+    return payloads
+
+
+def test_viewer_design_threads_stream_chat_persists_runtime_events(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "Draft response"},
+            {
+                "type": "tool_call",
+                "tool": "run_focused_validator",
+                "arguments": {"validator_id": "panel-clearance"},
+            },
+            {
+                "type": "tool_result",
+                "tool": "run_focused_validator",
+                "result": {"status": "pass", "summary": "Panel clearance passed", "report_id": "val-001"},
+            },
+            {"type": "assistant_delta", "text": " ready."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Stream check"}).json()["thread_id"]
+
+    with client.stream(
+        "POST",
+        f"/api/design-threads/{thread_id}/chat/stream",
+        json={
+            "message": "Review this preview.",
+            "context_snapshot": {
+                "visible_part_ids": ["example_block"],
+                "selected_part_ids": ["example_block"],
+                "viewport_screenshot": {"kind": "viewport_screenshot", "attachment_id": "att-1"},
+            },
+        },
+    ) as response:
+        assert response.status_code == 200
+        payloads = _sse_payloads("".join(response.iter_text()))
+
+    assert any(payload.get("message", {}).get("type") == "user_message" for payload in payloads)
+    assert any(payload.get("event", {}).get("type") == "assistant_delta" for payload in payloads)
+    assert any(payload.get("message", {}).get("type") == "tool_call" for payload in payloads)
+    assert any(payload.get("message", {}).get("type") == "tool_result" for payload in payloads)
+    assert any(payload.get("message", {}).get("type") == "assistant_message" for payload in payloads)
+    assert payloads[-1]["done"] is True
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert [message["type"] for message in reloaded["messages"]] == [
+        "user_message",
+        "tool_call",
+        "tool_result",
+        "assistant_message",
+    ]
+    assert reloaded["messages"][-1]["content"] == "Draft response ready."
+    assert reloaded["messages"][2]["metadata"]["report_ids"] == ["val-001"]
+    assert reloaded["messages"][0]["metadata"]["viewport_attachment_id"] == "att-1"
+
+
+def test_viewer_design_threads_stream_chat_missing_thread_returns_404(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    client = TestClient(create_app(service=ViewerService(tmp_path)))
+
+    response = client.post(
+        "/api/design-threads/missing/chat/stream",
+        json={"message": "Will not stream"},
+    )
+
+    assert response.status_code == 404
+
+
 def test_viewer_design_threads_viewport_screenshot_attachment_stores_png_and_sidecar(tmp_path) -> None:
     _write_example_step(tmp_path)
     service = ViewerService(tmp_path)
@@ -433,3 +518,200 @@ def test_viewer_design_threads_viewport_attachment_id_sanitization_and_thread_co
     assert ".." not in payload["attachment_id"]
     png_path = threads_root / payload["path"]
     assert png_path.resolve().is_relative_to(threads_root.resolve())
+
+
+def test_viewer_design_threads_draft_events_persist_and_link_metadata(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Draft event thread"}).json()["thread_id"]
+    transaction = client.post("/api/draft-transactions", json={"part_id": "example_block"}).json()
+    transaction_token = transaction["transaction_token"]
+
+    events = [
+        {
+            "action": "begin",
+            "summary": "Draft start",
+            "draft_transaction_token": transaction_token,
+        },
+        {
+            "action": "apply",
+            "summary": "Applied requested feature",
+            "transaction_token": transaction_token,
+        },
+        {
+            "action": "preview",
+            "summary": "Preview generated",
+            "token": transaction_token,
+        },
+        {
+            "action": "accept",
+            "summary": "Accepted changes",
+            "draft_transaction_token": transaction_token,
+            "source_patch_path": "source_patches/txn_accepted.patch",
+            "generated_source_path": "generated/source.py",
+            "validator_stub_path": "validator/stubs/accept.json",
+            "acceptance_manifest_path": "drafts/accept/manifest.json",
+            "source_loop_command": "python do_accept.py",
+            "accepted_artifact_paths": [
+                "accept/overview.step",
+                "accept/commands.txt",
+            ],
+            "artifacts": {
+                "source_patch": "artifacts/patch.step",
+                "stl": "artifacts/accepted.stl",
+            },
+        },
+        {
+            "action": "discard",
+            "summary": "Discard pending draft",
+            "draft_transaction_token": transaction_token,
+        },
+    ]
+
+    for payload in events:
+        response = client.post(f"/api/design-threads/{thread_id}/draft-events", json=payload)
+        assert response.status_code == 200
+        record = response.json()
+        assert record["type"] == "draft_event"
+        assert record["role"] == "system"
+        assert record["content"]["action"] in {"begin", "apply", "preview", "accept", "discard"}
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert reloaded["message_count"] == 5
+    assert reloaded["linked_draft_transaction_tokens"] == [transaction_token]
+    assert len(reloaded["accepted_artifact_paths"]) >= 7
+    assert "source_patches/txn_accepted.patch" in reloaded["accepted_artifact_paths"]
+    assert "generated/source.py" in reloaded["accepted_artifact_paths"]
+    assert "validator/stubs/accept.json" in reloaded["accepted_artifact_paths"]
+    assert "drafts/accept/manifest.json" in reloaded["accepted_artifact_paths"]
+    assert "accept/overview.step" in reloaded["accepted_artifact_paths"]
+    assert "artifacts/patch.step" in reloaded["accepted_artifact_paths"]
+    assert "artifacts/accepted.stl" in reloaded["accepted_artifact_paths"]
+    assert reloaded["messages"][2]["content"]["action"] == "preview"
+    assert reloaded["messages"][3]["content"]["action"] == "accept"
+    assert len((service.project.paths.local_state / "design-threads" / thread_id / "messages.jsonl").read_text(encoding="utf-8").splitlines()) == 5
+
+
+def test_viewer_design_threads_draft_events_accept_frontend_nested_content_shape(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Nested draft event"}).json()["thread_id"]
+    response = client.post(
+        f"/api/design-threads/{thread_id}/draft-events",
+        json={
+            "message_id": "draft-event-thread-1-1",
+            "thread_id": thread_id,
+            "created_at": "2026-06-09T12:00:00Z",
+            "type": "draft_event",
+            "role": "assistant",
+            "content": {
+                "summary": "apply: Draft operations applied",
+                "content": {
+                    "action": "apply",
+                    "summary": "Draft operations applied",
+                    "draft_transaction_token": "txn-ui",
+                    "operation_count": 2,
+                },
+            },
+            "metadata": {
+                "action": "apply",
+                "draft_transaction_token": "txn-ui",
+                "operation_count": 2,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    message = response.json()
+    assert message["type"] == "draft_event"
+    assert message["role"] == "system"
+    assert message["content"]["action"] == "apply"
+    assert message["content"]["summary"] == "Draft operations applied"
+    assert message["content"]["operation_count"] == 2
+    assert message["metadata"]["draft_transaction_token"] == "txn-ui"
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert reloaded["linked_draft_transaction_tokens"] == ["txn-ui"]
+
+
+def test_viewer_design_threads_validator_and_profile_events_preserve_evidence(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Validator event thread"}).json()["thread_id"]
+
+    tool_result_response = client.post(
+        f"/api/design-threads/{thread_id}/validator-events",
+        json={
+            "event_type": "tool_result",
+            "status": "pass",
+            "summary": "Focused validator passed",
+            "report_id": "report_main",
+            "reports": [
+                {"id": "report_nested", "summary": "Nested report", "status": "pass"},
+                {"report_id": "report_alias", "metadata": {"id": "meta_report", "summary": "metadata summary"}},
+            ],
+            "data": {"report_id": "report_data", "summary": "Data summary"},
+            "metadata": {
+                "report_summaries": ["meta report", "metadata summary"],
+            },
+            "content": {
+                "warnings": ["No issues found"],
+                "report_id": "report_content",
+            },
+        },
+    )
+    assert tool_result_response.status_code == 200
+    message = tool_result_response.json()
+    assert message["type"] == "tool_result"
+    assert message["content"]["status"] == "pass"
+    assert "report_main" in message["metadata"]["report_ids"]
+    assert "report_nested" in message["metadata"]["report_ids"]
+    assert "report_alias" in message["metadata"]["report_ids"]
+    assert "report_content" in message["metadata"]["report_ids"]
+    assert "report_data" in message["metadata"]["report_ids"]
+
+    review_response = client.post(
+        f"/api/design-threads/{thread_id}/validator-events",
+        json={
+            "event_type": "review_event",
+            "summary": "Profile summary",
+            "profile_id": "prof-meta",
+            "profiles": [
+                {"profile_id": "prof-1", "summary": "Profile summary line", "status": "pass"},
+                {"id": "ignore", "metadata": {"profile_id": "prof-metadata"}},
+            ],
+            "metadata": {"status": "complete"},
+            "data": {"summary": "Data profile summary", "profile_id": "prof-data"},
+        },
+    )
+    assert review_response.status_code == 200
+    review_message = review_response.json()
+    assert review_message["type"] == "review_event"
+    assert review_message["content"]["summary"] == "Profile summary"
+    assert "prof-meta" in review_message["metadata"]["profile_ids"]
+    assert "prof-1" in review_message["metadata"]["profile_ids"]
+    assert "prof-metadata" in review_message["metadata"]["profile_ids"]
+    assert "prof-data" in review_message["metadata"]["profile_ids"]
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert reloaded["message_count"] == 2
+    assert len(reloaded["messages"]) == 2
+    assert reloaded["messages"][0]["type"] == "tool_result"
+    assert reloaded["messages"][1]["type"] == "review_event"
+
+
+def test_viewer_design_threads_event_endpoints_return_404_for_missing_thread(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    client = TestClient(create_app(service=ViewerService(tmp_path)))
+
+    draft_response = client.post("/api/design-threads/missing-thread/draft-events", json={"action": "begin"})
+    assert draft_response.status_code == 404
+
+    validator_response = client.post("/api/design-threads/missing-thread/validator-events", json={"event_type": "tool_result"})
+    assert validator_response.status_code == 404

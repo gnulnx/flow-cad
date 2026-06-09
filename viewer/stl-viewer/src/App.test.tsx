@@ -361,6 +361,28 @@ function mockArrayBufferResponse() {
   return Promise.resolve(new Response(new ArrayBuffer(8), { status: 200 }))
 }
 
+function streamResponse(chunks: string[]) {
+  const encoder = new TextEncoder()
+  let offset = 0
+  return Promise.resolve(new Response(new ReadableStream({
+    start(controller) {
+      const emit = async () => {
+        while (offset < chunks.length) {
+          const nextChunk = chunks[offset]
+          offset += 1
+          await new Promise<void>((resolve) => {
+            setTimeout(() => resolve(), 25)
+          })
+          controller.enqueue(encoder.encode(nextChunk))
+        }
+        controller.close()
+      }
+
+      void emit()
+    },
+  })))
+}
+
 function jsonBody(init: RequestInit) {
   if (typeof init.body !== 'string') return {}
   return JSON.parse(init.body) as Record<string, unknown>
@@ -477,6 +499,9 @@ describe('App source loading', () => {
 
           return jsonResponse(attachment)
         }
+        if (route === 'chat/stream' && method === 'POST') {
+          return Promise.resolve(new Response('Not found', { status: 404 }))
+        }
         if (route === 'chat' && method === 'POST') {
           const body = jsonBody(init)
           const context = typeof body.context_snapshot === 'object' && body.context_snapshot !== null
@@ -538,6 +563,28 @@ describe('App source loading', () => {
             thread_id: thread.thread_id,
             messages: [userMessage, assistantMessage],
             context_snapshot: snapshot,
+            thread,
+          })
+        }
+        if (route === 'draft-events' && method === 'POST') {
+          const body = jsonBody(init)
+          const draftEvent: MockDesignThreadMessage = {
+            message_id: String(body.message_id ?? `draft-event-${thread.messages.length + 1}`),
+            thread_id: thread.thread_id,
+            created_at: String(body.created_at ?? '2026-06-09T12:10:00Z'),
+            type: String(body.type ?? 'draft_event'),
+            role: String(body.role ?? 'assistant'),
+            content: body.content ?? '',
+            attachments: Array.isArray((body as Record<string, unknown>).attachments)
+              ? (body as { attachments?: string[] }).attachments ?? []
+              : [],
+            metadata: typeof body.metadata === 'object' && body.metadata !== null
+              ? body.metadata as Record<string, unknown>
+              : {},
+          }
+          thread.messages.push(draftEvent)
+          return jsonResponse({
+            message: draftEvent,
             thread,
           })
         }
@@ -1133,5 +1180,108 @@ describe('App source loading', () => {
       expect(screen.getByText('flow validate run panel-basic --draft-transaction draft-preview-1')).toBeInTheDocument()
       expect(screen.getByText(/diff --git a\/flow\/parts\/wheel_box_test_body.py/)).toBeInTheDocument()
     })
+  })
+
+  it('records draft action events in thread history', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByText('wheel_box_test_body'))
+    await openThreadDrawer(user)
+    await user.type(screen.getByLabelText('New thread title'), 'Draft action thread')
+    await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+
+    await screen.findByText('Draft action thread')
+    await openAdvancedTools(user)
+
+    await user.type(commandTextarea(), 'Make this a 120 x 45 x 3 mm panel')
+    await user.click(screen.getByRole('button', { name: 'Propose' }))
+    await screen.findByText(/propose: Proposed .* operations/)
+
+    await user.click(screen.getByRole('button', { name: 'Apply' }))
+    await screen.findByText('apply: Draft operations applied')
+
+    await user.click(screen.getByRole('button', { name: 'Preview' }))
+    await screen.findByText('preview: Draft preview generated')
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+    await screen.findByText('accept: Draft accepted')
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }))
+    await user.clear(commandTextarea())
+    await user.type(commandTextarea(), 'Make this a 120 x 45 x 3 mm panel')
+
+    await user.click(screen.getByRole('button', { name: 'Propose' }))
+    await waitFor(() => {
+      expect(screen.getAllByText(/propose: Proposed .* operations/)).toHaveLength(2)
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Apply' }))
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    await screen.findByText('discard: Draft discarded')
+  })
+
+  it('streams assistant and tool events into chat history', async () => {
+    const baselineFetch = vi.mocked(globalThis.fetch).getMockImplementation()
+    if (!baselineFetch) {
+      throw new Error('fetch baseline missing')
+    }
+
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const url = String(input)
+      if (url.endsWith('/api/design-threads/thread-1/chat/stream') && (init.method ?? 'GET') === 'POST') {
+        return streamResponse([
+          `data: ${JSON.stringify({
+            type: 'tool_call',
+            role: 'assistant',
+            message_id: 'stream-tool',
+            thread_id: 'thread-1',
+            created_at: '2026-06-09T12:20:00Z',
+            content: {
+              kind: 'tool_call',
+              summary: 'Prepare draft geometry',
+              tool: 'draft-tool',
+            },
+          })}\n`,
+          `data: ${JSON.stringify({
+            type: 'assistant_message',
+            role: 'assistant',
+            message_id: 'stream-assistant',
+            thread_id: 'thread-1',
+            created_at: '2026-06-09T12:20:01Z',
+            content: 'Draft assistant response ready.',
+          })}\n`,
+        ])
+      }
+      return baselineFetch(input, init)
+    }))
+
+    const user = userEvent.setup()
+
+    try {
+      render(<App />)
+
+      await screen.findByText('wheel_box_test_body')
+      await user.click(screen.getByText('wheel_box_test_body'))
+      await openThreadDrawer(user)
+      await user.type(screen.getByLabelText('New thread title'), 'Streaming thread')
+      await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+
+      await screen.findByText('Streaming thread')
+      const threadMessage = screen.getByLabelText('Thread message composer') as HTMLTextAreaElement
+      await user.type(threadMessage, 'Stream this prompt')
+      await user.click(screen.getByRole('button', { name: 'Send' }))
+
+      await screen.findByText('Prepare draft geometry')
+      expect(screen.queryByText('Draft assistant response ready.')).not.toBeInTheDocument()
+
+      await waitFor(() => {
+        expect(screen.getByText('Draft assistant response ready.')).toBeInTheDocument()
+      })
+    } finally {
+      // restored automatically by afterEach via vi.unstubAllGlobals()
+    }
   })
 })
