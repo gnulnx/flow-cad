@@ -93,9 +93,32 @@ def test_viewer_port_resolution_keeps_backend_and_frontend_distinct(monkeypatch)
     assert frontend_port == 8001
 
 
-def test_viewer_env_sets_frontend_api_fallback(tmp_path) -> None:
+def test_viewer_env_sets_frontend_api_fallback(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLOW_CAD_AGENT_RUNTIME", "fake")
     env = _viewer_env(tmp_path, "http://127.0.0.1:8123")
 
     assert env["FLOW_CAD_PROJECT_ROOT"] == str(tmp_path.resolve())
     assert env["FLOW_CAD_NO_VITE_OPEN"] == "1"
     assert env["VITE_FLOW_CAD_API"] == "http://127.0.0.1:8123"
+
+
+def test_viewer_env_autoselects_codex_when_available(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("FLOW_CAD_AGENT_RUNTIME", raising=False)
+    monkeypatch.delenv("FLOW_CAD_AGENT_RUNTIME_ENDPOINT", raising=False)
+    monkeypatch.setattr(viewer_cli.shutil, "which", lambda command: "/usr/bin/codex" if command == "codex" else None)
+
+    env = _viewer_env(tmp_path, "http://127.0.0.1:8123")
+
+    assert env["FLOW_CAD_AGENT_RUNTIME"] == "codex"
+    assert env["FLOW_CAD_AGENT_RUNTIME_AUTODETECTED"] == "codex"
+
+
+def test_viewer_env_respects_explicit_agent_runtime(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLOW_CAD_AGENT_RUNTIME", "fake")
+    monkeypatch.delenv("FLOW_CAD_AGENT_RUNTIME_ENDPOINT", raising=False)
+    monkeypatch.setattr(viewer_cli.shutil, "which", lambda _command: "/usr/bin/codex")
+
+    env = _viewer_env(tmp_path, "http://127.0.0.1:8123")
+
+    assert env["FLOW_CAD_AGENT_RUNTIME"] == "fake"
+    assert "FLOW_CAD_AGENT_RUNTIME_AUTODETECTED" not in env

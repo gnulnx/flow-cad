@@ -208,6 +208,26 @@ def _persist_agent_runtime_event(
     return None
 
 
+def _agent_runtime_health(agent_runtime: AgentRuntimeClient) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "class": agent_runtime.__class__.__name__,
+    }
+    if isinstance(agent_runtime, CodexExecAgentRuntimeClient):
+        payload.update(
+            {
+                "provider": "codex",
+                "command": agent_runtime.codex_command,
+                "model": agent_runtime.model,
+                "sandbox": agent_runtime.sandbox,
+            }
+        )
+    elif isinstance(agent_runtime, LlamaCppAgentRuntimeClient):
+        payload.update({"provider": "llama_cpp"})
+    elif isinstance(agent_runtime, FakeAgentRuntimeClient):
+        payload.update({"provider": "fake"})
+    return payload
+
+
 def create_app(
     service: ViewerService | None = None,
     project_root: Path | None = None,
@@ -236,6 +256,7 @@ def create_app(
             "ok": True,
             "project_root": str(viewer_service.project_root),
             "revision": viewer_service.revision,
+            "agent_runtime": _agent_runtime_health(agent_runtime),
         }
 
     @app.get("/api/design-threads")

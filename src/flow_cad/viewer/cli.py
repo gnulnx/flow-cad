@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import shutil
 import socket
 import subprocess
 import sys
@@ -118,6 +119,9 @@ def _viewer_env(project_root: Path, backend_url: str) -> dict[str, str]:
     env["FLOW_CAD_PROJECT_ROOT"] = str(project_root.resolve())
     env["FLOW_CAD_NO_VITE_OPEN"] = "1"
     env["VITE_FLOW_CAD_API"] = backend_url
+    if "FLOW_CAD_AGENT_RUNTIME" not in env and "FLOW_CAD_AGENT_RUNTIME_ENDPOINT" not in env and shutil.which("codex"):
+        env["FLOW_CAD_AGENT_RUNTIME"] = "codex"
+        env["FLOW_CAD_AGENT_RUNTIME_AUTODETECTED"] = "codex"
     return env
 
 

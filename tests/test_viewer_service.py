@@ -334,6 +334,27 @@ def test_viewer_app_selects_codex_runtime_from_env(tmp_path, monkeypatch) -> Non
     assert runtime.request_timeout == 13.0
 
 
+def test_viewer_health_reports_agent_runtime(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLOW_CAD_AGENT_RUNTIME", "codex")
+    monkeypatch.setenv("FLOW_CAD_CODEX_COMMAND", "codex-test")
+    monkeypatch.setenv("FLOW_CAD_CODEX_MODEL", "gpt-test")
+
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["agent_runtime"] == {
+        "class": "CodexExecAgentRuntimeClient",
+        "provider": "codex",
+        "command": "codex-test",
+        "model": "gpt-test",
+        "sandbox": "read-only",
+    }
+
+
 def test_viewer_service_reload_and_direct_model(tmp_path) -> None:
     _write_stl(tmp_path)
     service = ViewerService(tmp_path)

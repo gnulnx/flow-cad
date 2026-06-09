@@ -381,6 +381,11 @@ Spike result on 2026-06-09:
   `/api/design-threads/{thread_id}/chat` returned persisted assistant messages
   with `runtime: CodexExecAgentRuntimeClient` instead of the built-in
   `flow_cad_stub`.
+- Follow-up hardening made `flow start` auto-select Codex when the local `codex`
+  CLI is available and no explicit `FLOW_CAD_AGENT_RUNTIME` or
+  `FLOW_CAD_AGENT_RUNTIME_ENDPOINT` is configured. `/api/health` now reports the
+  selected agent runtime so duplicate servers or fake-runtime fallbacks are
+  visible without reading persisted chat events.
 - Nested sandbox execution failed before model invocation because Codex could
   not initialize its in-process app-server state on the read-only filesystem; the
   same command succeeded when run in the normal local environment.
@@ -413,6 +418,9 @@ Done means:
   packet using existing local Codex credentials.
 - The streaming and non-streaming chat endpoints both persist Codex-backed
   assistant messages when the runtime is enabled.
+- A plain `flow start` on a Codex-enabled workstation reports
+  `agent_runtime.provider: codex` from `/api/health` and returns
+  Codex-backed chat messages.
 
 If this bridge becomes brittle, continue with the native provider plan starting
 with OpenAI API and local providers. If it remains stable, Codex becomes the
