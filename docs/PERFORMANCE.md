@@ -314,7 +314,13 @@ artifacts, and source-loop commands that led to a change.
 
 The work plan is documented in `docs/CodexViewerReworkPlan.md`.
 
-That plan covers:
+This work should provide value before any local model or streaming assistant is
+integrated. The first useful slice is a real chat/history workspace that records
+manual design notes, viewport context, screenshots, draft events, validator
+events, profile summaries, and accepted artifact links. The assistant runtime is
+a later layer on top of that persisted work context.
+
+The early workbench slice covers:
 
 - project-local design thread persistence under `.flow/design-threads/`
 - context snapshots that combine camera, visible parts, selected parts,
@@ -325,6 +331,9 @@ That plan covers:
 - screenshot capture and annotation attachments tied to thread context
 - draft preview, accept, discard, focused-validator, and profile events recorded
   into the thread history
+
+The later assistant slice covers:
+
 - a runtime-neutral streaming assistant adapter with CAD-safe tools rather than
   broad shell or filesystem access
 - evaluation of LlamaStudio as a reusable local-agent runtime source without
@@ -535,13 +544,14 @@ Add controlled promotion tools:
 
 Promotion should produce reviewable diffs, not hidden source edits.
 
-### Phase 4: Viewer Design Threads And LLM Interface
+### Phase 4: Local Model Adapter For Design Threads
 
-Add persistent viewer design threads and a chat interface that can use read-only
-facts, draft transactions, focused validators, profiles, viewport snapshots, and
-screenshot attachments. The assistant should never need to guess the selected
-part, visible context, frame, measurements, draft state, or accepted artifacts;
-the viewer and backend should attach those facts automatically.
+After persistent design threads exist, add a local-model adapter that can use
+read-only facts, draft transactions, focused validators, profiles, viewport
+snapshots, and screenshot attachments from those threads. The assistant should
+never need to guess the selected part, visible context, frame, measurements,
+draft state, or accepted artifacts; the viewer and backend should attach those
+facts automatically.
 
 This phase should use the MCP/shared-service tools as the safe CAD operation
 surface, but the user-facing experience is the project design thread, not a
