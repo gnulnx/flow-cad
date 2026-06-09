@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from flow_cad.core.metadata import PartDefinition, definition_export_subdir
+from flow_cad.draft_geometry import DraftGeometryStore
 from flow_cad.project import FlowCadProject, load_project
 from flow_cad.viewer.geometry_authority import (
     GeometryAuthorityError,
@@ -123,6 +124,7 @@ class ViewerService:
         self.project_root = self.project.root
         self.params = params or self.project.make_params()
         self.converter = converter
+        self.drafts = DraftGeometryStore(self.project)
         self.revision = 0
         self.reloaded_at: datetime | None = None
 
@@ -138,6 +140,7 @@ class ViewerService:
         self.project = load_project(self.project_root)
         self.project_root = self.project.root
         self.params = self.project.make_params()
+        self.drafts = DraftGeometryStore(self.project)
         self.revision += 1
         self.reloaded_at = datetime.now(UTC)
         return {
@@ -249,6 +252,73 @@ class ViewerService:
             "content": content,
             "excerpt": excerpt,
         }
+
+    def draft_create_box(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.create_box_part(
+            id=payload.get("id"),
+            part_id=payload.get("part_id"),
+            length=payload["length"],
+            width=payload["width"],
+            height=payload["height"],
+            material=payload.get("material", "draft"),
+            role=payload.get("role", "draft"),
+        )
+
+    def draft_set_panel_thickness(self, draft_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.set_panel_thickness(draft_token, thickness=payload["thickness"])
+
+    def draft_add_hole(self, draft_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.add_hole(
+            draft_token,
+            face=payload["face"],
+            x=payload["x"],
+            y=payload["y"],
+            diameter=payload["diameter"],
+            through=payload.get("through", True),
+        )
+
+    def draft_add_counterbore(self, draft_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.add_counterbore(
+            draft_token,
+            face=payload["face"],
+            x=payload["x"],
+            y=payload["y"],
+            diameter=payload["diameter"],
+            depth=payload["depth"],
+        )
+
+    def draft_add_slot(self, draft_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.add_slot(
+            draft_token,
+            face=payload["face"],
+            x=payload["x"],
+            y=payload["y"],
+            length=payload["length"],
+            width=payload["width"],
+            angle=payload.get("angle", 0.0),
+        )
+
+    def draft_add_louver_pattern(self, draft_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.add_louver_pattern(
+            draft_token,
+            face=payload["face"],
+            count=payload["count"],
+            pitch=payload["pitch"],
+            x=payload["x"],
+            y=payload["y"],
+            width=payload["width"],
+            height=payload["height"],
+            angle=payload.get("angle", 0.0),
+        )
+
+    def draft_measure(self, draft_token: str) -> dict[str, Any]:
+        return self.drafts.measure_part(draft_token)
+
+    def draft_export_step(self, draft_token: str) -> dict[str, Any]:
+        return self.drafts.export_draft_step(draft_token)
+
+    def draft_discard(self, draft_token: str) -> dict[str, Any]:
+        return self.drafts.discard(draft_token)
 
     def _part_payload(self, definition: PartDefinition, occurrences: list[dict[str, Any]], *, default_visible: bool) -> dict[str, Any]:
         artifact = self._artifact(definition)

@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "build123d",
     "fastapi",
+    "mcp==1.26.0",
     "rich-click",
     "sqlmodel",
     "uvicorn",
@@ -17,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 flow = "flow_cad.cli:flow"
+flow-cad-mcp = "flow_cad.mcp:main"
 
 [project.optional-dependencies]
 test = ["pytest"]

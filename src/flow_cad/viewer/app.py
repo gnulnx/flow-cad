@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from flow_cad.draft_geometry import DraftGeometryError
 from flow_cad.viewer.service import ViewerError, ViewerService
 
 
@@ -65,6 +66,75 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
         try:
             return viewer_service.snap_features(component_id)
         except ViewerError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/drafts/box")
+    def draft_create_box(payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_create_box(payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/drafts/{draft_token}/thickness")
+    def draft_set_panel_thickness(draft_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_set_panel_thickness(draft_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/drafts/{draft_token}/holes")
+    def draft_add_hole(draft_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_add_hole(draft_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/drafts/{draft_token}/counterbores")
+    def draft_add_counterbore(draft_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_add_counterbore(draft_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/drafts/{draft_token}/slots")
+    def draft_add_slot(draft_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_add_slot(draft_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/drafts/{draft_token}/louver-patterns")
+    def draft_add_louver_pattern(draft_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_add_louver_pattern(draft_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/drafts/{draft_token}/measure")
+    def draft_measure(draft_token: str) -> dict[str, object]:
+        try:
+            return viewer_service.draft_measure(draft_token)
+        except DraftGeometryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/drafts/{draft_token}/export-step")
+    def draft_export_step(draft_token: str) -> dict[str, object]:
+        try:
+            return viewer_service.draft_export_step(draft_token)
+        except DraftGeometryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.delete("/api/drafts/{draft_token}")
+    def draft_discard(draft_token: str) -> dict[str, object]:
+        try:
+            return viewer_service.draft_discard(draft_token)
+        except DraftGeometryError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     @app.post("/api/reload")

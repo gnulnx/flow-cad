@@ -214,6 +214,13 @@ The API should return:
 Only after the user accepts the draft should Flow CAD generate or patch editable
 source.
 
+The initial draft-only operation API is documented in
+`docs/DraftGeometryAPI.md`. This covers draft box/panel creation, thickness
+changes, holes, slots, basic counterbores, louver-pattern slots, measurements,
+preview STEP export, viewer-backend routes, and MCP tools while keeping draft
+artifacts isolated under project-local runtime state. Transactions, viewer UI
+editing, and source promotion remain later steps.
+
 ### 4. Use Geometry Transactions
 
 Draft operations should be grouped into a transaction:

@@ -2,11 +2,13 @@ from pathlib import Path
 import json
 import time
 
+from fastapi.testclient import TestClient
+
 from flow_cad.viewer.app import create_app
 from flow_cad.viewer.service import ConversionUnavailableError, ViewerService
 from flow_cad.viewer.geometry_authority import DISPLAY_MESH_CONTRACT_VERSION, SNAP_EXTRACTOR_CONTRACT_VERSION
 from flow_cad.core.metadata import PartDefinition, PartRole
-from flow_cad.project import FlowCadProject, ProjectDocs, ProjectPaths
+from flow_cad.project import FlowCadProject, ProjectDocs, ProjectPaths, init_project
 
 
 def _export_path(project_root: Path, kind: str, module_id: str, filename: str) -> Path:
@@ -266,6 +268,12 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/parts/{component_id}/model" in route_paths
     assert "/api/parts/{component_id}/source" in route_paths
     assert "/api/parts/{component_id}/snap-features" in route_paths
+    assert "/api/drafts/box" in route_paths
+    assert "/api/drafts/{draft_token}/holes" in route_paths
+    assert "/api/drafts/{draft_token}/counterbores" in route_paths
+    assert "/api/drafts/{draft_token}/slots" in route_paths
+    assert "/api/drafts/{draft_token}/measure" in route_paths
+    assert "/api/drafts/{draft_token}/export-step" in route_paths
     assert "/api/reload" in route_paths
 
 
@@ -375,3 +383,41 @@ def test_viewer_service_snap_features_fallbacks_are_safe(tmp_path) -> None:
     assert payload["source_format"] == "step"
     assert payload["features"] == []
     assert payload["warnings"]
+
+
+def test_viewer_backend_exposes_draft_panel_operations(tmp_path) -> None:
+    init_project(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    create_response = client.post(
+        "/api/drafts/box",
+        json={
+            "part_id": "api_panel",
+            "length": 120.0,
+            "width": 45.0,
+            "height": 3.0,
+            "material": "PETG",
+            "role": "draft",
+        },
+    )
+    assert create_response.status_code == 200
+    draft_token = create_response.json()["draft_token"]
+
+    hole_response = client.post(
+        f"/api/drafts/{draft_token}/holes",
+        json={"face": "top", "x": 12.0, "y": 8.0, "diameter": 4.2},
+    )
+    assert hole_response.status_code == 200
+
+    measure_response = client.get(f"/api/drafts/{draft_token}/measure")
+    assert measure_response.status_code == 200
+    measured = measure_response.json()
+    assert measured["bounding_box"]["size"] == [120.0, 45.0, 3.0]
+    assert measured["hole_centers"][0]["center"] == [-48.0, -14.5, 0.0]
+
+    export_response = client.post(f"/api/drafts/{draft_token}/export-step")
+    assert export_response.status_code == 200
+    preview_path = Path(export_response.json()["preview_step_path"])
+    assert preview_path.exists()
+    assert preview_path.is_relative_to(tmp_path / ".flow" / "drafts")
