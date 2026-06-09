@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from flow_cad.draft_geometry import DraftGeometryStore
 from flow_cad.project import load_project
+from flow_cad.profiler import format_profile_summary, load_latest_build_profile
+from flow_cad.validation.runner import FocusedValidatorRunner
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -88,6 +90,12 @@ def draft_store(project_root: str | None = None) -> DraftGeometryStore:
         store = DraftGeometryStore(project)
         _DRAFT_STORES[root] = store
     return store
+
+
+def validation_runner(project_root: str | None = None) -> FocusedValidatorRunner:
+    root = enforce_project_root(project_root)
+    project = load_project(root, fallback_to_bundled=False)
+    return FocusedValidatorRunner(project)
 
 
 def build_server() -> FastMCP:
@@ -430,6 +438,67 @@ def build_server() -> FastMCP:
         LOGGER.info("draft_transaction_discard called. project_root=%s transaction=%s", project_root, transaction_token)
         return draft_store(project_root).discard_transaction(transaction_token)
 
+    @mcp.tool(name="validator_list", description="List focused validators for a Flow CAD project.")
+    def validator_list_tool(
+        project_root: str | None = None,
+        family: str | None = None,
+        tag: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("validator_list called. project_root=%s family=%s tag=%s", project_root, family, tag)
+        validators = validation_runner(project_root).list_validators(family=family, tag=tag)
+        return {"ok": True, "validators": validators}
+
+    @mcp.tool(name="validator_run", description="Run focused validators and return structured reports.")
+    def validator_run_tool(
+        validator_id: str | None = None,
+        project_root: str | None = None,
+        part_id: str | None = None,
+        family: str | None = None,
+        tag: str | None = None,
+        draft_token: str | None = None,
+        draft_transaction: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "validator_run called. project_root=%s validator_id=%s part_id=%s family=%s tag=%s",
+            project_root,
+            validator_id,
+            part_id,
+            family,
+            tag,
+        )
+        reports, profile_payload = validation_runner(project_root).run(
+            validator_id,
+            part_id=part_id,
+            family=family,
+            tag=tag,
+            draft_token=draft_token,
+            draft_transaction=draft_transaction,
+            command="mcp validator_run",
+            profile=True,
+        )
+        return {
+            "ok": all(report.ok for report in reports),
+            "reports": [report.to_dict() for report in reports],
+            "profile": profile_payload,
+        }
+
+    @mcp.tool(name="profile_last", description="Return the latest build or validator profile summary.")
+    def profile_last_tool(
+        project_root: str | None = None,
+        limit: int = 5,
+    ) -> dict[str, object]:
+        LOGGER.info("profile_last called. project_root=%s", project_root)
+        root = enforce_project_root(project_root)
+        project = load_project(root, fallback_to_bundled=False)
+        profile = load_latest_build_profile(project.paths.local_state)
+        if profile is None:
+            return {"ok": False, "profile": None, "summary": "No Flow CAD profile found."}
+        return {
+            "ok": True,
+            "profile": profile,
+            "summary": format_profile_summary(profile, limit=limit),
+        }
+
     LOGGER.info(
         "Registered MCP tools: draft_create_box, draft_set_panel_thickness, draft_add_hole, "
         "draft_add_counterbore, draft_add_slot, draft_add_louver_pattern, draft_mirror_features, "
@@ -437,7 +506,7 @@ def build_server() -> FastMCP:
         "draft_transaction_create_box, draft_transaction_set_panel_thickness, draft_transaction_add_hole, "
         "draft_transaction_add_counterbore, draft_transaction_add_slot, draft_transaction_add_louver_pattern, "
         "draft_transaction_mirror_features, draft_transaction_measure, draft_transaction_preview, "
-        "draft_transaction_accept, draft_transaction_discard"
+        "draft_transaction_accept, draft_transaction_discard, validator_list, validator_run, profile_last"
     )
     return mcp
 

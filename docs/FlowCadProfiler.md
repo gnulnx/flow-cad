@@ -20,6 +20,17 @@ state directory:
 `latest-build-profile.json` is the stable path for humans, scripts, and future
 MCP tools. The timestamped files preserve build history.
 
+Standalone focused-validator runs write parallel validator profiles:
+
+```text
+.flow/profiles/latest-validator-profile.json
+.flow/profiles/validator-profile-<timestamp>-<profile-id>.json
+```
+
+`flow cad profile --last` reads the newest latest build or validator profile, so
+the same summary command explains source-loop validator latency and gate-build
+latency.
+
 ## Commands
 
 Run a normal build:
@@ -48,6 +59,13 @@ Limit the slow-operation table:
 
 ```bash
 flow cad profile --limit 10
+```
+
+Run a focused validator and record its profile:
+
+```bash
+flow validate run panel-basic --part example_block
+flow cad profile --last
 ```
 
 ## What Is Timed
@@ -154,6 +172,22 @@ The profiler now captures:
 - viewer cache refresh timing
 
 Draft geometry transactions are not yet covered by profiling here.
+Standalone `flow validate` runs are covered by validator profiles and record the
+same `validator` phase metadata used by handoff builds.
+
+Validator events include:
+
+- `validator_id`
+- `family`
+- `part_id` or `draft_token` when applicable
+- `mode`
+- `check_count`
+- `issue_count`
+- `error_count`
+- `warning_count`
+- `geometry_authority`
+- `budget_ms`
+- `over_budget`
 
 ## Test Coverage
 

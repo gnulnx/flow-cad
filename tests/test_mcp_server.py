@@ -72,6 +72,9 @@ def test_build_server_registers_draft_geometry_tools(monkeypatch) -> None:
     assert "draft_transaction_preview" in server.tools
     assert "draft_transaction_accept" in server.tools
     assert "draft_transaction_discard" in server.tools
+    assert "validator_list" in server.tools
+    assert "validator_run" in server.tools
+    assert "profile_last" in server.tools
 
 
 def test_mcp_draft_tools_write_only_project_local_draft_state(monkeypatch, tmp_path: Path) -> None:
@@ -177,3 +180,22 @@ def test_mcp_draft_tools_reject_project_roots_outside_allowed_roots(monkeypatch,
             height=1.0,
             project_root=str(outside_root),
         )
+
+
+def test_mcp_validator_tools_return_structured_reports(monkeypatch, tmp_path: Path) -> None:
+    install_fake_fastmcp(monkeypatch)
+    init_project(tmp_path)
+    monkeypatch.setenv("FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS", str(tmp_path))
+
+    server = mcp_server.build_server()
+    listed = server.tools["validator_list"](project_root=str(tmp_path))
+    result = server.tools["validator_run"]("project", project_root=str(tmp_path))
+    profile = server.tools["profile_last"](project_root=str(tmp_path))
+
+    assert listed["ok"] is True
+    assert any(validator["id"] == "panel-basic" for validator in listed["validators"])
+    assert result["ok"] is True
+    assert result["reports"][0]["metadata"]["id"] == "project"
+    assert profile["ok"] is True
+    assert "Flow CAD profile" in profile["summary"]
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))

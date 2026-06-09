@@ -255,19 +255,34 @@ state without modifying project source or generated exports.
 Full assembly checks are gates. They are not the right first check for every
 part edit.
 
-Flow CAD should make focused validators cheap to write and cheap to run. Project
-repos can then define validators for their own contracts:
+Focused validators need a real framework, not a pile of one-off scripts. The
+work plan is documented in `docs/FocusedValidators.md`.
 
-- Rectangular panel bounding box matches the requested dimensions.
-- Panel thickness matches print or fabrication intent.
-- Mount holes exist at expected centers and diameters.
-- Hole edge distance is above the minimum.
-- Slots and patterns are on the expected face.
-- Features do not cut through protected bosses, tabs, shelves, or captures.
-- Mating tabs and slots preserve their documented clearances.
-- The part is placed in the viewer when it must be reviewed with neighbors.
+The runtime goal is to make focused validators:
 
-These validators should run in seconds and fail with coordinates.
+- structured: stable metadata, issue schemas, expected/actual values, units, and
+  coordinates
+- fast: runnable outside the full handoff gate
+- profiled: visible through the same profiler used for build/export/cache timing
+- reusable: backed by Flow CAD helper APIs for cache, STEP, draft, transaction,
+  and placement facts
+- project-owned where appropriate: product dimensions, hardware rules, print
+  intent, and mating contracts stay in project repos
+
+The initial implementation should land as ticketed work:
+
+- shared validator schema and report normalization
+- focused validator runner and `flow validate` CLI
+- profiler integration for standalone and handoff validator events
+- common fact providers for cache, STEP, draft transactions, and placements
+- first-class rectangular panel validator family
+- placement/neighbor-review helper patterns
+- starter project templates and reusable agent guidance
+- MCP list/run tools for structured validator reports
+
+Item 5 is complete only when the benchmark panel can be validated in seconds,
+slow validator work is explained by `flow cad profile`, and new projects receive
+the documented validator pattern through `flow init`.
 
 ### 6. Make Viewer Preview First Class
 
@@ -470,7 +485,7 @@ Add MCP tools that answer without changing source:
 - `get_part_features`
 - `get_part_placement`
 - `measure_between_parts`
-- `profile_last_build`
+- `profile_last`
 
 This lets agents and local models inspect before editing.
 

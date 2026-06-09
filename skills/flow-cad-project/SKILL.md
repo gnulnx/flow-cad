@@ -29,6 +29,8 @@ initialized by `flow init`.
 Prefer focused tests or validators first, then broaden:
 
 ```bash
+flow validate list
+flow validate run panel-basic --part <part-id>
 python -m pytest
 flow cad build
 python -m flow.validators.project
@@ -36,3 +38,9 @@ python -m flow.validators.project
 
 Run additional project-specific validators documented in the local `AGENTS.md`,
 `docs/PART_INTERFACES.md`, or project-local skills.
+
+Use `flow validate run <validator-id> --json` when an agent needs structured
+issue coordinates, expected/actual values, or profiler-visible focused checks.
+Keep robot-specific dimensions and hardware contracts inside project validators;
+Flow CAD supplies the reusable runner, fact providers, and generic panel/
+placement helpers.

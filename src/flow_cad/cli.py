@@ -5,6 +5,7 @@ import rich_click as click
 from .main import cli as cad_cli
 from .project import PROJECT_MANIFEST, ProjectError, init_project, load_project
 from .registry_cli import registry as registry_cli
+from .validation.cli import validate as validate_cli
 from .viewer.cli import reload_viewer, start_viewer
 
 @click.group()
@@ -67,6 +68,7 @@ def reload(backend_url: str) -> None:
 # Nest the CAD CLI under flow
 flow.add_command(cad_cli, name="cad")
 flow.add_command(registry_cli, name="registry")
+flow.add_command(validate_cli, name="validate")
 
 if __name__ == "__main__":
     flow()

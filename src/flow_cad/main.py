@@ -18,6 +18,8 @@ from flow_cad.core.metadata import definition_export_subdir
 from flow_cad.core.report import write_report
 from flow_cad.core.bundler import create_bundle
 from flow_cad.project import _call_with_supported_kwargs, load_project
+from flow_cad.validation.contracts import GeometryAuthority, ValidatorMetadata, coerce_validator_result
+from flow_cad.validation.facts import ValidationFactProvider
 from flow_cad.viewer.service import ConversionUnavailableError, ViewerService
 from flow_cad.profiler import (
     FlowCadProfiler,
@@ -381,15 +383,21 @@ def _run_project_validators(
         return
 
     for name, validator in validators:
+        validator_metadata = ValidatorMetadata.from_any(getattr(validator, "validator_metadata", None), default_id=name)
+        event_metadata = {
+            "build_mode": build_mode,
+            "part_count": len(parts),
+            "validator_count": len(validators),
+            "validator_id": validator_metadata.id,
+            "family": validator_metadata.family,
+            "mode": validator_metadata.mode,
+            "budget_ms": validator_metadata.budget_ms,
+        }
         with profiler.measure(
             "validator",
             name,
             part_id=name,
-            metadata={
-                "build_mode": build_mode,
-                "part_count": len(parts),
-                "validator_count": len(validators),
-            },
+            metadata=event_metadata,
         ):
             validator_result = _call_with_supported_kwargs(
                 validator,
@@ -398,20 +406,17 @@ def _run_project_validators(
                 params=params,
                 parts=parts,
                 definitions=report_definitions,
+                facts=ValidationFactProvider(project, params=params),
             )
-            if isinstance(validator_result, (list, tuple, set)) and validator_result:
-                raise click.ClickException(f"Validator {name!r} reported {len(validator_result)} issue(s).")
-            if isinstance(validator_result, dict) and (
-                validator_result.get("errors") or validator_result.get("issues") or validator_result.get("failures")
-            ):
-                count = len(
-                    validator_result.get("errors")
-                    or validator_result.get("issues")
-                    or validator_result.get("failures")
-                )
-                raise click.ClickException(f"Validator {name!r} reported {count} issue(s).")
-            if isinstance(validator_result, str) and validator_result.strip():
-                raise click.ClickException(f"Validator {name!r} reported errors.")
+            report = coerce_validator_result(
+                validator_result,
+                validator_metadata,
+                default_family=validator_metadata.family,
+                default_geometry_authority=GeometryAuthority.UNKNOWN,
+            )
+            event_metadata.update(report.profile_metadata(part_id=name))
+            if not report.ok:
+                raise click.ClickException(f"Validator {name!r} reported {report.error_count} error(s).")
 
 
 def _run_project_tests(project, profiler: FlowCadProfiler, *, run_tests: bool) -> None:

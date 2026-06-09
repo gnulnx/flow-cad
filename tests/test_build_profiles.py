@@ -308,6 +308,11 @@ def test_build_handoff_forces_full_profile_behavior(tmp_path: Path, monkeypatch)
     assert "Wrote report to" in result.output
 
     assert (tmp_path / "handoff" / "exports.tar.gz").exists()
+    profile = _latest_profile(tmp_path)
+    validator_events = _latest_phase_events(profile, "validator")
+    assert {event["metadata"]["validator_id"] for event in validator_events} >= {"project", "project-panel-example"}
+    assert all("issue_count" in event["metadata"] for event in validator_events)
+    assert all("error_count" in event["metadata"] for event in validator_events)
 
 
 def test_build_modes_are_mutually_exclusive(tmp_path: Path, monkeypatch) -> None:

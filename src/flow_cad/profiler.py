@@ -13,6 +13,7 @@ from uuid import uuid4
 
 BUILD_PROFILE_SCHEMA_VERSION = 1
 LATEST_BUILD_PROFILE = "latest-build-profile.json"
+LATEST_VALIDATOR_PROFILE = "latest-validator-profile.json"
 
 
 def _utc_now() -> datetime:
@@ -212,14 +213,38 @@ def write_build_profile(profiler: FlowCadProfiler, local_state_dir: Path) -> Bui
     return BuildProfilePaths(profile_path=profile_path, latest_path=latest_path)
 
 
+def write_validator_profile(profiler: FlowCadProfiler, local_state_dir: Path) -> BuildProfilePaths:
+    profile_dir = build_profile_dir(local_state_dir)
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = profiler.started_at.strftime("%Y%m%dT%H%M%SZ")
+    profile_path = profile_dir / f"validator-profile-{timestamp}-{profiler.profile_id}.json"
+    latest_path = profile_dir / LATEST_VALIDATOR_PROFILE
+    payload = json.dumps(profiler.to_dict(), indent=2, sort_keys=True) + "\n"
+    profile_path.write_text(payload, encoding="utf-8")
+    latest_path.write_text(payload, encoding="utf-8")
+    return BuildProfilePaths(profile_path=profile_path, latest_path=latest_path)
+
+
 def latest_build_profile_path(local_state_dir: Path) -> Path:
     return build_profile_dir(local_state_dir) / LATEST_BUILD_PROFILE
 
 
+def latest_validator_profile_path(local_state_dir: Path) -> Path:
+    return build_profile_dir(local_state_dir) / LATEST_VALIDATOR_PROFILE
+
+
 def load_latest_build_profile(local_state_dir: Path) -> dict[str, Any] | None:
-    path = latest_build_profile_path(local_state_dir)
-    if not path.exists():
+    candidates = [
+        path
+        for path in (
+            latest_build_profile_path(local_state_dir),
+            latest_validator_profile_path(local_state_dir),
+        )
+        if path.exists()
+    ]
+    if not candidates:
         return None
+    path = max(candidates, key=lambda candidate: candidate.stat().st_mtime_ns)
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -227,10 +252,12 @@ def format_profile_summary(profile: dict[str, Any], *, limit: int = 5) -> str:
     summary = profile.get("summary", {})
     totals = summary.get("totals_by_phase_ms", {})
     slowest = slowest_profile_events(list(profile.get("events", [])), limit=limit)
+    command = str(profile.get("command", ""))
+    title = "Build profile" if "cad build" in command else "Flow CAD profile"
     lines = [
-        f"Build profile {profile.get('profile_id', '<unknown>')} ({profile.get('status', 'unknown')})",
+        f"{title} {profile.get('profile_id', '<unknown>')} ({profile.get('status', 'unknown')})",
         f"Project: {profile.get('project_id', '<unknown>')}",
-        f"Command: {profile.get('command', '<unknown>')}",
+        f"Command: {command or '<unknown>'}",
         f"Started: {profile.get('started_at', '<unknown>')}",
         f"Total: {float(profile.get('duration_ms', 0.0)):.1f} ms",
         "",
@@ -246,9 +273,11 @@ def format_profile_summary(profile: dict[str, Any], *, limit: int = 5) -> str:
     if slowest:
         for event in slowest:
             part = f" [{event['part_id']}]" if event.get("part_id") else ""
+            metadata = event.get("metadata", {}) if isinstance(event.get("metadata"), dict) else {}
+            budget = " over budget" if metadata.get("over_budget") else ""
             lines.append(
                 f"- {event['phase']}{part}: {event['label']} "
-                f"({float(event['duration_ms']):.1f} ms, {event['status']})"
+                f"({float(event['duration_ms']):.1f} ms, {event['status']}{budget})"
             )
     else:
         lines.append("- no timed operations")

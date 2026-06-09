@@ -28,6 +28,7 @@ def test_init_project_creates_native_project_layout(tmp_path: Path) -> None:
     assert (tmp_path / "flow" / "parts" / "example.py").exists()
     assert (tmp_path / "flow" / "assemblies" / "robot.py").exists()
     assert (tmp_path / "flow" / "validators" / "project.py").exists()
+    assert (tmp_path / "flow" / "validators" / "panel_example.py").exists()
     assert (tmp_path / "skills" / "flow-cad-project" / "SKILL.md").exists()
     assert (tmp_path / ".flow").is_dir()
     assert ".flow/" in (tmp_path / ".gitignore").read_text()
@@ -61,7 +62,7 @@ def test_load_project_manifest_uses_project_local_flow_source(tmp_path: Path) ->
     assert project.paths.cache == tmp_path / ".flow" / "registry.db"
     assert project.docs.print_manifest == tmp_path / "docs" / "PRINT_MANIFEST.md"
     assert project.docs.part_interfaces == tmp_path / "docs" / "PART_INTERFACES.md"
-    assert [name for name, _validator in project.iter_validators()] == ["project"]
+    assert [name for name, _validator in project.iter_validators()] == ["project", "project-panel-example"]
 
 
 def test_project_runtime_imports_do_not_load_external_project_modules() -> None:

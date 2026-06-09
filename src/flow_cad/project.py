@@ -364,6 +364,7 @@ def init_project(project_root: Path, *, force: bool = False) -> list[Path]:
         flow_dir / "parts" / "example.py": _starter_part(),
         flow_dir / "assemblies" / "robot.py": _starter_assembly(),
         flow_dir / "validators" / "project.py": _starter_validator(),
+        flow_dir / "validators" / "panel_example.py": _starter_panel_validator(),
         root / "docs" / "PRINT_MANIFEST.md": "# Print Manifest\n\nProject print intent lives here.\n",
         root / "docs" / "PART_INTERFACES.md": "# Part Interfaces\n\nProject mating-interface contracts live here.\n",
     }
@@ -530,6 +531,7 @@ outputs:
 
 validators:
   project: flow.validators.project:validate_project
+  project-panel-example: flow.validators.panel_example:validate_project_panel_example
 
 docs:
   print_manifest: docs/PRINT_MANIFEST.md
@@ -591,7 +593,59 @@ def get_assembly_placements(_params, *, include_references: bool = False):
 def _starter_validator() -> str:
     return """from __future__ import annotations
 
+from flow_cad.validation import ValidatorMetadata, success_report
 
-def validate_project(_project):
+
+VALIDATOR_METADATA = ValidatorMetadata(
+    id="project",
+    family="project",
+    description="Project-wide starter validator.",
+    mode="source",
+    inputs=("project",),
+    budget_ms=1000.0,
+    tags=("fast", "source-loop"),
+)
+
+
+def validate_project(_project=None):
+    return success_report(
+        VALIDATOR_METADATA,
+        input_summary={"geometry_authority": "unknown", "check_count": 1},
+    )
+
+
+validate_project.validator_metadata = VALIDATOR_METADATA
+"""
+
+
+def _starter_panel_validator() -> str:
+    return """from __future__ import annotations
+
+from flow_cad.validation import ValidatorMetadata, validate_panel_facts
+
+
+VALIDATOR_METADATA = ValidatorMetadata(
+    id="project-panel-example",
+    family="panel",
+    description="Starter example for a project-owned panel validator.",
+    mode="source",
+    inputs=("active-cache", "step", "draft"),
+    budget_ms=2000.0,
+    tags=("fast", "source-loop", "example"),
+)
+
+
+def validate_project_panel_example(facts=None, part_id: str | None = None, **_kwargs):
+    if not part_id:
+        return []
+    cache = facts.active_cache_row(part_id, required=False) if facts is not None else None
+    if cache is not None and cache.facts is not None and not cache.issues:
+        return validate_panel_facts(cache.facts, metadata=VALIDATOR_METADATA, part_id=part_id)
+    step = facts.step_bounding_box(part_id) if facts is not None else None
+    if step is not None and step.facts is not None:
+        return validate_panel_facts(step.facts, metadata=VALIDATOR_METADATA, part_id=part_id)
     return []
+
+
+validate_project_panel_example.validator_metadata = VALIDATOR_METADATA
 """

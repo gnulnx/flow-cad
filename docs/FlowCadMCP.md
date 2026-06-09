@@ -4,9 +4,11 @@ Flow CAD includes an MCP server for agent-facing workbench operations that need
 structured inputs and outputs. The server is a control-plane interface over
 shared Flow CAD services, not a second implementation of CAD logic.
 
-The current server exposes draft-only geometry tools and draft transactions for
-fast panel iteration. It writes only project-local runtime state, preview
-artifacts, and review artifacts.
+The current server exposes draft-only geometry tools, draft transactions, and
+focused-validator read/run tools for fast panel iteration. Draft tools write
+only project-local runtime state, preview artifacts, and review artifacts.
+Validator tools read project facts and write only profile files under
+`.flow/profiles/`.
 
 ## Server Entry Points
 
@@ -74,6 +76,12 @@ Draft geometry tools:
 - `draft_transaction_accept`
 - `draft_transaction_discard`
 
+Focused validator/profile tools:
+
+- `validator_list`
+- `validator_run`
+- `profile_last`
+
 These tools use `DraftGeometryStore` and return the same structured facts as the
 viewer backend draft endpoints:
 
@@ -85,6 +93,15 @@ viewer backend draft endpoints:
 - preview STEP path
 - source patch and validator stub paths after transaction acceptance
 - warnings
+
+Validator tools return:
+
+- validator metadata
+- structured report JSON
+- issue counts by severity
+- expected/actual values, units, coordinates, feature ids, and remediation when
+  available
+- profile path and latest-profile summary
 
 Draft artifacts are isolated under:
 
