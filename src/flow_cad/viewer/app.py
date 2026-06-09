@@ -145,6 +145,97 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
         except DraftGeometryError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
+    @app.post("/api/draft-transactions")
+    def draft_begin_transaction(payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_begin_transaction(payload)
+        except DraftGeometryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/box")
+    def draft_transaction_create_box(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_create_box(transaction_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/thickness")
+    def draft_transaction_set_panel_thickness(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_set_panel_thickness(transaction_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/holes")
+    def draft_transaction_add_hole(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_add_hole(transaction_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/counterbores")
+    def draft_transaction_add_counterbore(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_add_counterbore(transaction_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/slots")
+    def draft_transaction_add_slot(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_add_slot(transaction_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/louver-patterns")
+    def draft_transaction_add_louver_pattern(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_add_louver_pattern(transaction_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/mirror-features")
+    def draft_transaction_mirror_features(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_mirror_features(transaction_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/draft-transactions/{transaction_token}/measure")
+    def draft_transaction_measure(transaction_token: str) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_measure(transaction_token)
+        except DraftGeometryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/preview")
+    def draft_transaction_preview(transaction_token: str) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_preview(transaction_token)
+        except DraftGeometryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/accept")
+    def draft_transaction_accept(transaction_token: str) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_accept(transaction_token)
+        except DraftGeometryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.delete("/api/draft-transactions/{transaction_token}")
+    def draft_transaction_discard(transaction_token: str) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_discard(transaction_token)
+        except DraftGeometryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
     @app.post("/api/reload")
     def reload_viewer() -> dict[str, object]:
         return viewer_service.reload()

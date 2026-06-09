@@ -275,6 +275,12 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/drafts/{draft_token}/mirror-features" in route_paths
     assert "/api/drafts/{draft_token}/measure" in route_paths
     assert "/api/drafts/{draft_token}/export-step" in route_paths
+    assert "/api/draft-transactions" in route_paths
+    assert "/api/draft-transactions/{transaction_token}/box" in route_paths
+    assert "/api/draft-transactions/{transaction_token}/holes" in route_paths
+    assert "/api/draft-transactions/{transaction_token}/louver-patterns" in route_paths
+    assert "/api/draft-transactions/{transaction_token}/preview" in route_paths
+    assert "/api/draft-transactions/{transaction_token}/accept" in route_paths
     assert "/api/reload" in route_paths
 
 
@@ -431,3 +437,41 @@ def test_viewer_backend_exposes_draft_panel_operations(tmp_path) -> None:
     preview_path = Path(export_response.json()["preview_step_path"])
     assert preview_path.exists()
     assert preview_path.is_relative_to(tmp_path / ".flow" / "drafts")
+
+
+def test_viewer_backend_exposes_draft_transaction_workflow(tmp_path) -> None:
+    init_project(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    begin_response = client.post("/api/draft-transactions", json={"part_id": "api_transaction_panel"})
+    assert begin_response.status_code == 200
+    transaction_token = begin_response.json()["transaction_token"]
+
+    create_response = client.post(
+        f"/api/draft-transactions/{transaction_token}/box",
+        json={"length": 120.0, "width": 45.0, "height": 3.0, "material": "PETG"},
+    )
+    assert create_response.status_code == 200
+
+    hole_response = client.post(
+        f"/api/draft-transactions/{transaction_token}/holes",
+        json={"face": "top", "x": 12.0, "y": 8.0, "diameter": 4.2},
+    )
+    assert hole_response.status_code == 200
+
+    preview_response = client.post(f"/api/draft-transactions/{transaction_token}/preview")
+    assert preview_response.status_code == 200
+    preview_path = Path(preview_response.json()["preview_step_path"])
+    assert preview_path.exists()
+    assert preview_path.is_relative_to(tmp_path / ".flow" / "drafts")
+
+    accept_response = client.post(f"/api/draft-transactions/{transaction_token}/accept")
+    assert accept_response.status_code == 200
+    accepted = accept_response.json()
+    source_patch_path = Path(accepted["source_patch_path"])
+    assert accepted["status"] == "accepted"
+    assert source_patch_path.exists()
+    assert source_patch_path.is_relative_to(tmp_path / ".flow" / "draft-transactions")
+    assert not (tmp_path / "flow" / "parts" / "api_transaction_panel.py").exists()
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))

@@ -244,6 +244,12 @@ discarded without touching project source or generated exports.
 When accepted, Flow CAD can produce a source patch plus a focused validator
 stub. The agent or user reviews the patch, applies it, and runs the source loop.
 
+The initial transaction API is documented in `docs/DraftGeometryAPI.md`. It
+supports begin, transactional box creation, feature edits, measurement, preview,
+discard, and accept. Acceptance writes a reviewable source patch, generated part
+source, validator stub, and acceptance manifest under project-local runtime
+state without modifying project source or generated exports.
+
 ### 5. Create Focused Validators For Common Part Families
 
 Full assembly checks are gates. They are not the right first check for every

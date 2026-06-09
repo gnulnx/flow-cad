@@ -60,6 +60,18 @@ def test_build_server_registers_draft_geometry_tools(monkeypatch) -> None:
     assert "draft_measure" in server.tools
     assert "draft_export_step" in server.tools
     assert "draft_discard" in server.tools
+    assert "draft_begin_transaction" in server.tools
+    assert "draft_transaction_create_box" in server.tools
+    assert "draft_transaction_set_panel_thickness" in server.tools
+    assert "draft_transaction_add_hole" in server.tools
+    assert "draft_transaction_add_counterbore" in server.tools
+    assert "draft_transaction_add_slot" in server.tools
+    assert "draft_transaction_add_louver_pattern" in server.tools
+    assert "draft_transaction_mirror_features" in server.tools
+    assert "draft_transaction_measure" in server.tools
+    assert "draft_transaction_preview" in server.tools
+    assert "draft_transaction_accept" in server.tools
+    assert "draft_transaction_discard" in server.tools
 
 
 def test_mcp_draft_tools_write_only_project_local_draft_state(monkeypatch, tmp_path: Path) -> None:
@@ -102,6 +114,49 @@ def test_mcp_draft_tools_write_only_project_local_draft_state(monkeypatch, tmp_p
     assert preview_path.exists()
     assert preview_path.is_relative_to(tmp_path / ".flow" / "drafts")
     assert not preview_path.is_relative_to(tmp_path / "exports")
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
+
+
+def test_mcp_draft_transaction_tools_create_review_artifacts_only(monkeypatch, tmp_path: Path) -> None:
+    install_fake_fastmcp(monkeypatch)
+    init_project(tmp_path)
+    monkeypatch.setenv("FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS", str(tmp_path))
+
+    server = mcp_server.build_server()
+    begun = server.tools["draft_begin_transaction"](
+        project_root=str(tmp_path),
+        part_id="mcp_transaction_panel",
+    )
+    transaction_token = begun["transaction_token"]
+
+    server.tools["draft_transaction_create_box"](
+        transaction_token,
+        80.0,
+        30.0,
+        2.5,
+        project_root=str(tmp_path),
+        material="PETG",
+    )
+    server.tools["draft_transaction_add_hole"](
+        transaction_token,
+        "top",
+        10.0,
+        7.5,
+        3.2,
+        project_root=str(tmp_path),
+    )
+    previewed = server.tools["draft_transaction_preview"](transaction_token, project_root=str(tmp_path))
+    accepted = server.tools["draft_transaction_accept"](transaction_token, project_root=str(tmp_path))
+    preview_path = Path(str(previewed["preview_step_path"]))
+    source_patch_path = Path(str(accepted["source_patch_path"]))
+
+    assert accepted["status"] == "accepted"
+    assert preview_path.exists()
+    assert preview_path.is_relative_to(tmp_path / ".flow" / "drafts")
+    assert source_patch_path.exists()
+    assert source_patch_path.is_relative_to(tmp_path / ".flow" / "draft-transactions")
+    assert "flow/parts/mcp_transaction_panel.py" in source_patch_path.read_text(encoding="utf-8")
+    assert not (tmp_path / "flow" / "parts" / "mcp_transaction_panel.py").exists()
     assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
 
 

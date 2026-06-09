@@ -96,8 +96,8 @@ def build_server() -> FastMCP:
     mcp = FastMCP(
         "Flow CAD MCP",
         instructions=(
-            "Flow CAD MCP server for draft-only CAD geometry operations. "
-            "Draft tools write only project-local runtime draft state and preview artifacts."
+            "Flow CAD MCP server for draft-only CAD geometry operations and transactions. "
+            "Draft tools write only project-local runtime state, preview artifacts, and review artifacts."
         ),
     )
     LOGGER.info("Created FastMCP server instance.")
@@ -269,10 +269,175 @@ def build_server() -> FastMCP:
         LOGGER.info("draft_discard called. project_root=%s draft_token=%s", project_root, draft_token)
         return draft_store(project_root).discard(draft_token)
 
+    @mcp.tool(name="draft_begin_transaction", description="Begin a draft geometry transaction.")
+    def draft_begin_transaction_tool(
+        project_root: str | None = None,
+        part_id: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("draft_begin_transaction called. project_root=%s part_id=%s", project_root, part_id)
+        return draft_store(project_root).begin_transaction(part_id=part_id)
+
+    @mcp.tool(name="draft_transaction_create_box", description="Create the box or panel inside a draft transaction.")
+    def draft_transaction_create_box_tool(
+        transaction_token: str,
+        length: float,
+        width: float,
+        height: float,
+        project_root: str | None = None,
+        part_id: str | None = None,
+        material: str = "draft",
+        role: str = "draft",
+    ) -> dict[str, object]:
+        LOGGER.info("draft_transaction_create_box called. project_root=%s transaction=%s", project_root, transaction_token)
+        return draft_store(project_root).transaction_create_box(
+            transaction_token,
+            part_id=part_id,
+            length=length,
+            width=width,
+            height=height,
+            material=material,
+            role=role,
+        )
+
+    @mcp.tool(name="draft_transaction_set_panel_thickness", description="Set panel thickness inside a draft transaction.")
+    def draft_transaction_set_panel_thickness_tool(
+        transaction_token: str,
+        thickness: float,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("draft_transaction_set_panel_thickness called. project_root=%s transaction=%s", project_root, transaction_token)
+        return draft_store(project_root).transaction_set_panel_thickness(transaction_token, thickness=thickness)
+
+    @mcp.tool(name="draft_transaction_add_hole", description="Add a through-hole inside a draft transaction.")
+    def draft_transaction_add_hole_tool(
+        transaction_token: str,
+        face: str,
+        x: float,
+        y: float,
+        diameter: float,
+        through: bool = True,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("draft_transaction_add_hole called. project_root=%s transaction=%s face=%s", project_root, transaction_token, face)
+        return draft_store(project_root).transaction_add_hole(
+            transaction_token,
+            face=face,
+            x=x,
+            y=y,
+            diameter=diameter,
+            through=through,
+        )
+
+    @mcp.tool(name="draft_transaction_add_counterbore", description="Add a counterbore inside a draft transaction.")
+    def draft_transaction_add_counterbore_tool(
+        transaction_token: str,
+        face: str,
+        x: float,
+        y: float,
+        diameter: float,
+        depth: float,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("draft_transaction_add_counterbore called. project_root=%s transaction=%s face=%s", project_root, transaction_token, face)
+        return draft_store(project_root).transaction_add_counterbore(
+            transaction_token,
+            face=face,
+            x=x,
+            y=y,
+            diameter=diameter,
+            depth=depth,
+        )
+
+    @mcp.tool(name="draft_transaction_add_slot", description="Add a rounded slot inside a draft transaction.")
+    def draft_transaction_add_slot_tool(
+        transaction_token: str,
+        face: str,
+        x: float,
+        y: float,
+        length: float,
+        width: float,
+        angle: float = 0.0,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("draft_transaction_add_slot called. project_root=%s transaction=%s face=%s", project_root, transaction_token, face)
+        return draft_store(project_root).transaction_add_slot(
+            transaction_token,
+            face=face,
+            x=x,
+            y=y,
+            length=length,
+            width=width,
+            angle=angle,
+        )
+
+    @mcp.tool(name="draft_transaction_add_louver_pattern", description="Add a louver pattern inside a draft transaction.")
+    def draft_transaction_add_louver_pattern_tool(
+        transaction_token: str,
+        face: str,
+        count: int,
+        pitch: float,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        angle: float = 0.0,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("draft_transaction_add_louver_pattern called. project_root=%s transaction=%s face=%s", project_root, transaction_token, face)
+        return draft_store(project_root).transaction_add_louver_pattern(
+            transaction_token,
+            face=face,
+            count=count,
+            pitch=pitch,
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            angle=angle,
+        )
+
+    @mcp.tool(name="draft_transaction_mirror_features", description="Mirror features inside a draft transaction.")
+    def draft_transaction_mirror_features_tool(
+        transaction_token: str,
+        source_face: str,
+        target_face: str,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("draft_transaction_mirror_features called. project_root=%s transaction=%s", project_root, transaction_token)
+        return draft_store(project_root).transaction_mirror_features(
+            transaction_token,
+            source_face=source_face,
+            target_face=target_face,
+        )
+
+    @mcp.tool(name="draft_transaction_measure", description="Measure the draft part inside a transaction.")
+    def draft_transaction_measure_tool(transaction_token: str, project_root: str | None = None) -> dict[str, object]:
+        LOGGER.info("draft_transaction_measure called. project_root=%s transaction=%s", project_root, transaction_token)
+        return draft_store(project_root).transaction_measure(transaction_token)
+
+    @mcp.tool(name="draft_transaction_preview", description="Export a transaction STEP preview under project local state.")
+    def draft_transaction_preview_tool(transaction_token: str, project_root: str | None = None) -> dict[str, object]:
+        LOGGER.info("draft_transaction_preview called. project_root=%s transaction=%s", project_root, transaction_token)
+        return draft_store(project_root).transaction_preview(transaction_token)
+
+    @mcp.tool(name="draft_transaction_accept", description="Accept a transaction into reviewable source patch artifacts.")
+    def draft_transaction_accept_tool(transaction_token: str, project_root: str | None = None) -> dict[str, object]:
+        LOGGER.info("draft_transaction_accept called. project_root=%s transaction=%s", project_root, transaction_token)
+        return draft_store(project_root).accept_transaction(transaction_token)
+
+    @mcp.tool(name="draft_transaction_discard", description="Discard a draft transaction and local runtime artifacts.")
+    def draft_transaction_discard_tool(transaction_token: str, project_root: str | None = None) -> dict[str, object]:
+        LOGGER.info("draft_transaction_discard called. project_root=%s transaction=%s", project_root, transaction_token)
+        return draft_store(project_root).discard_transaction(transaction_token)
+
     LOGGER.info(
         "Registered MCP tools: draft_create_box, draft_set_panel_thickness, draft_add_hole, "
         "draft_add_counterbore, draft_add_slot, draft_add_louver_pattern, draft_mirror_features, "
-        "draft_measure, draft_export_step, draft_discard"
+        "draft_measure, draft_export_step, draft_discard, draft_begin_transaction, "
+        "draft_transaction_create_box, draft_transaction_set_panel_thickness, draft_transaction_add_hole, "
+        "draft_transaction_add_counterbore, draft_transaction_add_slot, draft_transaction_add_louver_pattern, "
+        "draft_transaction_mirror_features, draft_transaction_measure, draft_transaction_preview, "
+        "draft_transaction_accept, draft_transaction_discard"
     )
     return mcp
 

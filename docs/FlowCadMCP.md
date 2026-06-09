@@ -4,8 +4,9 @@ Flow CAD includes an MCP server for agent-facing workbench operations that need
 structured inputs and outputs. The server is a control-plane interface over
 shared Flow CAD services, not a second implementation of CAD logic.
 
-The current server is intentionally small. It exposes draft-only geometry tools
-for fast panel iteration and writes only project-local runtime draft state.
+The current server exposes draft-only geometry tools and draft transactions for
+fast panel iteration. It writes only project-local runtime state, preview
+artifacts, and review artifacts.
 
 ## Server Entry Points
 
@@ -60,25 +61,41 @@ Draft geometry tools:
 - `draft_measure`
 - `draft_export_step`
 - `draft_discard`
+- `draft_begin_transaction`
+- `draft_transaction_create_box`
+- `draft_transaction_set_panel_thickness`
+- `draft_transaction_add_hole`
+- `draft_transaction_add_counterbore`
+- `draft_transaction_add_slot`
+- `draft_transaction_add_louver_pattern`
+- `draft_transaction_mirror_features`
+- `draft_transaction_measure`
+- `draft_transaction_preview`
+- `draft_transaction_accept`
+- `draft_transaction_discard`
 
 These tools use `DraftGeometryStore` and return the same structured facts as the
 viewer backend draft endpoints:
 
 - draft token
+- transaction token when using transaction tools
 - bounding box
 - feature list
 - hole centers and axes
 - preview STEP path
+- source patch and validator stub paths after transaction acceptance
 - warnings
 
 Draft artifacts are isolated under:
 
 ```text
 .flow/drafts/<draft-token>/
+.flow/draft-transactions/<transaction-token>/
 ```
 
 They must not write `flow/`, `exports/`, `reports/`, handoff bundles, source
-patches, or registry cache rows.
+files, or registry cache rows. Accepted transactions may write reviewable source
+patches and validator stubs only under `.flow/draft-transactions/`.
 
 ## Suggested Use Cases
 
@@ -87,6 +104,8 @@ Use the MCP server for:
 - agent-driven draft panel exploration before source edits
 - local-model workflows that need deterministic geometry facts
 - draft STEP preview generation that must not touch handoff exports
+- transaction acceptance that produces reviewable source-patch artifacts without
+  applying them
 - bounded workbench operations that return small JSON payloads
 - future read-only facts such as part metadata, bounding boxes, placements,
   features, last-build profiles, and focused validator results

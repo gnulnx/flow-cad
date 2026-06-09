@@ -327,6 +327,86 @@ class ViewerService:
     def draft_discard(self, draft_token: str) -> dict[str, Any]:
         return self.drafts.discard(draft_token)
 
+    def draft_begin_transaction(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.begin_transaction(part_id=payload.get("part_id"))
+
+    def draft_transaction_create_box(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.transaction_create_box(
+            transaction_token,
+            part_id=payload.get("part_id"),
+            length=payload["length"],
+            width=payload["width"],
+            height=payload["height"],
+            material=payload.get("material", "draft"),
+            role=payload.get("role", "draft"),
+        )
+
+    def draft_transaction_set_panel_thickness(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.transaction_set_panel_thickness(transaction_token, thickness=payload["thickness"])
+
+    def draft_transaction_add_hole(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.transaction_add_hole(
+            transaction_token,
+            face=payload["face"],
+            x=payload["x"],
+            y=payload["y"],
+            diameter=payload["diameter"],
+            through=payload.get("through", True),
+        )
+
+    def draft_transaction_add_counterbore(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.transaction_add_counterbore(
+            transaction_token,
+            face=payload["face"],
+            x=payload["x"],
+            y=payload["y"],
+            diameter=payload["diameter"],
+            depth=payload["depth"],
+        )
+
+    def draft_transaction_add_slot(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.transaction_add_slot(
+            transaction_token,
+            face=payload["face"],
+            x=payload["x"],
+            y=payload["y"],
+            length=payload["length"],
+            width=payload["width"],
+            angle=payload.get("angle", 0.0),
+        )
+
+    def draft_transaction_add_louver_pattern(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.transaction_add_louver_pattern(
+            transaction_token,
+            face=payload["face"],
+            count=payload["count"],
+            pitch=payload["pitch"],
+            x=payload["x"],
+            y=payload["y"],
+            width=payload["width"],
+            height=payload["height"],
+            angle=payload.get("angle", 0.0),
+        )
+
+    def draft_transaction_mirror_features(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.transaction_mirror_features(
+            transaction_token,
+            source_face=payload["source_face"],
+            target_face=payload["target_face"],
+        )
+
+    def draft_transaction_measure(self, transaction_token: str) -> dict[str, Any]:
+        return self.drafts.transaction_measure(transaction_token)
+
+    def draft_transaction_preview(self, transaction_token: str) -> dict[str, Any]:
+        return self.drafts.transaction_preview(transaction_token)
+
+    def draft_transaction_accept(self, transaction_token: str) -> dict[str, Any]:
+        return self.drafts.accept_transaction(transaction_token)
+
+    def draft_transaction_discard(self, transaction_token: str) -> dict[str, Any]:
+        return self.drafts.discard_transaction(transaction_token)
+
     def _part_payload(self, definition: PartDefinition, occurrences: list[dict[str, Any]], *, default_visible: bool) -> dict[str, Any]:
         artifact = self._artifact(definition)
         source_format = artifact.source_format if artifact is not None else None

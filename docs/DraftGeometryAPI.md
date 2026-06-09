@@ -18,10 +18,12 @@ The current draft API supports:
 - measure draft parts
 - export draft STEP preview files
 - discard draft runtime state
+- group draft operations into local runtime transactions
+- accept a transaction into reviewable source-patch and validator-stub artifacts
 
-The API does not yet implement source promotion, draft transactions, viewer UI
-editing, neighboring-part preview, or source patch generation. Those belong to
-later performance-plan steps.
+The API does not yet implement hidden source promotion, viewer UI editing, or
+neighboring-part preview. Transaction acceptance writes review artifacts under
+local runtime state; it does not apply patches or modify project source.
 
 ## Isolation Contract
 
@@ -31,11 +33,17 @@ local runtime state:
 ```text
 .flow/drafts/<draft-token>/draft.json
 .flow/drafts/<draft-token>/<part-id>.step
+.flow/draft-transactions/<transaction-token>/transaction.json
+.flow/draft-transactions/<transaction-token>/accept/source.patch
+.flow/draft-transactions/<transaction-token>/accept/<part-module>.py
+.flow/draft-transactions/<transaction-token>/accept/check_<part-module>_draft.py
+.flow/draft-transactions/<transaction-token>/accept/acceptance.json
 ```
 
 Draft operations must not write project source under `flow/`, generated handoff
 artifacts under `exports/`, reports under `reports/`, or registry cache rows.
 The returned `preview_step_path` is a preview artifact, not a handoff export.
+Accepted transaction artifacts are review inputs, not applied project changes.
 
 ## Coordinate Contract
 
@@ -83,6 +91,35 @@ Every operation returns the current draft facts:
 Warnings include feature edge-distance issues, unsupported partial-hole requests,
 counterbore depth problems, and feature application failures.
 
+## Geometry Transactions
+
+Draft transactions group draft operations before source changes are considered:
+
+```text
+begin_transaction(part_id="panel_left")
+transaction_create_box(...)
+transaction_add_hole(...)
+transaction_add_louver_pattern(...)
+transaction_preview()
+transaction_accept()
+```
+
+Open transactions can be measured, previewed, accepted, or discarded. Discarding
+an open transaction removes its transaction state and draft preview state. Once
+accepted, the transaction becomes read-only and further draft mutations fail.
+
+`accept` exports a draft STEP preview if needed, then writes review artifacts
+under `.flow/draft-transactions/<transaction-token>/accept/`:
+
+- `source.patch`: unified patch targeting `flow/parts/<part-module>.py` and
+  `flow/validators/check_<part-module>_draft.py`
+- `<part-module>.py`: generated build123d source for review
+- `check_<part-module>_draft.py`: focused validator stub for review
+- `acceptance.json`: transaction, draft facts, and target path metadata
+
+The user or agent reviews and applies the patch in the source loop. Flow CAD
+does not mutate `flow/` during transaction acceptance.
+
 ## Viewer Backend Endpoints
 
 The viewer backend exposes the draft operations separately from generated parts:
@@ -98,6 +135,18 @@ POST   /api/drafts/{draft_token}/mirror-features
 GET    /api/drafts/{draft_token}/measure
 POST   /api/drafts/{draft_token}/export-step
 DELETE /api/drafts/{draft_token}
+POST   /api/draft-transactions
+POST   /api/draft-transactions/{transaction_token}/box
+POST   /api/draft-transactions/{transaction_token}/thickness
+POST   /api/draft-transactions/{transaction_token}/holes
+POST   /api/draft-transactions/{transaction_token}/counterbores
+POST   /api/draft-transactions/{transaction_token}/slots
+POST   /api/draft-transactions/{transaction_token}/louver-patterns
+POST   /api/draft-transactions/{transaction_token}/mirror-features
+GET    /api/draft-transactions/{transaction_token}/measure
+POST   /api/draft-transactions/{transaction_token}/preview
+POST   /api/draft-transactions/{transaction_token}/accept
+DELETE /api/draft-transactions/{transaction_token}
 ```
 
 ## MCP Tools
@@ -131,6 +180,18 @@ Tools:
 - `draft_measure`
 - `draft_export_step`
 - `draft_discard`
+- `draft_begin_transaction`
+- `draft_transaction_create_box`
+- `draft_transaction_set_panel_thickness`
+- `draft_transaction_add_hole`
+- `draft_transaction_add_counterbore`
+- `draft_transaction_add_slot`
+- `draft_transaction_add_louver_pattern`
+- `draft_transaction_mirror_features`
+- `draft_transaction_measure`
+- `draft_transaction_preview`
+- `draft_transaction_accept`
+- `draft_transaction_discard`
 
 By default, the MCP server allows the current working directory as the project
 root. Set `FLOW_CAD_PROJECT_ROOT` or `FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS` to

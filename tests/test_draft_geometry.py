@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -88,6 +89,100 @@ def test_draft_feature_mirroring_requires_opposing_faces_with_features(tmp_path:
 
     with pytest.raises(DraftGeometryError, match="No features found"):
         store.mirror_features(draft_token, source_face="bottom", target_face="top")
+
+
+def test_draft_transaction_accepts_into_review_artifacts_without_source_writes(tmp_path: Path) -> None:
+    store = _draft_store(tmp_path)
+
+    begun = store.begin_transaction(part_id="transaction_panel")
+    transaction_token = begun["transaction_token"]
+    transaction_dir = tmp_path / ".flow" / "draft-transactions" / transaction_token
+
+    assert begun["status"] == "open"
+    assert begun["draft"] is None
+    assert (transaction_dir / "transaction.json").exists()
+
+    created = store.transaction_create_box(
+        transaction_token,
+        length=120.0,
+        width=45.0,
+        height=3.0,
+        material="PETG",
+    )
+    draft_token = created["draft_token"]
+    store.transaction_add_hole(transaction_token, face="top", x=12.0, y=8.0, diameter=4.2)
+    store.transaction_add_louver_pattern(
+        transaction_token,
+        face="top",
+        count=3,
+        pitch=12.0,
+        x=60.0,
+        y=30.0,
+        width=10.0,
+        height=3.0,
+    )
+    previewed = store.transaction_preview(transaction_token)
+    preview_path = Path(str(previewed["preview_step_path"]))
+
+    assert preview_path.exists()
+    assert preview_path.is_relative_to(tmp_path / ".flow" / "drafts")
+
+    accepted = store.accept_transaction(transaction_token)
+    source_patch_path = Path(str(accepted["source_patch_path"]))
+    generated_source_path = Path(str(accepted["generated_source_path"]))
+    validator_stub_path = Path(str(accepted["validator_stub_path"]))
+    acceptance_manifest_path = Path(str(accepted["acceptance_manifest_path"]))
+
+    assert accepted["status"] == "accepted"
+    assert [operation["name"] for operation in accepted["operations"]] == [
+        "create_box",
+        "add_hole",
+        "add_louver_pattern",
+        "preview",
+        "accept",
+    ]
+    assert source_patch_path.exists()
+    assert source_patch_path.is_relative_to(transaction_dir)
+    assert generated_source_path.exists()
+    assert validator_stub_path.exists()
+    assert acceptance_manifest_path.exists()
+    assert "diff --git a/flow/parts/transaction_panel.py" in source_patch_path.read_text(encoding="utf-8")
+    assert "diff --git a/flow/validators/check_transaction_panel_draft.py" in source_patch_path.read_text(encoding="utf-8")
+    assert "make_transaction_panel" in generated_source_path.read_text(encoding="utf-8")
+    assert "validate_transaction_panel_draft" in validator_stub_path.read_text(encoding="utf-8")
+    compile(generated_source_path.read_text(encoding="utf-8"), str(generated_source_path), "exec")
+    compile(validator_stub_path.read_text(encoding="utf-8"), str(validator_stub_path), "exec")
+    subprocess.run(["git", "apply", "--check", str(source_patch_path)], cwd=tmp_path, check=True)
+    assert not (tmp_path / "flow" / "parts" / "transaction_panel.py").exists()
+    assert not (tmp_path / "flow" / "validators" / "check_transaction_panel_draft.py").exists()
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
+    assert (tmp_path / ".flow" / "drafts" / draft_token / "draft.json").exists()
+
+    with pytest.raises(DraftGeometryError, match="not open"):
+        store.transaction_add_hole(transaction_token, face="top", x=108.0, y=8.0, diameter=4.2)
+
+
+def test_draft_transaction_state_can_be_reloaded_and_discarded(tmp_path: Path) -> None:
+    store = _draft_store(tmp_path)
+    begun = store.begin_transaction(part_id="reload_transaction_panel")
+    transaction_token = begun["transaction_token"]
+    created = store.transaction_create_box(transaction_token, length=20.0, width=10.0, height=2.0)
+    draft_token = created["draft_token"]
+    store.transaction_add_hole(transaction_token, face="top", x=10.0, y=5.0, diameter=3.0)
+
+    reloaded_store = DraftGeometryStore(load_project(tmp_path, fallback_to_bundled=False))
+    measured = reloaded_store.transaction_measure(transaction_token)
+
+    assert measured["transaction_token"] == transaction_token
+    assert measured["draft"]["hole_centers"][0]["center"] == [0.0, 0.0, 0.0]
+
+    discarded = reloaded_store.discard_transaction(transaction_token)
+
+    assert discarded == {"ok": True, "transaction_token": transaction_token, "discarded": True}
+    assert not (tmp_path / ".flow" / "draft-transactions" / transaction_token).exists()
+    assert not (tmp_path / ".flow" / "drafts" / draft_token).exists()
+    with pytest.raises(DraftNotFoundError):
+        reloaded_store.transaction_measure(transaction_token)
 
 
 def test_draft_state_can_be_reloaded_from_local_runtime_state(tmp_path: Path) -> None:
