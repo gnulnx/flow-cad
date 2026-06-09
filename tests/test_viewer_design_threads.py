@@ -239,10 +239,16 @@ def test_viewer_design_threads_context_snapshot_expands_viewer_state(tmp_path) -
     assert snapshot_path.exists()
 
 
-def test_viewer_design_threads_chat_turn_persists_user_assistant_and_view_context(tmp_path) -> None:
+def test_viewer_design_threads_chat_fallback_persists_runtime_assistant_and_view_context(tmp_path) -> None:
     _write_example_step(tmp_path)
     service = ViewerService(tmp_path)
-    client = TestClient(create_app(service=service))
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "Runtime-backed fallback response."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
 
     create_response = client.post("/api/design-threads", json={"title": "Chat check"})
     assert create_response.status_code == 200
@@ -272,8 +278,9 @@ def test_viewer_design_threads_chat_turn_persists_user_assistant_and_view_contex
     assert payload["messages"][0]["metadata"]["viewport_screenshot"] is True
     assert payload["messages"][1]["type"] == "assistant_message"
     assert payload["messages"][1]["role"] == "assistant"
-    assert payload["messages"][1]["metadata"]["runtime"] == "flow_cad_stub"
-    assert "viewport image attached" in payload["messages"][1]["content"]
+    assert payload["messages"][1]["metadata"]["runtime"] == "FakeAgentRuntimeClient"
+    assert payload["messages"][1]["content"] == "Runtime-backed fallback response."
+    assert payload["events"][-1]["type"] == "done"
     assert payload["thread"]["message_count"] == 2
 
     reloaded = client.get(f"/api/design-threads/{thread_id}").json()

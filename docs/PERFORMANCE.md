@@ -336,6 +336,8 @@ The later assistant slice covers:
 
 - a runtime-neutral streaming assistant adapter with CAD-safe tools rather than
   broad shell or filesystem access
+- PS-0 from `docs/ProviderSupport.md`: a narrow Codex runtime bridge spike using
+  the user's existing Codex auth before the broader provider framework
 - a Hermes Agent style model-provider setup layer, documented in
   `docs/ProviderSupport.md`, so Flow CAD has a durable foundation without
   taking on Hermes-scale provider parity
@@ -563,12 +565,17 @@ surface, but the user-facing experience is the project design thread, not a
 single command box.
 
 Provider setup is tracked in `docs/ProviderSupport.md`. The target is a
-Hermes-style `flow model` command with a deliberately small support promise:
-OpenAI, Gemini, LlamaStudio, LM Studio, local/OpenAI-compatible endpoints,
-OpenRouter, and beta Anthropic. LlamaStudio is a first-class provider alongside
-LM Studio, not a generic afterthought. Additional Hermes providers are out of
-scope for the first production slice unless there is user demand and a validation
-path.
+two-step path:
+
+1. Run PS-0, a narrow Codex runtime bridge spike using the user's existing Codex
+   auth and a compact CAD context packet.
+2. Then build a Hermes-style `flow model` command with a deliberately small
+   support promise: OpenAI, Gemini, LlamaStudio, LM Studio,
+   local/OpenAI-compatible endpoints, OpenRouter, and beta Anthropic.
+
+LlamaStudio is a first-class provider alongside LM Studio, not a generic
+afterthought. Additional Hermes providers are out of scope for the first
+production slice unless there is user demand and a validation path.
 
 ## Acceptance Criteria
 
@@ -589,6 +596,9 @@ The performance project is successful when:
   provider/model selection, model testing, capability metadata, first-class
   OpenAI/Gemini/LlamaStudio/LM Studio/local/OpenAI-compatible/OpenRouter
   support, and clear beta labeling for Anthropic until validated.
+- Before `flow model` is broadened, the Codex bridge has been proved or rejected
+  with evidence and, if successful, Codex is available as the first concrete
+  design-thread runtime provider.
 - The viewer has a project-aware orientation cube that makes configured
   front/rear/top/bottom labels and selected-part local axes visible.
 - MCP tools can create boxes, holes, slots, and patterns as draft transactions.
@@ -605,18 +615,22 @@ The performance project is successful when:
 6. Add a left-dock `Source | Chat` viewer workspace with real chat history.
 7. Attach draft preview, validator, profile, screenshot, and accepted-artifact
    events to design threads.
-8. Scaffold `flow model` provider support from `docs/ProviderSupport.md`,
+8. Run PS-0 from `docs/ProviderSupport.md`: prove the local Codex runtime bridge
+   can consume a CAD context packet using existing Codex auth.
+9. If PS-0 succeeds, keep Codex as the first concrete design-thread
+   `AgentRuntimeClient` provider.
+10. Scaffold `flow model` provider support from `docs/ProviderSupport.md`,
    reusing Hermes Agent provider setup code where practical.
-9. Add first-class provider adapters for OpenAI, Gemini, LlamaStudio, LM Studio,
+11. Add first-class provider adapters for OpenAI, Gemini, LlamaStudio, LM Studio,
    local/OpenAI-compatible endpoints, and OpenRouter.
-10. Add Anthropic as beta only if it can be contract-tested and clearly labeled
+12. Add Anthropic as beta only if it can be contract-tested and clearly labeled
     without implying full support.
-11. Keep scoped provider declarations close enough to Hermes that future fixes
+13. Keep scoped provider declarations close enough to Hermes that future fixes
     can be manually cherry-picked without making automatic sync a first-pass
     requirement.
-12. Add a small project-aware orientation cube to the viewer.
-13. Add a worker-packet template for Hermes/local model subtasks.
-14. Use the next simple panel change as the benchmark case.
+14. Add a small project-aware orientation cube to the viewer.
+15. Add a worker-packet template for Hermes/local model subtasks.
+16. Use the next simple panel change as the benchmark case.
 
 The first benchmark should be concrete:
 

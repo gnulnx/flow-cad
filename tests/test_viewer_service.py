@@ -5,6 +5,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from flow_cad.viewer.agent_runtime import CodexExecAgentRuntimeClient
 from flow_cad.viewer.app import create_app
 from flow_cad.viewer.service import ConversionUnavailableError, ViewerService
 from flow_cad.viewer.geometry_authority import DISPLAY_MESH_CONTRACT_VERSION, SNAP_EXTRACTOR_CONTRACT_VERSION
@@ -314,6 +315,23 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/design-threads/{thread_id}/context-snapshots" in route_paths
     assert "/api/design-threads/{thread_id}/attachments/viewport-screenshot" in route_paths
     assert "/api/reload" in route_paths
+
+
+def test_viewer_app_selects_codex_runtime_from_env(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLOW_CAD_AGENT_RUNTIME", "codex")
+    monkeypatch.setenv("FLOW_CAD_CODEX_COMMAND", "codex-test")
+    monkeypatch.setenv("FLOW_CAD_CODEX_MODEL", "gpt-test")
+    monkeypatch.setenv("FLOW_CAD_CODEX_TIMEOUT", "13")
+
+    service = ViewerService(tmp_path)
+    app = create_app(service=service)
+
+    runtime = app.state.agent_runtime
+    assert isinstance(runtime, CodexExecAgentRuntimeClient)
+    assert runtime.project_root == str(tmp_path.resolve())
+    assert runtime.codex_command == "codex-test"
+    assert runtime.model == "gpt-test"
+    assert runtime.request_timeout == 13.0
 
 
 def test_viewer_service_reload_and_direct_model(tmp_path) -> None:

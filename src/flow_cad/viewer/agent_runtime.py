@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -403,6 +405,133 @@ class FakeAgentRuntimeClient:
 
 class LlamaStudioAdapterError(AgentRuntimeError):
     """Adapter-specific runtime error."""
+
+
+class CodexRuntimeError(AgentRuntimeError):
+    """Raised when the Codex CLI runtime bridge fails."""
+
+
+class CodexExecAgentRuntimeClient:
+    """Narrow Codex CLI bridge for the PS-0 provider proof spike."""
+
+    def __init__(
+        self,
+        project_root: str,
+        *,
+        codex_command: str = "codex",
+        model: str | None = None,
+        sandbox: str = "read-only",
+        request_timeout: float = 120.0,
+        runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+    ) -> None:
+        self.project_root = project_root
+        self.codex_command = codex_command
+        self.model = model
+        self.sandbox = sandbox
+        self.request_timeout = request_timeout
+        self._runner = runner or subprocess.run
+
+    def _command(self, prompt: str) -> list[str]:
+        executable = shutil.which(self.codex_command) or self.codex_command
+        command = [
+            executable,
+            "exec",
+            "--json",
+            "--ephemeral",
+            "--sandbox",
+            self.sandbox,
+            "--skip-git-repo-check",
+            "-C",
+            self.project_root,
+        ]
+        if self.model:
+            command.extend(["--model", self.model])
+        command.append(prompt)
+        return command
+
+    def _build_prompt(
+        self,
+        thread_id: str,
+        messages: Messages,
+        context_packet: dict[str, Any],
+        tools: Iterable[dict[str, Any]],
+        model_profile: str | dict[str, Any] | None,
+    ) -> str:
+        payload = {
+            "thread_id": thread_id,
+            "messages": _compact_message_payload(messages),
+            "context_packet": compact_context_packet(context_packet),
+            "safe_tools": build_compact_tool_schemas(tools),
+            "model_profile": model_profile,
+        }
+        return (
+            "You are the Codex runtime bridge for Flow CAD design-thread chat.\n"
+            "Do not mutate CAD source, generated exports, reports, or project files.\n"
+            "Do not call generic shell or filesystem mutation tools.\n"
+            "If CAD changes are needed, propose Flow CAD draft operations only. "
+            "All CAD mutations must go through draft transaction, preview, "
+            "focused validation, and explicit user acceptance.\n"
+            "Respond with concise text suitable for a Flow CAD chat message. "
+            "If you suggest an action, name the next Flow CAD safe tool/action.\n\n"
+            f"FLOW_CAD_CONTEXT={json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
+        )
+
+    def _final_agent_text(self, stdout: str) -> str:
+        last_text = ""
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            item = event.get("item")
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "agent_message":
+                continue
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                last_text = text.strip()
+        return last_text
+
+    def stream_chat(
+        self,
+        thread_id: str,
+        messages: Messages,
+        context_packet: dict[str, Any],
+        tools: Iterable[dict[str, Any]],
+        model_profile: str | dict[str, Any] | None,
+    ) -> Iterable[NormalizedEvent]:
+        prompt = self._build_prompt(thread_id, messages, context_packet, tools, model_profile)
+        command = self._command(prompt)
+        try:
+            completed = self._runner(
+                command,
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                timeout=self.request_timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise CodexRuntimeError(f"Codex runtime request timed out after {self.request_timeout:g}s") from exc
+        except OSError as exc:
+            raise CodexRuntimeError(f"Unable to launch Codex runtime: {exc}") from exc
+
+        if completed.returncode != 0:
+            details = (completed.stderr or completed.stdout or "").strip()
+            raise CodexRuntimeError(f"Codex runtime exited with status {completed.returncode}: {details}")
+
+        text = self._final_agent_text(completed.stdout)
+        if not text:
+            raise CodexRuntimeError("Codex runtime completed without an assistant message")
+
+        yield _assistant_delta_event(text, thread_id)
+        yield {"type": "done", "thread_id": thread_id, "runtime": "codex_exec"}
 
 
 class LlamaCppAgentRuntimeClient:

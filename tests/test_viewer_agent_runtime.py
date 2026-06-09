@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from typing import Any
 
 from flow_cad.viewer.agent_runtime import (
+    CodexExecAgentRuntimeClient,
+    CodexRuntimeError,
     FakeAgentRuntimeClient,
     LlamaCppAgentRuntimeClient,
     build_compact_tool_schemas,
@@ -210,3 +213,101 @@ def test_http_adapter_stream_chat_yields_incrementally_from_response_lines() -> 
         {"type": "done", "thread_id": "thread_http_client"},
     ]
     assert requests
+
+
+def test_codex_exec_runtime_builds_read_only_ephemeral_command_and_parses_final_message() -> None:
+    calls: list[dict[str, Any]] = []
+
+    def runner(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append({"command": command, "kwargs": kwargs})
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=(
+                '{"type":"thread.started","thread_id":"codex-thread"}\n'
+                '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"status\\":\\"ready\\",\\"next_flow_cad_action\\":\\"read_viewer_context\\"}"}}\n'
+                '{"type":"turn.completed"}\n'
+            ),
+            stderr="",
+        )
+
+    client = CodexExecAgentRuntimeClient(
+        project_root="/tmp/flow-project",
+        codex_command="codex-test",
+        model="gpt-test",
+        runner=runner,
+    )
+
+    events = list(
+        client.stream_chat(
+            thread_id="thread_codex",
+            messages=[{"role": "user", "content": "Check the wheel box clearance"}],
+            context_packet={
+                "thread_id": "thread_codex",
+                "project": {"project_id": "b3_robot", "active_assembly_id": "b3_v2_robot"},
+                "viewer": {
+                    "selected_part_ids": ["wheel_box_test_body"],
+                    "visible_part_ids": ["wheel_box_test_body"],
+                },
+            },
+            tools=[
+                {"name": "read_viewer_context", "description": "Read context"},
+                {"name": "write_file", "description": "Unsafe"},
+            ],
+            model_profile={"provider": "codex"},
+        )
+    )
+
+    assert events == [
+        {
+            "type": "assistant_delta",
+            "thread_id": "thread_codex",
+            "text": '{"status":"ready","next_flow_cad_action":"read_viewer_context"}',
+        },
+        {"type": "done", "thread_id": "thread_codex", "runtime": "codex_exec"},
+    ]
+    assert calls
+    command = calls[0]["command"]
+    assert command[:5] == ["codex-test", "exec", "--json", "--ephemeral", "--sandbox"]
+    assert "read-only" in command
+    assert "--skip-git-repo-check" in command
+    assert "-C" in command
+    assert "/tmp/flow-project" in command
+    assert "--model" in command
+    prompt = command[-1]
+    assert "FLOW_CAD_CONTEXT=" in prompt
+    assert "wheel_box_test_body" in prompt
+    assert "read_viewer_context" in prompt
+    assert "write_file" not in prompt
+    assert "draft transaction, preview, focused validation, and explicit user acceptance" in prompt
+    assert calls[0]["kwargs"]["capture_output"] is True
+    assert calls[0]["kwargs"]["stdin"] is subprocess.DEVNULL
+    assert calls[0]["kwargs"]["text"] is True
+    assert calls[0]["kwargs"]["check"] is False
+
+
+def test_codex_exec_runtime_reports_nonzero_exit() -> None:
+    def runner(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 12, stdout="", stderr="codex auth failed")
+
+    client = CodexExecAgentRuntimeClient(
+        project_root="/tmp/flow-project",
+        codex_command="codex-test",
+        runner=runner,
+    )
+
+    try:
+        list(
+            client.stream_chat(
+                thread_id="thread_codex",
+                messages=[],
+                context_packet={"thread_id": "thread_codex"},
+                tools=[],
+                model_profile=None,
+            )
+        )
+    except CodexRuntimeError as exc:
+        assert "Codex runtime exited with status 12" in str(exc)
+        assert "codex auth failed" in str(exc)
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("Expected CodexRuntimeError")

@@ -13,6 +13,7 @@ from flow_cad.draft_geometry import DraftGeometryError
 from flow_cad.viewer.agent_runtime import (
     AgentRuntimeClient,
     AgentRuntimeError,
+    CodexExecAgentRuntimeClient,
     FakeAgentRuntimeClient,
     LlamaCppAgentRuntimeClient,
 )
@@ -29,7 +30,17 @@ def _project_root_from_env() -> Path | None:
     return Path(value).resolve() if value else None
 
 
-def _agent_runtime_from_env() -> AgentRuntimeClient:
+def _agent_runtime_from_env(project_root: Path | None = None) -> AgentRuntimeClient:
+    runtime = (os.environ.get("FLOW_CAD_AGENT_RUNTIME") or "").strip().lower()
+    if runtime == "codex":
+        return CodexExecAgentRuntimeClient(
+            project_root=str((project_root or Path.cwd()).resolve()),
+            codex_command=os.environ.get("FLOW_CAD_CODEX_COMMAND", "codex"),
+            model=os.environ.get("FLOW_CAD_CODEX_MODEL") or None,
+            sandbox=os.environ.get("FLOW_CAD_CODEX_SANDBOX", "read-only"),
+            request_timeout=float(os.environ.get("FLOW_CAD_CODEX_TIMEOUT", "120")),
+        )
+
     endpoint = os.environ.get("FLOW_CAD_AGENT_RUNTIME_ENDPOINT")
     if endpoint:
         return LlamaCppAgentRuntimeClient(
@@ -123,6 +134,80 @@ def _tool_result_content(event: dict[str, Any]) -> dict[str, Any]:
     return content
 
 
+def _agent_turn_runtime_inputs(
+    design_threads: DesignThreadService,
+    thread_id: str,
+    payload: dict[str, object],
+    prepared: dict[str, Any],
+    agent_runtime: AgentRuntimeClient,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str | dict[str, Any] | None, dict[str, Any]]:
+    context_packet = design_threads.assistant_context_packet(
+        thread_id,
+        context_snapshot=prepared.get("context_snapshot") if isinstance(prepared.get("context_snapshot"), dict) else None,
+    )
+    thread = prepared.get("thread") if isinstance(prepared.get("thread"), dict) else design_threads.get_thread(thread_id)
+    messages = thread.get("messages", []) if isinstance(thread.get("messages"), list) else []
+    model_profile = payload.get("model_profile") if isinstance(payload.get("model_profile"), (str, dict)) else None
+    metadata_base = {
+        "runtime": agent_runtime.__class__.__name__,
+        **(
+            {"context_snapshot_id": prepared["context_snapshot"]["snapshot_id"]}
+            if isinstance(prepared.get("context_snapshot"), dict)
+            else {}
+        ),
+    }
+    return messages, context_packet, _cad_safe_tools(), model_profile, metadata_base
+
+
+def _persist_agent_runtime_event(
+    design_threads: DesignThreadService,
+    thread_id: str,
+    event: dict[str, Any],
+    metadata_base: dict[str, Any],
+) -> dict[str, Any] | None:
+    event_type = str(event.get("type") or "")
+    if event_type == "tool_call":
+        return design_threads.append_message(
+            thread_id,
+            {
+                "type": "tool_call",
+                "role": "assistant",
+                "content": _tool_call_content(event),
+                "metadata": {
+                    **metadata_base,
+                    "tool": event.get("tool"),
+                    **({"tool_call_id": event["tool_call_id"]} if isinstance(event.get("tool_call_id"), str) else {}),
+                },
+            },
+        )
+    if event_type == "tool_result":
+        return design_threads.append_validator_event(
+            thread_id,
+            {
+                "type": "tool_result",
+                "content": _tool_result_content(event),
+                "metadata": {
+                    **metadata_base,
+                    "tool": event.get("tool"),
+                },
+            },
+        )
+    if event_type == "error":
+        return design_threads.append_message(
+            thread_id,
+            {
+                "type": "status",
+                "role": "system",
+                "content": {
+                    "summary": str(event.get("error") or "Assistant stream error"),
+                    "details": event,
+                },
+                "metadata": metadata_base,
+            },
+        )
+    return None
+
+
 def create_app(
     service: ViewerService | None = None,
     project_root: Path | None = None,
@@ -131,7 +216,7 @@ def create_app(
 ) -> FastAPI:
     viewer_service = service or ViewerService(project_root or _project_root_from_env())
     design_threads = thread_service or DesignThreadService(viewer_service)
-    agent_runtime = agent_runtime_client or _agent_runtime_from_env()
+    agent_runtime = agent_runtime_client or _agent_runtime_from_env(viewer_service.project_root)
     app = FastAPI(title="Flow CAD Viewer API")
     app.state.viewer_service = viewer_service
     app.state.design_threads = design_threads
@@ -205,10 +290,53 @@ def create_app(
     @app.post("/api/design-threads/{thread_id}/chat")
     def post_design_thread_chat(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
         try:
-            return design_threads.chat_turn(thread_id, payload)
+            prepared = design_threads.begin_chat_turn(thread_id, payload)
+            messages, context_packet, safe_tools, model_profile, metadata_base = _agent_turn_runtime_inputs(
+                design_threads,
+                thread_id,
+                payload,
+                prepared,
+                agent_runtime,
+            )
+            assistant_chunks: list[str] = []
+            persisted_messages = [prepared["user_message"]]
+            runtime_events: list[dict[str, Any]] = []
+            for event in agent_runtime.stream_chat(thread_id, messages, context_packet, safe_tools, model_profile):
+                event = dict(event)
+                event["thread_id"] = thread_id
+                runtime_events.append(event)
+                if str(event.get("type") or "") == "assistant_delta":
+                    assistant_chunks.append(_assistant_delta_text(event))
+                    continue
+                message = _persist_agent_runtime_event(design_threads, thread_id, event, metadata_base)
+                if message is not None:
+                    persisted_messages.append(message)
+
+            if assistant_chunks:
+                persisted_messages.append(
+                    design_threads.append_message(
+                        thread_id,
+                        {
+                            "type": "assistant_message",
+                            "role": "assistant",
+                            "content": "".join(assistant_chunks),
+                            "metadata": metadata_base,
+                        },
+                    )
+                )
+
+            return {
+                "thread_id": thread_id,
+                "messages": persisted_messages,
+                "events": runtime_events,
+                "context_snapshot": prepared.get("context_snapshot"),
+                "thread": design_threads.get_thread(thread_id),
+            }
         except (ThreadStorageError, ThreadNotFoundError) as exc:
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        except AgentRuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @app.post("/api/design-threads/{thread_id}/chat/stream")
     def post_design_thread_chat_stream(thread_id: str, payload: dict[str, object]) -> StreamingResponse:
@@ -220,21 +348,13 @@ def create_app(
 
         def event_stream():
             assistant_chunks: list[str] = []
-            context_packet = design_threads.assistant_context_packet(
+            messages, context_packet, safe_tools, model_profile, metadata_base = _agent_turn_runtime_inputs(
+                design_threads,
                 thread_id,
-                context_snapshot=prepared.get("context_snapshot") if isinstance(prepared.get("context_snapshot"), dict) else None,
+                payload,
+                prepared,
+                agent_runtime,
             )
-            thread = prepared.get("thread") if isinstance(prepared.get("thread"), dict) else design_threads.get_thread(thread_id)
-            messages = thread.get("messages", []) if isinstance(thread.get("messages"), list) else []
-            model_profile = payload.get("model_profile") if isinstance(payload.get("model_profile"), (str, dict)) else None
-            metadata_base = {
-                "runtime": agent_runtime.__class__.__name__,
-                **(
-                    {"context_snapshot_id": prepared["context_snapshot"]["snapshot_id"]}
-                    if isinstance(prepared.get("context_snapshot"), dict)
-                    else {}
-                ),
-            }
 
             yield _sse({"message": prepared["user_message"]})
             try:
@@ -242,7 +362,7 @@ def create_app(
                     thread_id,
                     messages,
                     context_packet,
-                    _cad_safe_tools(),
+                    safe_tools,
                     model_profile,
                 ):
                     event["thread_id"] = thread_id
@@ -250,47 +370,8 @@ def create_app(
                     if event_type == "assistant_delta":
                         assistant_chunks.append(_assistant_delta_text(event))
                         yield _sse({"event": event})
-                    elif event_type == "tool_call":
-                        message = design_threads.append_message(
-                            thread_id,
-                            {
-                                "type": "tool_call",
-                                "role": "assistant",
-                                "content": _tool_call_content(event),
-                                "metadata": {
-                                    **metadata_base,
-                                    "tool": event.get("tool"),
-                                    **({"tool_call_id": event["tool_call_id"]} if isinstance(event.get("tool_call_id"), str) else {}),
-                                },
-                            },
-                        )
-                        yield _sse({"event": event, "message": message})
-                    elif event_type == "tool_result":
-                        message = design_threads.append_validator_event(
-                            thread_id,
-                            {
-                                "type": "tool_result",
-                                "content": _tool_result_content(event),
-                                "metadata": {
-                                    **metadata_base,
-                                    "tool": event.get("tool"),
-                                },
-                            },
-                        )
-                        yield _sse({"event": event, "message": message})
-                    elif event_type == "error":
-                        message = design_threads.append_message(
-                            thread_id,
-                            {
-                                "type": "status",
-                                "role": "system",
-                                "content": {
-                                    "summary": str(event.get("error") or "Assistant stream error"),
-                                    "details": event,
-                                },
-                                "metadata": metadata_base,
-                            },
-                        )
+                    elif event_type in {"tool_call", "tool_result", "error"}:
+                        message = _persist_agent_runtime_event(design_threads, thread_id, event, metadata_base)
                         yield _sse({"event": event, "message": message})
                     elif event_type == "done":
                         yield _sse({"event": event})

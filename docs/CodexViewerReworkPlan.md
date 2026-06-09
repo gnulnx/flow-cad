@@ -269,14 +269,19 @@ Not directly reusable:
 Recommended path:
 
 1. Build the Flow CAD thread store and React chat UI natively.
-2. Add the `flow model` provider broker from `docs/ProviderSupport.md`.
-3. Copy/adapt focused Hermes provider setup code rather than importing the whole
+2. Run PS-0 from `docs/ProviderSupport.md`: prove the local Codex runtime bridge
+   using the user's existing Codex auth and a compact CAD context packet.
+3. Add Codex as the first narrow `AgentRuntimeClient` provider if the spike
+   succeeds.
+4. Add the broader `flow model` provider broker from `docs/ProviderSupport.md`
+   only after the Codex bridge proves or fails.
+5. Copy/adapt focused Hermes provider setup code rather than importing the whole
    Hermes runtime.
-4. Add first-class local providers for LlamaStudio, LM Studio, and
+6. Add first-class local providers for LlamaStudio, LM Studio, and
    local/OpenAI-compatible endpoints.
-5. Add the scoped hosted providers: OpenAI, Gemini, OpenRouter, and beta
+7. Add the scoped hosted providers: OpenAI, Gemini, OpenRouter, and beta
    Anthropic.
-6. Keep the `AgentRuntimeClient` boundary small so provider work does not leak
+8. Keep the `AgentRuntimeClient` boundary small so provider work does not leak
    into the design-thread schema or CAD tool contracts.
 
 ## Required Backend Changes
@@ -830,9 +835,28 @@ git diff --check
 Done means the runtime adapter, streaming API, persisted thread events,
 frontend incremental rendering, and production build are verified together.
 
-### CVR-7: Hermes-Style Model Provider Setup
+### CVR-7: Codex Bridge Then Hermes-Style Model Provider Setup
 
-Implement the `flow model` provider broker described in
+Start with PS-0 from `docs/ProviderSupport.md`: a narrow Codex runtime bridge.
+This validates the user's current Codex plan before Flow CAD commits to the full
+provider framework.
+
+The Codex bridge should:
+
+- use the local `codex` CLI/runtime
+- rely on Codex' existing auth store instead of Flow CAD-owned OpenAI/ChatGPT
+  credentials
+- accept compact design-thread messages, CAD context, and safe tool descriptions
+- run read-only/ephemeral by default
+- return assistant text suitable for the Flow CAD chat stream
+- keep CAD mutations behind Flow CAD draft transactions, preview, validation, and
+  user acceptance
+
+If PS-0 succeeds, Codex becomes the first concrete `AgentRuntimeClient` provider.
+If it fails or is too brittle, continue with the native provider plan starting
+with OpenAI API and local providers.
+
+After PS-0, implement the `flow model` provider broker described in
 `docs/ProviderSupport.md`. This is the provider setup layer for design-thread
 chat, worker packets, and future model-backed CAD tools.
 
@@ -859,7 +883,8 @@ The first-class provider set is intentionally limited:
 - OpenRouter
 - Anthropic beta until a live validation path exists
 
-Done means `flow model` can select and test the scoped provider set above when
+Done means the Codex bridge has been proved or rejected with evidence, and then
+`flow model` can select and test the scoped provider set above when
 credentials/endpoints are available, labels beta providers clearly, and lets the
 viewer backend use the selected profile.
 

@@ -345,6 +345,80 @@ provider layer proves stable.
 
 ## Implementation Plan
 
+### PS-0: Codex Runtime Bridge Spike
+
+Before building the full provider framework, prove the highest-priority provider
+path: the user's existing Codex plan and local Codex install.
+
+This spike does not replace the provider plan. It validates whether Flow CAD can
+delegate design-thread chat to Codex without owning OpenAI/ChatGPT credentials.
+
+Questions to answer:
+
+- Can Flow CAD call the local Codex runtime/app-server/CLI in a structured way?
+- Can Flow CAD rely on Codex' existing auth store instead of reading or storing
+  OpenAI/ChatGPT credentials?
+- Can Codex receive a compact CAD context packet and return a response suitable
+  for design-thread chat?
+- Can Flow CAD keep CAD mutation authority inside draft transactions, preview,
+  focused validation, and explicit user acceptance?
+
+Spike result on 2026-06-09:
+
+- `codex` is installed locally and reports version `0.138.0`.
+- `codex doctor` reports stored auth mode `chatgpt` with stored ChatGPT tokens
+  and no stored API key in `~/.codex/auth.json`; Flow CAD does not need to own
+  those credentials for a delegated Codex run.
+- `codex app-server` exists, but the app-server path is still experimental and
+  was not running during the spike.
+- `codex exec --json --ephemeral --sandbox read-only` successfully accepted a
+  CAD context packet and returned JSON suitable for a Flow CAD assistant message.
+- `CodexExecAgentRuntimeClient` successfully called the local Codex CLI and
+  returned normalized Flow CAD stream events: `assistant_delta` followed by
+  `done`.
+- The B3 viewer was started with `FLOW_CAD_AGENT_RUNTIME=codex`; both
+  `/api/design-threads/{thread_id}/chat/stream` and the fallback
+  `/api/design-threads/{thread_id}/chat` returned persisted assistant messages
+  with `runtime: CodexExecAgentRuntimeClient` instead of the built-in
+  `flow_cad_stub`.
+- Nested sandbox execution failed before model invocation because Codex could
+  not initialize its in-process app-server state on the read-only filesystem; the
+  same command succeeded when run in the normal local environment.
+- Some approval flags shown in `codex exec --help` were rejected by this
+  installed CLI version, so the bridge should use the proven command shape rather
+  than relying on help text alone.
+
+Accepted first implementation:
+
+- Add a narrow `CodexExecAgentRuntimeClient` behind the existing
+  `AgentRuntimeClient` protocol.
+- Select it with `FLOW_CAD_AGENT_RUNTIME=codex`.
+- Shell out to `codex exec --json --ephemeral --sandbox read-only`.
+- Pass only compact messages, compact CAD context, model profile metadata, and
+  Flow CAD safe tool descriptions.
+- Do not pass generic shell or filesystem mutation tools.
+- Treat Codex output as assistant text unless/until a later provider framework
+  adds structured tool-call handling.
+- Keep CAD edits behind Flow CAD draft transaction, preview, focused validation,
+  and explicit user acceptance.
+
+Done means:
+
+- Focused tests prove the Codex adapter builds the read-only/ephemeral command,
+  filters unsafe tools from the prompt, parses the final Codex agent message, and
+  reports nonzero Codex exits as structured runtime errors.
+- The viewer backend can select the Codex adapter through environment
+  configuration.
+- A manual proof run confirms the installed Codex CLI can answer a CAD context
+  packet using existing local Codex credentials.
+- The streaming and non-streaming chat endpoints both persist Codex-backed
+  assistant messages when the runtime is enabled.
+
+If this bridge becomes brittle, continue with the native provider plan starting
+with OpenAI API and local providers. If it remains stable, Codex becomes the
+first concrete `AgentRuntimeClient` provider while the broader `flow model`
+framework waits.
+
 ### PS-1: Provider Support Document And Scaffold
 
 Add this plan, then scaffold the package and CLI group without real provider
