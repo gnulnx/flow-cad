@@ -190,10 +190,12 @@ AgentRuntimeClient.stream_chat(thread_id, messages, context_packet, tools, model
 ```
 
 The runtime should be selected through a `flow model` provider broker documented
-in `docs/ProviderSupport.md`. This broker should follow the Hermes Agent model:
-users can pick local, hosted, account-backed, direct API, aggregator, or custom
-providers through one setup path. LlamaStudio and LM Studio are both first-class
-local providers, but neither should define the whole architecture.
+in `docs/ProviderSupport.md`. This broker should use a Hermes Agent style
+foundation without taking on Hermes-scale provider parity. The supported first
+slice is deliberately small: OpenAI, Gemini, LlamaStudio, LM Studio,
+local/OpenAI-compatible endpoints, OpenRouter, and beta Anthropic. LlamaStudio
+and LM Studio are both first-class local providers, but neither should define the
+whole architecture.
 
 The Flow CAD service should own the CAD tool registry and should expose only
 safe Flow CAD tools:
@@ -224,6 +226,10 @@ Hermes Agent reuse target:
 - provider-specific model validation fallbacks
 - config/secrets separation and atomic writes
 - fallback provider chains
+
+This does not mean Flow CAD should support every provider Hermes supports. Flow
+CAD should copy the foundation and only expose providers that it can validate and
+support well.
 
 LlamaStudio reuse target:
 
@@ -266,8 +272,10 @@ Recommended path:
 2. Add the `flow model` provider broker from `docs/ProviderSupport.md`.
 3. Copy/adapt focused Hermes provider setup code rather than importing the whole
    Hermes runtime.
-4. Add first-class local providers for LlamaStudio and LM Studio.
-5. Add hosted/account/API providers behind the same profile contract.
+4. Add first-class local providers for LlamaStudio, LM Studio, and
+   local/OpenAI-compatible endpoints.
+5. Add the scoped hosted providers: OpenAI, Gemini, OpenRouter, and beta
+   Anthropic.
 6. Keep the `AgentRuntimeClient` boundary small so provider work does not leak
    into the design-thread schema or CAD tool contracts.
 
@@ -774,7 +782,10 @@ Add the first concrete runtime clients behind the same adapter:
 
 - LlamaStudio
 - LM Studio
-- OpenAI-compatible local endpoint
+- local/OpenAI-compatible endpoint
+- OpenAI
+- Gemini
+- OpenRouter
 - fake provider for deterministic tests
 
 Tests:
@@ -836,15 +847,21 @@ where practical:
 - config/secrets separation
 - regression tests around provider persistence and auth edge cases
 - a provider declaration shape that makes future Hermes provider updates easy to
-  compare and manually cherry-pick
+  compare and manually cherry-pick for scoped providers
 
-LlamaStudio and LM Studio must be first-class provider choices in this broker.
-OpenAI Codex is also important, but it is one provider among many, not the reason
-for the architecture.
+The first-class provider set is intentionally limited:
 
-Done means `flow model` can select and test at least LlamaStudio, LM Studio, one
-hosted/account provider, one direct API-key provider, and one custom
-OpenAI-compatible endpoint, and the viewer backend can use the selected profile.
+- OpenAI API and OpenAI Codex/account path where practical
+- Gemini API
+- LlamaStudio
+- LM Studio
+- local/OpenAI-compatible endpoint
+- OpenRouter
+- Anthropic beta until a live validation path exists
+
+Done means `flow model` can select and test the scoped provider set above when
+credentials/endpoints are available, labels beta providers clearly, and lets the
+viewer backend use the selected profile.
 
 ## Risks And Mitigations
 
@@ -858,8 +875,8 @@ OpenAI-compatible endpoint, and the viewer backend can use the selected profile.
   backend facts so the assistant is not guessing from pixels alone.
 - Model-host coupling: keep `AgentRuntimeClient` small and runtime-neutral, with
   provider setup isolated in `flow model`.
-- Provider sprawl: copy Hermes' profile/registry/test patterns so adding a
-  provider is usually data plus a small setup strategy, not viewer code.
+- Provider sprawl: copy Hermes' profile/registry/test patterns, but keep the
+  supported provider list small until there is user demand and a validation path.
 - License drift: confirm Flow CAD's project license and preserve Hermes' MIT
   notices before copying substantial source.
 - Project-specific leakage: keep robot-specific design intent in project
@@ -882,7 +899,9 @@ The rework is complete when:
 - focused validator results and profile summaries can be attached to the thread
 - `flow model` can configure the active provider/model through a Hermes-style
   provider setup flow
-- LlamaStudio and LM Studio are both first-class local provider options
+- OpenAI, Gemini, LlamaStudio, LM Studio, local/OpenAI-compatible endpoints, and
+  OpenRouter are first-class provider options
+- Anthropic is either validated or explicitly labeled beta
 - a streaming assistant can use the thread context and call CAD-safe tools
   through the selected provider profile
 - no chat path mutates project source, exports, reports, or handoff bundles

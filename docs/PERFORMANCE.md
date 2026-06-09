@@ -337,10 +337,12 @@ The later assistant slice covers:
 - a runtime-neutral streaming assistant adapter with CAD-safe tools rather than
   broad shell or filesystem access
 - a Hermes Agent style model-provider setup layer, documented in
-  `docs/ProviderSupport.md`, so Flow CAD can use local, hosted, account-backed,
-  direct API, aggregator, and custom endpoint providers
+  `docs/ProviderSupport.md`, so Flow CAD has a durable foundation without
+  taking on Hermes-scale provider parity
 - first-class LlamaStudio and LM Studio local-provider integrations without
   treating either one as the entire architecture
+- first-class support for OpenAI, Gemini, local/OpenAI-compatible endpoints, and
+  OpenRouter, with Anthropic treated as beta until there is a validation path
 
 Item 6A is complete only when the viewer has a real chat interface with durable
 history, can automatically attach full work context to a design turn, can retain
@@ -561,10 +563,12 @@ surface, but the user-facing experience is the project design thread, not a
 single command box.
 
 Provider setup is tracked in `docs/ProviderSupport.md`. The target is a
-Hermes-style `flow model` command that can configure LlamaStudio, LM Studio,
-OpenAI-compatible local endpoints, hosted aggregators, account-backed providers,
-direct API providers, fallback chains, and custom endpoints. LlamaStudio is a
-first-class provider alongside LM Studio, not a generic afterthought.
+Hermes-style `flow model` command with a deliberately small support promise:
+OpenAI, Gemini, LlamaStudio, LM Studio, local/OpenAI-compatible endpoints,
+OpenRouter, and beta Anthropic. LlamaStudio is a first-class provider alongside
+LM Studio, not a generic afterthought. Additional Hermes providers are out of
+scope for the first production slice unless there is user demand and a validation
+path.
 
 ## Acceptance Criteria
 
@@ -582,8 +586,9 @@ The performance project is successful when:
   context, screenshots, annotations, draft events, validator events, and accepted
   artifact links.
 - `flow model` provides a Hermes-style provider setup experience with durable
-  provider/model selection, model testing, capability metadata, and first-class
-  LlamaStudio and LM Studio local providers.
+  provider/model selection, model testing, capability metadata, first-class
+  OpenAI/Gemini/LlamaStudio/LM Studio/local/OpenAI-compatible/OpenRouter
+  support, and clear beta labeling for Anthropic until validated.
 - The viewer has a project-aware orientation cube that makes configured
   front/rear/top/bottom labels and selected-part local axes visible.
 - MCP tools can create boxes, holes, slots, and patterns as draft transactions.
@@ -602,13 +607,16 @@ The performance project is successful when:
    events to design threads.
 8. Scaffold `flow model` provider support from `docs/ProviderSupport.md`,
    reusing Hermes Agent provider setup code where practical.
-9. Add first-class LlamaStudio and LM Studio provider adapters.
-10. Keep provider declarations close enough to Hermes that future provider fixes
+9. Add first-class provider adapters for OpenAI, Gemini, LlamaStudio, LM Studio,
+   local/OpenAI-compatible endpoints, and OpenRouter.
+10. Add Anthropic as beta only if it can be contract-tested and clearly labeled
+    without implying full support.
+11. Keep scoped provider declarations close enough to Hermes that future fixes
     can be manually cherry-picked without making automatic sync a first-pass
     requirement.
-11. Add a small project-aware orientation cube to the viewer.
-12. Add a worker-packet template for Hermes/local model subtasks.
-13. Use the next simple panel change as the benchmark case.
+12. Add a small project-aware orientation cube to the viewer.
+13. Add a worker-packet template for Hermes/local model subtasks.
+14. Use the next simple panel change as the benchmark case.
 
 The first benchmark should be concrete:
 

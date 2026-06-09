@@ -4,11 +4,11 @@ Date: 2026-06-09
 
 ## Purpose
 
-Flow CAD should let users connect the model provider that fits their workflow
-instead of hard-coding one local runtime or one hosted account. The design-thread
+Flow CAD should let users connect the model provider that fits a practical CAD
+workflow without becoming a general-purpose model marketplace. The design-thread
 chat surface should eventually feel like a normal model-backed CAD workspace:
-pick a provider, authenticate or point at a local endpoint, choose a model, test
-it, and then use it for viewport-aware chat with CAD-safe tools.
+pick a supported provider, authenticate or point at a local endpoint, choose a
+model, test it, and then use it for viewport-aware chat with CAD-safe tools.
 
 The target user experience is intentionally close to Hermes Agent's provider
 setup:
@@ -29,8 +29,9 @@ MCP-backed design threads, and future worker packets.
 
 ## Direction
 
-Use a Hermes Agent style model-provider broker rather than a one-off
-LlamaStudio-only adapter.
+Use a Hermes Agent style model-provider foundation rather than a one-off
+LlamaStudio-only adapter, but keep the supported provider set deliberately
+small.
 
 Hermes has already solved much of the hard, boring provider work:
 
@@ -45,9 +46,16 @@ Hermes has already solved much of the hard, boring provider work:
 - local provider probing for desktop/server runtimes
 
 Flow CAD should borrow that work aggressively where the license and code shape
-allow it. The preferred approach is to copy or adapt focused modules into a small
-Flow CAD provider subsystem, preserving upstream MIT attribution where source is
-copied, rather than taking a large runtime dependency on all of Hermes.
+allow it, but should not inherit Hermes' full provider-support burden. The
+preferred approach is to copy or adapt focused modules into a small Flow CAD
+provider subsystem, preserving upstream MIT attribution where source is copied,
+rather than taking a large runtime dependency on all of Hermes.
+
+The product line is:
+
+> Flow CAD provides a reliable model-provider foundation and first-class support
+> for the model stacks most useful to CAD work. It is not trying to become a
+> full Hermes replacement or a universal LLM router.
 
 ## License Note
 
@@ -64,41 +72,48 @@ Small patterns can be reimplemented directly. Larger copied functions, auth
 flows, or provider tables should either carry module-level attribution or be
 listed in a `THIRD_PARTY_NOTICES.md` file.
 
-## First-Class Providers
+## Supported Provider Policy
 
-Flow CAD should not treat "local model" as one provider.
+Flow CAD should have a broad provider architecture and a narrow support promise.
 
-These should be first-class local/provider targets:
+### Tier 1: First-Class And Tested
 
+These providers are the first product slice. They should have docs, tests,
+diagnostics, and a validation path before being presented as fully supported:
+
+- `openai`: direct OpenAI API key through the current supported API surface.
+- `openai-codex`: Codex/ChatGPT account style auth where Hermes code can be
+  reused cleanly and legally.
+- `gemini`: Google Gemini API key support.
 - `llamastudio`: the LlamaStudio application/runtime. This is a BLR-local
-  runtime worth integrating as a named provider, not just an anonymous
-  OpenAI-compatible URL.
-- `lmstudio`: LM Studio, the desktop local-model app with a model server. It
-  should be probed and configured as a named provider.
-- `llama.cpp`: a standalone llama-server or compatible HTTP endpoint.
-- `ollama`: local Ollama server and installed model list.
-- `vllm`: OpenAI-compatible local or remote vLLM endpoint.
-- `openai-compatible`: custom URL with optional API key.
+  runtime worth integrating as a named provider, not just an anonymous URL.
+- `lmstudio`: LM Studio, the desktop local-model app with a model server.
+- `local-openai-compatible`: custom or local OpenAI-compatible endpoint. This is
+  the catch-all for llama.cpp, vLLM, many hosted gateways, and other compatible
+  runtimes.
+- `openrouter`: hosted aggregator support through its OpenAI-compatible API.
 
-These hosted/account providers should be planned as normal providers, not
-special cases wired into chat:
+### Tier 2: Beta Until Validated
 
-- `openai-codex`: Codex/ChatGPT account style auth where available.
-- `openai-api`: direct OpenAI API key.
-- `anthropic`: direct Anthropic API and, where practical, Claude account-backed
-  flows.
-- `openrouter`: multi-model pay-per-use aggregator.
-- `nous`: Nous Portal subscription/provider flow.
-- `google-gemini`: direct Gemini API.
-- `google-gemini-cli`: account/OAuth style Gemini Code Assist flow where
-  practical.
-- `xai` and `xai-oauth`: direct and account-backed Grok flows.
-- `qwen`, `dashscope`, and Qwen OAuth style flows where practical.
-- `deepseek`, `mistral`, `novita`, `bedrock`, `azure-foundry`, and other
-  providers already represented in Hermes' provider catalog.
+- `anthropic`: strategically important, but beta until Flow CAD has a real API
+  key validation path or a regular maintainer using it.
 
-The first implementation does not need every provider fully working. It does
-need the architecture to make adding a Hermes-supported provider mechanical.
+Tier 2 providers can have mocked contract tests and optional live tests gated by
+environment variables. They should be labeled beta in CLI/status output until
+someone can regularly validate them.
+
+### Explicitly Out Of Scope For The First Slice
+
+Do not implement Hermes parity in the first Flow CAD provider pass:
+
+- Bedrock, Azure Foundry, xAI, Qwen/DashScope, DeepSeek, Mistral, Novita, Nous,
+  MiniMax, Moonshot/Kimi, GitHub Copilot, native Ollama, and other long-tail
+  providers.
+- Provider-specific OAuth flows that no active Flow CAD maintainer can validate.
+- Provider-specific routing features that do not affect viewport-aware CAD chat.
+
+The architecture should make those providers possible later. The product should
+not promise them until there is user demand and a validation path.
 
 ## Provider Profile Model
 
@@ -117,10 +132,12 @@ src/flow_cad/model_providers/
   providers/
     llamastudio.py
     lmstudio.py
-    openai_compatible.py
+    openai.py
     openai_codex.py
-    openai_api.py
-    anthropic.py
+    gemini.py
+    local_openai_compatible.py
+    openrouter.py
+    anthropic_beta.py
 ```
 
 A provider profile should be declarative enough that adding a simple provider
@@ -131,6 +148,8 @@ ProviderProfile
   id
   display_name
   aliases
+  support_tier
+  validation_status
   group
   provider_kind
   transport
@@ -161,6 +180,7 @@ Use capability metadata to decide how the provider can participate in CAD chat:
 - model listing support
 - custom endpoint support
 - CAD-safe tool compatibility
+- validation status
 
 Flow CAD should warn clearly when the selected model cannot consume viewport
 screenshots directly. Text-only models are still useful because the backend can
@@ -230,13 +250,13 @@ flow model fallback clear
 Interactive `flow model` should:
 
 1. Show the active provider/model first.
-2. Group local providers, account/OAuth providers, direct API providers,
-   aggregators, and custom endpoints.
-3. Highlight first-class local options: LlamaStudio and LM Studio.
-4. Prompt for only the credentials needed by the chosen provider.
-5. Fetch or display model choices.
-6. Save the active model profile.
-7. Run an optional test prompt before returning success.
+2. Show Tier 1 providers by default.
+3. Hide beta/experimental providers unless the user asks for them.
+4. Highlight first-class local options: LlamaStudio and LM Studio.
+5. Prompt for only the credentials needed by the chosen provider.
+6. Fetch or display model choices.
+7. Save the active model profile.
+8. Run an optional test prompt before returning success.
 
 The CLI should avoid pretending every provider has the same certainty. If model
 listing fails but a provider commonly hides models, accept with a warning rather
@@ -279,7 +299,7 @@ High-value Hermes code to reuse or closely adapt:
   transport detection patterns.
 - `providers/base.py`: declarative `ProviderProfile` shape.
 - `providers/__init__.py`: provider registry and plugin discovery pattern.
-- `plugins/model-providers/*`: focused provider declarations.
+- focused provider declarations for the scoped Tier 1/Tier 2 providers.
 - `hermes_cli/auth.py`: provider auth config, OAuth/device flows, token refresh,
   token import, token-pool behavior, and local/no-auth placeholders.
 - `hermes_cli/model_setup_flows.py`: provider-specific setup recipes.
@@ -298,13 +318,13 @@ Do not reuse directly:
 - The whole `hermes_cli.main` god-file as a dependency.
 - Hermes-specific environment variable names as Flow CAD's primary API.
 
-Flow CAD should copy the hard-earned provider logic but keep the workbench,
-viewer, CAD tools, and thread schemas native.
+Flow CAD should copy the hard-earned provider logic that applies to the scoped
+providers, but keep the workbench, viewer, CAD tools, and thread schemas native.
 
 ## Hermes Provider Sync Strategy
 
 Future Hermes updates will probably add providers, repair provider quirks, and
-adjust model discovery rules. Flow CAD should make those improvements easy to
+adjust model discovery rules. Flow CAD should make relevant improvements easy to
 pull in, but update-sync should stay secondary to a correct local implementation.
 
 Preferred sync shape:
@@ -314,14 +334,14 @@ Preferred sync shape:
   scattering them through the viewer or chat code.
 - Keep local Flow CAD extensions in separate fields such as CAD capability
   metadata, screenshot support, and CAD-safe tool support.
-- Add a small comparison script later that can report providers present in
-  Hermes but missing from Flow CAD.
+- Add a small comparison script later that can report scoped providers whose
+  Hermes definitions changed.
 - Record the Hermes source commit or date whenever substantial provider code is
   copied.
 
-Do not block the first working provider broker on perfect automatic syncing.
-Manual cherry-picking from Hermes is acceptable until the provider layer proves
-stable.
+Do not block the first working provider broker on perfect automatic syncing or
+full Hermes parity. Manual cherry-picking from Hermes is acceptable until the
+provider layer proves stable.
 
 ## Implementation Plan
 
@@ -345,24 +365,22 @@ small curated set, but keep aliases and provider metadata extensible.
 
 Initial provider records:
 
+- `openai`
+- `openai-codex`
+- `gemini`
 - `llamastudio`
 - `lmstudio`
-- `llama.cpp`
-- `ollama`
-- `openai-compatible`
-- `openai-codex`
-- `openai-api`
-- `anthropic`
+- `local-openai-compatible`
 - `openrouter`
-- `nous`
-- `google-gemini`
-- `custom`
+- `anthropic-beta`
 
 Done means:
 
-- `flow model providers` lists grouped providers.
+- `flow model providers` lists Tier 1 providers by default.
+- `flow model providers --all` includes beta providers.
 - Alias resolution is tested.
-- Provider records include transport, auth mode, and capabilities.
+- Provider records include support tier, transport, auth mode, capabilities, and
+  validation status.
 
 ### PS-3: Local Providers First
 
@@ -382,7 +400,8 @@ LM Studio:
 
 Generic local endpoints:
 
-- Support llama.cpp, vLLM, Ollama, and custom OpenAI-compatible URLs.
+- Support llama.cpp, vLLM, and custom OpenAI-compatible URLs through the
+  `local-openai-compatible` provider.
 - Accept manual model names when model discovery is unavailable, with warnings.
 
 Done means:
@@ -391,24 +410,26 @@ Done means:
   streaming path.
 - The user sees useful diagnostics when the local runtime is not running.
 
-### PS-4: Hosted And Account Providers
+### PS-4: Hosted Providers
 
-Port the provider flows that unlock broad user choice.
+Port the provider flows that unlock the top hosted choices without taking on
+Hermes-scale support.
 
 Priority:
 
-1. OpenAI Codex account flow.
-2. OpenAI API key flow.
-3. Anthropic API key flow.
+1. OpenAI API key flow.
+2. OpenAI Codex account flow, if the Hermes code can be reused cleanly.
+3. Gemini API key flow.
 4. OpenRouter API key flow.
-5. Nous Portal flow.
-6. Google/Gemini direct and account-backed flows where practical.
+5. Anthropic API key flow as beta.
 
 Done means:
 
 - `flow model login <provider>` stores credentials outside the project.
 - `flow model list <provider>` fetches live models or falls back with warnings.
-- `flow model test` verifies the selected provider with a small prompt.
+- `flow model test` verifies each Tier 1 provider with a small prompt when
+  credentials are available.
+- Anthropic remains labeled beta unless a live validation path exists.
 
 ### PS-5: Viewer And Design-Thread Integration
 
@@ -445,11 +466,13 @@ Add operational polish after the first real providers work.
 
 Done means provider setup failures are diagnosable without reading logs.
 
-### PS-7: Provider Parity Expansion
+### PS-7: Optional Provider Expansion
 
-Add more Hermes-supported providers as mechanical follow-up work. Provider parity
-is not complete until adding a provider usually means adding a profile, auth
-strategy, discovery strategy, and tests, not editing the viewer chat code.
+Add more Hermes-supported providers only when there is clear user demand and a
+validation path. Expansion is not a first-pass goal.
+
+Done means adding a provider usually means adding a profile, auth strategy,
+discovery strategy, capability metadata, and tests, not editing viewer chat code.
 
 ## Test Plan
 
@@ -459,12 +482,13 @@ Add focused Python tests for:
 - corrupt config backup/recovery
 - secrets never written to project-local config
 - provider registry alias resolution
-- provider grouping and current-provider display
+- provider grouping, support tier, and current-provider display
 - model profile persistence
 - model cache read/write and refresh behavior
 - fake provider `flow model test`
 - local endpoint `/models` parsing
 - manual custom endpoint acceptance with warning
+- beta provider labeling
 - auth-store read/write with safe permissions where supported
 - viewer backend profile resolution with env override
 - provider capability warnings in context packets or API status
@@ -478,7 +502,9 @@ Provider support is complete for the first production slice when:
 
 - `flow model` gives a Hermes-style provider selection experience.
 - LlamaStudio and LM Studio are both first-class named local providers.
-- At least one account-backed provider and one direct API-key provider work.
+- OpenAI, Gemini, local OpenAI-compatible, and OpenRouter can be configured and
+  tested when credentials/endpoints are available.
+- Anthropic is either validated and promoted to Tier 1 or clearly labeled beta.
 - A custom OpenAI-compatible endpoint can be configured and tested.
 - The active provider/model is persisted outside the project source tree.
 - The viewer backend resolves the active provider profile.
