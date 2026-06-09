@@ -13,8 +13,7 @@ import Viewer from './components/Viewer'
 import FileDropZone from './components/FileDropZone'
 import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
-import SourcePanel from './components/SourcePanel'
-import CommandPane from './components/CommandPane'
+import DesignThreadDock from './components/DesignThreadDock'
 import { calculateMeshMetrics } from './meshMetrics'
 import {
   MODEL_WIREFRAME_COLOR,
@@ -42,6 +41,14 @@ import type {
   ViewerOccurrence,
   ViewerPart,
   ViewerPartsPayload,
+  DesignThreadSummary,
+  DesignThreadRecord,
+  CreateDesignThreadPayload,
+  DesignThreadChatPayload,
+  DesignThreadChatResponse,
+  DesignThreadsPayload,
+  ThreadContextSnapshot,
+  ThreadViewportMeasurement,
 } from './types'
 
 const IDENTITY_OCCURRENCE: ViewerOccurrence = {
@@ -255,6 +262,43 @@ function apiUrl(baseUrl: string, path: string) {
   return new URL(path, `${baseUrl}/`).toString()
 }
 
+function _uniqueModelPartIds(partIds: string[]) {
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const partId of partIds) {
+    if (seen.has(partId)) continue
+    seen.add(partId)
+    result.push(partId)
+  }
+  return result
+}
+
+function captureViewportScreenshot() {
+  const canvas = document.querySelector('.workspace-canvas canvas') as HTMLCanvasElement | null
+  if (!canvas) return { viewportSize: null, screenshot: null }
+
+  const viewportSize = {
+    width: canvas.width,
+    height: canvas.height,
+    client_width: canvas.clientWidth,
+    client_height: canvas.clientHeight,
+  }
+
+  try {
+    return {
+      viewportSize,
+      screenshot: {
+        kind: 'viewport_screenshot',
+        content_type: 'image/png',
+        data_url: canvas.toDataURL('image/png'),
+      },
+    }
+  } catch (error) {
+    console.warn('Could not capture viewport screenshot:', error)
+    return { viewportSize, screenshot: null }
+  }
+}
+
 async function responseDetail(response: Response) {
   try {
     const payload = await response.json()
@@ -283,7 +327,9 @@ export default function App() {
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
   const [projectName, setProjectName] = useState<string | null>(null)
   const [activeVersion, setActiveVersion] = useState<string | null>(null)
+  const [activeAssemblyId, setActiveAssemblyId] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ViewerColorMode>('workbench')
+  const [leftDockTab, setLeftDockTab] = useState<'source' | 'chat'>('chat')
   const [partMetadataDrafts, setPartMetadataDrafts] = useState<Record<string, PartMetadataDraft>>({})
   const [previewContext, setPreviewContext] = useState<PreviewContext | null>(null)
   const [previewCommand, setPreviewCommand] = useState('')
@@ -301,6 +347,10 @@ export default function App() {
     discard: false,
   })
   const loadingPartIdsRef = useRef<Set<string>>(new Set())
+  const [threadSummaries, setThreadSummaries] = useState<DesignThreadSummary[]>([])
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
+  const [activeThread, setActiveThread] = useState<DesignThreadRecord | null>(null)
+  const [threadBusy, setThreadBusy] = useState(false)
 
   // Resizing state hooks
   const [sourceWidth, setSourceWidth] = useState(380)
@@ -408,6 +458,7 @@ export default function App() {
       setProjectName(payload.project_name)
     }
     setActiveVersion(payload.active_version ?? null)
+    setActiveAssemblyId(payload.active_assembly_id ?? null)
     const previousRevision = backendRevisionRef.current
     if (previousRevision !== null && payload.revision !== previousRevision) {
       setModels((prev) => prev.filter((model) => model.partId.startsWith('file:') || model.partId.startsWith('url:')))
@@ -432,6 +483,96 @@ export default function App() {
     })
     setStatusMessage(`${payload.parts.length} parts indexed`)
   }, [apiBase])
+
+  const loadThread = useCallback(async (threadId: string) => {
+    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}`))
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as DesignThreadRecord
+    setActiveThread(payload)
+    setActiveThreadId(threadId)
+    return payload
+  }, [apiBase])
+
+  const loadThreadSummaries = useCallback(async (options: { autoSelect?: boolean } = {}) => {
+    const { autoSelect = false } = options
+    setThreadBusy(true)
+    try {
+      const response = await fetch(apiUrl(apiBase, '/api/design-threads'))
+      if (!response.ok) {
+        return
+      }
+      const payload = await response.json() as DesignThreadsPayload
+      const nextThreads = payload.threads ?? []
+      setThreadSummaries(nextThreads)
+      if (autoSelect && !activeThreadId && nextThreads[0]) {
+        await loadThread(nextThreads[0].thread_id)
+      }
+    } catch (error) {
+      console.error('Failed to load design threads:', error)
+    } finally {
+      setThreadBusy(false)
+    }
+  }, [activeThreadId, apiBase, loadThread])
+
+  const createThread = useCallback(async (payload: CreateDesignThreadPayload) => {
+    setThreadBusy(true)
+    try {
+      const response = await fetch(apiUrl(apiBase, '/api/design-threads'), {
+        ...buildHeaders(payload),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      const created = await response.json() as DesignThreadRecord
+      await loadThread(created.thread_id)
+      await loadThreadSummaries()
+    } finally {
+      setThreadBusy(false)
+    }
+  }, [apiBase, loadThread, loadThreadSummaries])
+
+  const patchThread = useCallback(async (threadId: string, patch: Record<string, unknown>) => {
+    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as DesignThreadRecord
+    if (payload.thread_id === activeThreadId) {
+      setActiveThread(payload)
+    }
+    await loadThreadSummaries()
+    return payload
+  }, [apiBase, activeThreadId, loadThreadSummaries])
+
+  const createContextSnapshot = useCallback(async (threadId: string, snapshotPayload: Record<string, unknown>) => {
+    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/context-snapshots`), {
+      ...buildHeaders(snapshotPayload),
+    })
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const snapshot = await response.json() as ThreadContextSnapshot
+    await loadThread(threadId)
+    return snapshot
+  }, [apiBase, loadThread])
+
+  const sendThreadChatMessage = useCallback(async (threadId: string, payload: DesignThreadChatPayload) => {
+    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat`), buildHeaders(payload))
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const chat = await response.json() as DesignThreadChatResponse
+    setActiveThread(chat.thread)
+    setActiveThreadId(threadId)
+    await loadThreadSummaries()
+    return chat
+  }, [apiBase, loadThreadSummaries])
 
   const viewerParts = useMemo(
     () => parts.map((part) => mergePartDraft(part, partMetadataDrafts[part.id])),
@@ -583,6 +724,12 @@ export default function App() {
       setStatusMessage(`Viewer API unavailable: ${err.message}`)
     })
   }, [loadViewerState])
+
+  useEffect(() => {
+    loadThreadSummaries({ autoSelect: true }).catch((err) => {
+      console.error('Failed to load design threads:', err)
+    })
+  }, [loadThreadSummaries])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -1021,6 +1168,48 @@ export default function App() {
     () => Array.from(new Set(visibleModels.flatMap((model) => model.warnings))).slice(0, 3),
     [visibleModels],
   )
+  const visiblePartIds = useMemo(
+    () => _uniqueModelPartIds(visibleModels.map((model) => model.partId)),
+    [visibleModels],
+  )
+  const viewportMeasurements = useMemo<ThreadViewportMeasurement[]>(
+    () => previewModelPayload?.dimensions
+      ? [
+          {
+            id: `preview-dimensions-${previewModelPayload.transaction_token}`,
+            label: 'Draft preview dimensions',
+            distance_mm: previewModelPayload.dimensions.length_mm,
+            quality_label: previewModelPayload.quality_label,
+          },
+        ]
+      : [],
+    [previewModelPayload],
+  )
+  const buildViewerContextPayload = useCallback(() => {
+    const capture = captureViewportScreenshot()
+    return {
+      selected_part_ids: selectedIds,
+      visible_part_ids: visiblePartIds,
+      measurements: viewportMeasurements,
+      draft_transaction_token: draftTransactionToken,
+      draft_preview_token: null,
+      draft_preview_model_url: previewModelPayload?.model_url ?? null,
+      draft_preview_available: Boolean(previewModelPayload),
+      active_assembly_id: activeAssemblyId ?? previewContext?.active_assembly_id ?? null,
+      active_project_revision: backendRevisionRef.current,
+      context_note: 'viewport attached from chat',
+      viewport_size: capture.viewportSize,
+      viewport_screenshot: capture.screenshot,
+    }
+  }, [
+    activeAssemblyId,
+    draftTransactionToken,
+    previewContext,
+    previewModelPayload,
+    selectedIds,
+    viewportMeasurements,
+    visiblePartIds,
+  ])
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -1042,16 +1231,48 @@ export default function App() {
         projectName={projectName}
       />
       <div className="workspace-container">
-        <SourcePanel
-          context={sourceContext}
-          activeId={activeName}
-          collapsed={sourceCollapsed}
-          onToggle={() => {
+        <DesignThreadDock
+          activeTab={leftDockTab}
+          onTabChange={setLeftDockTab}
+          sourceContext={sourceContext}
+          activePartId={activeName}
+          leftDockCollapsed={sourceCollapsed}
+          sourceWidth={sourceWidth}
+          onToggleLeftDock={() => {
             setSourceCollapsed((value) => !value)
             setTimeout(() => handleFitToView(), 310)
           }}
-          width={sourceWidth}
-          isResizing={isResizingSource}
+          leftDockResizing={isResizingSource}
+          threads={threadSummaries}
+          activeThreadId={activeThreadId}
+          activeThread={activeThread}
+          threadBusy={threadBusy}
+          isThreadMuted={false}
+          selectedPartIds={selectedIds}
+          visiblePartIds={visiblePartIds}
+          activeProjectRevision={backendRevisionRef.current}
+          activeAssemblyId={activeAssemblyId ?? previewContext?.active_assembly_id ?? null}
+          previewModel={previewModelPayload}
+          acceptedArtifacts={acceptanceArtifacts}
+          proposalWarnings={proposalWarnings}
+          proposedOperations={proposedOperations}
+          hasTransaction={Boolean(draftTransactionToken)}
+          commandBusy={commandBusy}
+          previewContext={previewContext}
+          commandText={previewCommand}
+          onCommandChange={handlePreviewCommandChange}
+          onPropose={handlePropose}
+          onApply={handleApply}
+          onPreview={handlePreview}
+          onAccept={handleAccept}
+          onDiscard={handleDiscard}
+          onResetCommand={handleResetCommand}
+          onCreateThread={createThread}
+          onActivateThread={loadThread}
+          onPatchThread={patchThread}
+          onSendChatMessage={sendThreadChatMessage}
+          onBuildViewerContext={buildViewerContextPayload}
+          onCreateContextSnapshot={createContextSnapshot}
         />
         {sourceCollapsed ? null : (
           <div 
@@ -1097,24 +1318,6 @@ export default function App() {
             />
           </FileDropZone>
         </div>
-        <CommandPane
-          selectedPartId={activeName}
-          context={previewContext}
-          commandText={previewCommand}
-          proposalWarnings={proposalWarnings}
-          proposedOperations={proposedOperations}
-          previewModel={previewModelPayload}
-          acceptanceArtifacts={acceptanceArtifacts}
-          busy={commandBusy}
-          hasTransaction={Boolean(draftTransactionToken)}
-          onCommandChange={handlePreviewCommandChange}
-          onPropose={handlePropose}
-          onApply={handleApply}
-          onPreview={handlePreview}
-          onAccept={handleAccept}
-          onDiscard={handleDiscard}
-          onReset={handleResetCommand}
-        />
         {partsCollapsed ? null : (
           <div 
             className={`resize-handle right-handle ${isResizingParts ? 'active' : ''}`}

@@ -717,6 +717,7 @@ export default function Viewer(props: ViewerProps) {
     >
       <Canvas
         camera={{ position: [140, 110, 140], fov: 45 }}
+        gl={{ preserveDrawingBuffer: true }}
         shadows
         style={{ width: '100%', height: '100%' }}
         onPointerDown={(event) => {

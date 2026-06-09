@@ -8,6 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from flow_cad.draft_geometry import DraftGeometryError
+from flow_cad.viewer.threads import (
+    DesignThreadService,
+    ThreadNotFoundError,
+    ThreadStorageError,
+)
 from flow_cad.viewer.service import ArtifactNotFoundError, ViewerError, ViewerService
 
 
@@ -16,10 +21,16 @@ def _project_root_from_env() -> Path | None:
     return Path(value).resolve() if value else None
 
 
-def create_app(service: ViewerService | None = None, project_root: Path | None = None) -> FastAPI:
+def create_app(
+    service: ViewerService | None = None,
+    project_root: Path | None = None,
+    thread_service: DesignThreadService | None = None,
+) -> FastAPI:
     viewer_service = service or ViewerService(project_root or _project_root_from_env())
+    design_threads = thread_service or DesignThreadService(viewer_service)
     app = FastAPI(title="Flow CAD Viewer API")
     app.state.viewer_service = viewer_service
+    app.state.design_threads = design_threads
 
     app.add_middleware(
         CORSMiddleware,
@@ -36,6 +47,55 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
             "project_root": str(viewer_service.project_root),
             "revision": viewer_service.revision,
         }
+
+    @app.get("/api/design-threads")
+    def list_design_threads() -> dict[str, object]:
+        return design_threads.list_threads()
+
+    @app.post("/api/design-threads")
+    def create_design_thread(payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.create_thread(payload)
+        except ThreadStorageError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/design-threads/{thread_id}")
+    def get_design_thread(thread_id: str) -> dict[str, object]:
+        try:
+            return design_threads.get_thread(thread_id)
+        except ThreadNotFoundError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.patch("/api/design-threads/{thread_id}")
+    def patch_design_thread(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.patch_thread(thread_id, payload)
+        except ThreadNotFoundError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/messages")
+    def post_design_thread_message(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.append_message(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/chat")
+    def post_design_thread_chat(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.chat_turn(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/context-snapshots")
+    def create_design_thread_context_snapshot(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.create_context_snapshot(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError, ViewerError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
     @app.get("/api/parts")
     def parts() -> dict[str, object]:

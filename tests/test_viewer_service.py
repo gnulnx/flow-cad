@@ -304,6 +304,11 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/draft-transactions/{transaction_token}/model" in route_paths
     assert "/api/draft-transactions/{transaction_token}/status" in route_paths
     assert "/api/draft-transactions/{transaction_token}/accept" in route_paths
+    assert "/api/design-threads" in route_paths
+    assert "/api/design-threads/{thread_id}" in route_paths
+    assert "/api/design-threads/{thread_id}/messages" in route_paths
+    assert "/api/design-threads/{thread_id}/chat" in route_paths
+    assert "/api/design-threads/{thread_id}/context-snapshots" in route_paths
     assert "/api/reload" in route_paths
 
 

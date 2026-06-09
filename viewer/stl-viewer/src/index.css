@@ -831,6 +831,523 @@ body {
 }
 
 /* ==========================================================================
+   Design Thread Dock
+   ========================================================================== */
+.dock-tabset {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  flex-shrink: 0;
+}
+
+.dock-tab {
+  min-height: 38px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dock-tab:last-child {
+  border-right: 0;
+}
+
+.dock-tab:hover,
+.dock-tab.active {
+  background: rgba(6, 182, 212, 0.12);
+  color: var(--text-primary);
+}
+
+.dock-source,
+.design-thread-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dock-source {
+  flex-direction: column;
+}
+
+.design-thread-rows {
+  display: grid;
+  grid-template-rows: minmax(136px, 0.35fr) minmax(0, 1fr);
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.design-thread-column {
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+
+.design-thread-toolbar,
+.design-thread-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+}
+
+.design-thread-toolbar h2,
+.design-thread-toolbar-row h2,
+.thread-tools h2 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.thread-form,
+.thread-rename-form {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.thread-form input,
+.thread-rename-form input,
+.thread-composer textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.thread-form input,
+.thread-rename-form input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 10px 10px;
+  list-style: none;
+  overflow-y: auto;
+  max-height: calc(100% - 50px);
+}
+
+.thread-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.thread-title,
+.thread-inline-action {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.thread-title {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 9px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-list-item.active .thread-title,
+.thread-title:hover,
+.thread-inline-action:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.thread-inline-action {
+  min-height: 28px;
+  padding: 0 7px;
+}
+
+.thread-rename-form {
+  grid-column: 1 / -1;
+}
+
+.design-thread-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.thread-context-chips,
+.thread-context-actions,
+.thread-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+
+.thread-context-chips span,
+.context-pill {
+  max-width: 100%;
+  border: 1px solid rgba(6, 182, 212, 0.18);
+  border-radius: 6px;
+  background: rgba(6, 182, 212, 0.08);
+  color: var(--text-secondary);
+  padding: 4px 7px;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-error {
+  color: var(--warning-gold);
+  font-size: 12px;
+}
+
+.thread-message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 96px;
+  padding: 0 10px 10px;
+}
+
+.thread-message {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.thread-message-user_message {
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+.thread-message-tool_call,
+.thread-message-tool_result {
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.thread-message-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.thread-message p,
+.thread-empty,
+.thread-tool-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.thread-message-attachments,
+.thread-event-tools {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.thread-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+
+.thread-composer label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.thread-composer textarea {
+  min-height: 84px;
+  max-height: 160px;
+  padding: 8px;
+  resize: vertical;
+}
+
+.thread-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.thread-tools .command-pane {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  max-height: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.design-chat-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  flex-direction: column;
+  background: #080b15;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.018);
+  flex-shrink: 0;
+}
+
+.chat-title-block {
+  min-width: 0;
+}
+
+.chat-title-block h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-title-block p {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.chat-header-actions,
+.chat-context-actions,
+.chat-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.thread-drawer {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(13, 20, 37, 0.72);
+  flex-shrink: 0;
+}
+
+.thread-drawer .thread-form {
+  margin-bottom: 10px;
+}
+
+.thread-drawer .thread-list {
+  max-height: 180px;
+  padding: 0;
+}
+
+.chat-context-strip {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px 6px;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.chat-context-strip span {
+  border: 1px solid rgba(6, 182, 212, 0.18);
+  border-radius: 999px;
+  background: rgba(6, 182, 212, 0.08);
+  color: var(--text-secondary);
+  padding: 4px 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.chat-context-actions {
+  padding: 0 12px 10px;
+  flex-shrink: 0;
+}
+
+.chat-message-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.chat-message {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.chat-message-user {
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.chat-message-user .chat-message-avatar {
+  grid-column: 2;
+}
+
+.chat-message-user .chat-message-bubble {
+  grid-column: 1;
+  grid-row: 1;
+  border-color: rgba(99, 102, 241, 0.45);
+  background: rgba(99, 102, 241, 0.18);
+}
+
+.chat-message-avatar {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(124, 58, 237, 0.85);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chat-message-bubble {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-message-bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chat-message-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.chat-empty {
+  margin: auto;
+  max-width: 320px;
+  color: var(--text-secondary);
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-composer {
+  flex-shrink: 0;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: rgba(7, 10, 19, 0.96);
+}
+
+.chat-composer textarea {
+  width: 100%;
+  min-height: 88px;
+  max-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  padding: 10px 11px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.chat-composer textarea:focus {
+  border-color: var(--border-hover);
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.16);
+}
+
+.chat-composer-actions {
+  justify-content: space-between;
+  padding-top: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.chat-send {
+  min-width: 72px;
+}
+
+.advanced-thread-tools {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.advanced-thread-tools summary {
+  cursor: pointer;
+  padding: 9px 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.advanced-thread-tools[open] {
+  max-height: 50%;
+  overflow-y: auto;
+}
+
+.advanced-thread-tools .command-pane {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: rgba(5, 9, 19, 0.72);
+}
+
+/* ==========================================================================
    Measurement & HUD Overlay Styling
    ========================================================================== */
 .measurement-html {

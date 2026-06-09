@@ -181,6 +181,27 @@ class ViewerService:
             "parts": parts,
         }
 
+    def get_part_payload(self, component_id: str) -> dict[str, Any]:
+        definition = self._definition(component_id)
+        return self._part_payload(
+            definition,
+            self._placement_map().get(definition.id, []),
+            default_visible=definition.id in self._default_visible_part_keys(),
+        )
+
+    def part_source_context(self, component_id: str) -> dict[str, Any]:
+        definition = self._definition(component_id)
+        return self._part_source_context_payload(definition)
+
+    def runtime_context(self) -> dict[str, Any]:
+        return {
+            "project_id": self.project.project_id,
+            "project_name": self.project.name,
+            "active_assembly_id": self._active_assembly_id(),
+            "active_version": self._active_version(self._default_visible_part_keys()),
+            "revision": self.revision,
+        }
+
     def model_path(self, component_id: str) -> tuple[Path, str]:
         artifact = self._require_artifact(component_id)
         if artifact.source_format == "stl":

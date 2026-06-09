@@ -257,6 +257,8 @@ const sourcePayload = {
 let partsRevision = 0
 let healthRevision = 0
 let activeParts = partsPayload.parts
+let designThreads: MockDesignThread[] = []
+let snapshotCounter = 0
 let snapFeaturesPayload = {
   component_id: 'wheel_box_test_body',
   artifact_path: 'b3/exports/step/wheel_box/b3_wheel_box_test_body.step',
@@ -277,6 +279,29 @@ let snapFeaturesPayload = {
   warnings: [],
 }
 
+interface MockDesignThreadMessage {
+  message_id: string
+  thread_id: string
+  created_at: string
+  type: string
+  role: string
+  content: unknown
+  attachments: string[]
+  metadata: Record<string, unknown>
+}
+
+interface MockDesignThread {
+  schema_version: number
+  thread_id: string
+  title: string
+  status: string
+  archived: boolean
+  created_at: string
+  updated_at: string
+  messages: MockDesignThreadMessage[]
+  context_snapshots: Record<string, unknown>[]
+}
+
 function jsonResponse(payload: unknown) {
   return Promise.resolve(new Response(JSON.stringify(payload), {
     status: 200,
@@ -288,12 +313,43 @@ function mockArrayBufferResponse() {
   return Promise.resolve(new Response(new ArrayBuffer(8), { status: 200 }))
 }
 
+function jsonBody(init: RequestInit) {
+  if (typeof init.body !== 'string') return {}
+  return JSON.parse(init.body) as Record<string, unknown>
+}
+
+function threadSummary(thread: MockDesignThread) {
+  return {
+    thread_id: thread.thread_id,
+    title: thread.title,
+    status: thread.status,
+    archived: thread.archived,
+    created_at: thread.created_at,
+    updated_at: thread.updated_at,
+    message_count: thread.messages.length,
+  }
+}
+
+function commandTextarea() {
+  return screen.getByLabelText('Command', { selector: 'textarea' }) as HTMLTextAreaElement
+}
+
+async function openAdvancedTools(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByText('Advanced draft tools'))
+}
+
+async function openThreadDrawer(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: 'Threads' }))
+}
+
 describe('App source loading', () => {
   beforeEach(() => {
     viewerRenderProps.length = 0
     partsRevision = 0
     healthRevision = 0
     activeParts = partsPayload.parts
+    designThreads = []
+    snapshotCounter = 0
     snapFeaturesPayload = {
       ...snapFeaturesPayload,
       features: [...snapFeaturesPayload.features],
@@ -301,7 +357,125 @@ describe('App source loading', () => {
     }
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const url = input.toString()
+      const method = init.method ?? 'GET'
       if (url.endsWith('/api/parts')) return jsonResponse({ ...partsPayload, revision: partsRevision, parts: activeParts })
+      if (url.endsWith('/api/design-threads')) {
+        if (method === 'POST') {
+          const body = jsonBody(init)
+          const now = '2026-06-09T12:00:00Z'
+          const thread: MockDesignThread = {
+            schema_version: 1,
+            thread_id: `thread-${designThreads.length + 1}`,
+            title: String(body.title || `Thread ${designThreads.length + 1}`),
+            status: 'active',
+            archived: false,
+            created_at: now,
+            updated_at: now,
+            messages: [],
+            context_snapshots: [],
+          }
+          designThreads.push(thread)
+          return jsonResponse(thread)
+        }
+        return jsonResponse({
+          schema_version: 1,
+          count: designThreads.length,
+          threads: designThreads.map(threadSummary),
+        })
+      }
+      const designThreadMatch = url.match(/\/api\/design-threads\/([^/]+)(?:\/([^/]+))?$/)
+      if (designThreadMatch) {
+        const threadId = designThreadMatch[1]
+        const route = designThreadMatch[2]
+        const thread = designThreads.find((candidate) => candidate.thread_id === threadId)
+        if (!thread) return Promise.resolve(new Response('not found', { status: 404 }))
+        if (route === 'chat' && method === 'POST') {
+          const body = jsonBody(init)
+          const context = typeof body.context_snapshot === 'object' && body.context_snapshot !== null
+            ? body.context_snapshot as Record<string, unknown>
+            : {}
+          snapshotCounter += 1
+          const snapshot = {
+            schema_version: 1,
+            thread_id: thread.thread_id,
+            snapshot_id: `snap-${snapshotCounter}`,
+            selected_part_ids: context.selected_part_ids,
+            visible_part_ids: context.visible_part_ids,
+            measurements: context.measurements,
+            active_assembly_id: context.active_assembly_id,
+            active_project_revision: context.active_project_revision,
+            viewer_state: context,
+          }
+          thread.context_snapshots.push(snapshot)
+          const userMessage: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 1}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:01:00Z',
+            type: 'user_message',
+            role: 'user',
+            content: String(body.message || ''),
+            attachments: [],
+            metadata: { context_snapshot_id: snapshot.snapshot_id },
+          }
+          const assistantMessage: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 2}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:01:01Z',
+            type: 'assistant_message',
+            role: 'assistant',
+            content: 'Stub assistant response with view context.',
+            attachments: [],
+            metadata: { runtime: 'flow_cad_stub', context_snapshot_id: snapshot.snapshot_id },
+          }
+          thread.messages.push(userMessage, assistantMessage)
+          return jsonResponse({
+            thread_id: thread.thread_id,
+            messages: [userMessage, assistantMessage],
+            context_snapshot: snapshot,
+            thread,
+          })
+        }
+        if (route === 'messages' && method === 'POST') {
+          const body = jsonBody(init)
+          const message: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 1}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:01:00Z',
+            type: String(body.type || 'user_message'),
+            role: String(body.role || 'user'),
+            content: body.content ?? '',
+            attachments: [],
+            metadata: typeof body.metadata === 'object' && body.metadata !== null
+              ? body.metadata as Record<string, unknown>
+              : {},
+          }
+          thread.messages.push(message)
+          return jsonResponse(message)
+        }
+        if (route === 'context-snapshots' && method === 'POST') {
+          const body = jsonBody(init)
+          snapshotCounter += 1
+          const snapshot = {
+            schema_version: 1,
+            thread_id: thread.thread_id,
+            snapshot_id: `snap-${snapshotCounter}`,
+            selected_part_ids: body.selected_part_ids,
+            visible_part_ids: body.visible_part_ids,
+            measurements: body.measurements,
+            active_assembly_id: body.active_assembly_id,
+            active_project_revision: body.active_project_revision,
+          }
+          thread.context_snapshots.push(snapshot)
+          return jsonResponse(snapshot)
+        }
+        if (method === 'PATCH') {
+          const body = jsonBody(init)
+          if (typeof body.title === 'string') thread.title = body.title
+          if (typeof body.archived === 'boolean') thread.archived = body.archived
+          return jsonResponse(thread)
+        }
+        return jsonResponse(thread)
+      }
       if (url.endsWith('/preview-context')) {
         return jsonResponse(previewContextPayload)
       }
@@ -359,6 +533,7 @@ describe('App source loading', () => {
 
     await screen.findByText('wheel_box_test_body')
     await user.click(screen.getByText('wheel_box_test_body'))
+    await user.click(screen.getByRole('tab', { name: 'Source' }))
 
     await screen.findByText('src/flow_cad/parts/wheel_box/prototype.py')
     expect(document.querySelector('.source-code')?.textContent).toContain('make_wheel_box_test_body')
@@ -460,9 +635,10 @@ describe('App source loading', () => {
     render(<App />)
     await screen.findByText('wheel_box_test_body')
     await user.click(screen.getByText('wheel_box_test_body'))
+    await openAdvancedTools(user)
 
     await screen.findByText('120 × 80 × 40 mm')
-    await screen.findByText('b3_v2_wheel_box')
+    expect(await screen.findAllByText('b3_v2_wheel_box')).not.toHaveLength(0)
     await screen.findByText('docs/PART_INTERFACES.md')
     expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/parts/wheel_box_test_body/preview-context')
   })
@@ -473,8 +649,9 @@ describe('App source loading', () => {
     render(<App />)
     await screen.findByText('wheel_box_test_body')
     await user.click(screen.getByText('wheel_box_test_body'))
+    await openAdvancedTools(user)
 
-    await user.type(screen.getByLabelText('Command'), proposalPayload.command)
+    await user.type(commandTextarea(), proposalPayload.command)
     await user.click(screen.getByRole('button', { name: 'Propose' }))
 
     await screen.findByText('box: resize base panel to 120 x 45 x 3 mm')
@@ -498,7 +675,8 @@ describe('App source loading', () => {
 
     await screen.findByText('wheel_box_test_body')
     await user.click(screen.getByText('wheel_box_test_body'))
-    await user.type(screen.getByLabelText('Command'), 'Make this a 120 x 45 x 3 mm panel')
+    await openAdvancedTools(user)
+    await user.type(commandTextarea(), 'Make this a 120 x 45 x 3 mm panel')
 
     await user.click(screen.getByRole('button', { name: 'Propose' }))
     await user.click(screen.getByRole('button', { name: 'Apply' }))
@@ -518,6 +696,83 @@ describe('App source loading', () => {
     })
   })
 
+  it('creates a design thread, attaches viewer context, and appends a chat message', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByText('wheel_box_test_body'))
+    await openThreadDrawer(user)
+    await user.type(screen.getByLabelText('New thread title'), 'Panel review')
+    await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+
+    await screen.findByText('Panel review')
+    await user.click(screen.getByRole('button', { name: 'Attach view' }))
+    await screen.findByText('snap-1')
+
+    await user.type(screen.getByLabelText('Thread message composer'), 'Move the holes to the front face')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    await screen.findByText('Move the holes to the front face')
+    await screen.findByText('Stub assistant response with view context.')
+    expect(designThreads[0].context_snapshots[0]).toMatchObject({
+      selected_part_ids: ['wheel_box_test_body'],
+      visible_part_ids: ['wheel_box_test_body'],
+      active_assembly_id: 'b3_v2_wheel_box',
+      active_project_revision: 0,
+    })
+    expect(designThreads[0].messages[0]).toMatchObject({
+      type: 'user_message',
+      role: 'user',
+      content: 'Move the holes to the front face',
+      metadata: {
+        context_snapshot_id: 'snap-2',
+      },
+    })
+    expect(designThreads[0].messages[1]).toMatchObject({
+      type: 'assistant_message',
+      role: 'assistant',
+      content: 'Stub assistant response with view context.',
+      metadata: {
+        runtime: 'flow_cad_stub',
+        context_snapshot_id: 'snap-2',
+      },
+    })
+  })
+
+  it('recovers persisted design thread history on browser reload', async () => {
+    designThreads = [
+      {
+        schema_version: 1,
+        thread_id: 'thread-existing',
+        title: 'Recovered thread',
+        status: 'active',
+        archived: false,
+        created_at: '2026-06-09T12:00:00Z',
+        updated_at: '2026-06-09T12:02:00Z',
+        messages: [
+          {
+            message_id: 'msg-existing',
+            thread_id: 'thread-existing',
+            created_at: '2026-06-09T12:02:00Z',
+            type: 'user_message',
+            role: 'user',
+            content: 'Persisted design note',
+            attachments: [],
+            metadata: {},
+          },
+        ],
+        context_snapshots: [],
+      },
+    ]
+
+    render(<App />)
+
+    await screen.findByText('Recovered thread')
+    await screen.findByText('Persisted design note')
+  })
+
   it('clears draft preview state on discard and accept', async () => {
     const user = userEvent.setup()
 
@@ -525,7 +780,8 @@ describe('App source loading', () => {
 
     await screen.findByText('wheel_box_test_body')
     await user.click(screen.getByText('wheel_box_test_body'))
-    await user.type(screen.getByLabelText('Command'), 'Make this a 120 x 45 x 3 mm panel')
+    await openAdvancedTools(user)
+    await user.type(commandTextarea(), 'Make this a 120 x 45 x 3 mm panel')
     await user.click(screen.getByRole('button', { name: 'Propose' }))
     await user.click(screen.getByRole('button', { name: 'Apply' }))
     await user.click(screen.getByRole('button', { name: 'Preview' }))
@@ -546,8 +802,8 @@ describe('App source loading', () => {
       expect(screen.getByText('No preview generated yet.')).toBeInTheDocument()
     })
 
-    await user.clear(screen.getByLabelText('Command'))
-    await user.type(screen.getByLabelText('Command'), 'Make this a 120 x 45 x 3 mm panel')
+    await user.clear(commandTextarea())
+    await user.type(commandTextarea(), 'Make this a 120 x 45 x 3 mm panel')
     await user.click(screen.getByRole('button', { name: 'Propose' }))
 
     // Rebuild and accept to verify accept also clears draft geometry.

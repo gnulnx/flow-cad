@@ -105,6 +105,164 @@ export interface SourceContext {
   excerpt: string
 }
 
+export interface ThreadViewportMeasurement {
+  id: string
+  label: string
+  distance_mm: number
+  quality_label: string
+}
+
+export interface ThreadViewportState {
+  camera: {
+    position: [number, number, number]
+    look_direction: [number, number, number]
+    up: [number, number, number]
+    quaternion: [number, number, number, number]
+    fov: number
+  }
+  viewport: {
+    width: number
+    height: number
+  }
+}
+
+export interface ThreadContextSnapshot {
+  schema_version?: number
+  thread_id?: string
+  snapshot_id: string
+  created_at?: string
+  selected_part_ids: string[]
+  visible_part_ids: string[]
+  measurements?: ThreadViewportMeasurement[]
+  warnings?: string[]
+  project?: Record<string, unknown>
+  parts?: Record<string, unknown>
+  viewport?: Record<string, unknown>
+  camera?: Record<string, unknown> | null
+  viewer_state?: Record<string, unknown>
+  draft_transaction?: {
+    token: string
+    status?: string
+    error?: string
+  } | null
+  draft_transaction_token?: string | null
+  draft_preview_token?: string | null
+  draft_preview_model_url?: string | null
+  draft_preview_available?: boolean
+  active_assembly_id?: string | null
+  camera_state?: ThreadViewportState
+  active_project_revision?: number | null
+  context_note?: string
+}
+
+export type DesignThreadEventType =
+  | 'user_message'
+  | 'assistant_message'
+  | 'tool_call'
+  | 'tool_result'
+  | 'context_snapshot'
+  | 'draft_event'
+  | 'review_event'
+  | 'status'
+  | 'system'
+
+export interface DesignThreadMessagePayload {
+  type: 'user_message' | 'assistant_message' | 'tool_call' | 'tool_result' | 'status' | 'system'
+  role: 'user' | 'assistant' | 'system'
+  content: string | Record<string, unknown>
+  attachments?: string[]
+  metadata?: Record<string, unknown>
+}
+
+export interface DesignThreadToolCallPayload {
+  kind: 'tool_call'
+  tool: string
+  summary: string
+  inputs?: unknown
+}
+
+export interface DesignThreadToolResultPayload {
+  kind: 'tool_result'
+  tool: string
+  status: 'success' | 'error'
+  summary: string
+  details?: Record<string, unknown>
+}
+
+export interface DesignThreadEvent {
+  schema_version?: number
+  message_id: string
+  thread_id: string
+  created_at?: string
+  type: DesignThreadEventType
+  role?: 'user' | 'assistant' | 'system'
+  content: string | Record<string, unknown>
+  attachments?: string[]
+  metadata?: Record<string, unknown>
+}
+
+export interface DesignThreadRecord {
+  thread_id: string
+  schema_version?: number
+  title: string
+  status: string
+  archived?: boolean
+  created_at: string
+  updated_at: string
+  project_id?: string
+  project_name?: string
+  active_version?: string | null
+  active_assembly_id?: string | null
+  active_part_id?: string | null
+  summary?: string
+  tags?: string[]
+  linked_part_ids?: string[]
+  linked_draft_transaction_tokens?: string[]
+  accepted_artifact_paths?: string[]
+  warnings?: string[]
+  message_count?: number
+  snapshot_count?: number
+  messages: DesignThreadEvent[]
+  context_snapshots?: ThreadContextSnapshot[]
+}
+
+export interface DesignThreadSummary {
+  thread_id: string
+  title: string
+  status: string
+  archived?: boolean
+  created_at?: string
+  updated_at: string
+  message_count?: number
+  active_part_id?: string | null
+}
+
+export interface DesignThreadsPayload {
+  threads: DesignThreadSummary[]
+}
+
+export interface CreateDesignThreadPayload {
+  title?: string
+  thread_id?: string
+  summary?: string
+  tags?: string[]
+  linked_part_ids?: string[]
+  linked_draft_transaction_tokens?: string[]
+  accepted_artifact_paths?: string[]
+}
+
+export interface DesignThreadChatPayload {
+  message: string
+  context_snapshot?: Record<string, unknown>
+}
+
+export interface DesignThreadChatResponse {
+  thread_id: string
+  messages: DesignThreadEvent[]
+  context_snapshot?: ThreadContextSnapshot | null
+  thread: DesignThreadRecord
+}
+
 export interface ModelData {
   name: string
   partId: string
