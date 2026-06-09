@@ -14,13 +14,14 @@ The current draft API supports:
 - add basic face counterbores
 - add rounded slots
 - add simple louver patterns as repeated rounded slots
+- mirror features to an opposing parallel face
 - measure draft parts
 - export draft STEP preview files
 - discard draft runtime state
 
 The API does not yet implement source promotion, draft transactions, viewer UI
-editing, neighboring-part preview, feature mirroring, or source patch generation.
-Those belong to later performance-plan steps.
+editing, neighboring-part preview, or source patch generation. Those belong to
+later performance-plan steps.
 
 ## Isolation Contract
 
@@ -59,6 +60,11 @@ Supported face names:
 | right | +X | Y width | Z height |
 | left | -X | Y width | Z height |
 
+Feature mirroring copies all features from a source face to the opposing
+parallel face pair: `top`/`bottom`, `front`/`back`, or `left`/`right`. Mirrored
+features keep the same face-local `x`/`y` coordinates and feature parameters,
+while their axes follow the target face normal.
+
 ## Returned Facts
 
 Every operation returns the current draft facts:
@@ -88,6 +94,7 @@ POST   /api/drafts/{draft_token}/holes
 POST   /api/drafts/{draft_token}/counterbores
 POST   /api/drafts/{draft_token}/slots
 POST   /api/drafts/{draft_token}/louver-patterns
+POST   /api/drafts/{draft_token}/mirror-features
 GET    /api/drafts/{draft_token}/measure
 POST   /api/drafts/{draft_token}/export-step
 DELETE /api/drafts/{draft_token}
@@ -120,6 +127,7 @@ Tools:
 - `draft_add_counterbore`
 - `draft_add_slot`
 - `draft_add_louver_pattern`
+- `draft_mirror_features`
 - `draft_measure`
 - `draft_export_step`
 - `draft_discard`

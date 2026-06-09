@@ -234,6 +234,26 @@ def build_server() -> FastMCP:
             angle=angle,
         )
 
+    @mcp.tool(name="draft_mirror_features", description="Mirror draft features to the opposing parallel face.")
+    def draft_mirror_features_tool(
+        draft_token: str,
+        source_face: str,
+        target_face: str,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "draft_mirror_features called. project_root=%s draft_token=%s source_face=%s target_face=%s",
+            project_root,
+            draft_token,
+            source_face,
+            target_face,
+        )
+        return draft_store(project_root).mirror_features(
+            draft_token,
+            source_face=source_face,
+            target_face=target_face,
+        )
+
     @mcp.tool(name="draft_measure", description="Measure a draft part and return structured geometry facts.")
     def draft_measure_tool(draft_token: str, project_root: str | None = None) -> dict[str, object]:
         LOGGER.info("draft_measure called. project_root=%s draft_token=%s", project_root, draft_token)
@@ -251,8 +271,8 @@ def build_server() -> FastMCP:
 
     LOGGER.info(
         "Registered MCP tools: draft_create_box, draft_set_panel_thickness, draft_add_hole, "
-        "draft_add_counterbore, draft_add_slot, draft_add_louver_pattern, draft_measure, "
-        "draft_export_step, draft_discard"
+        "draft_add_counterbore, draft_add_slot, draft_add_louver_pattern, draft_mirror_features, "
+        "draft_measure, draft_export_step, draft_discard"
     )
     return mcp
 

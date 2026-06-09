@@ -324,6 +324,22 @@ def _bbox_payload(shape) -> dict[str, Any]:
     }
 
 
+def _copy_feature_to_face(feature: DraftFeature, *, feature_id: str, face: str) -> DraftFeature:
+    return DraftFeature(
+        id=feature_id,
+        kind=feature.kind,
+        face=face,
+        x=feature.x,
+        y=feature.y,
+        diameter=feature.diameter,
+        through=feature.through,
+        depth=feature.depth,
+        length=feature.length,
+        width=feature.width,
+        angle=feature.angle,
+    )
+
+
 class DraftGeometryStore:
     """Draft-only panel geometry operations backed by project-local state."""
 
@@ -485,6 +501,32 @@ class DraftGeometryStore:
                     length=slot_length,
                     width=slot_width,
                     angle=_float_value("angle", angle),
+                )
+            )
+        draft.preview_step_path = None
+        self._write_state(draft)
+        return self._payload(draft)
+
+    def mirror_features(self, draft_token: str, *, source_face: str, target_face: str) -> dict[str, Any]:
+        draft = self._require(draft_token)
+        source = _face(source_face)
+        target = _face(target_face)
+        if source.name == target.name:
+            raise DraftGeometryError("source_face and target_face must be different")
+        if source.normal_axis != target.normal_axis:
+            raise DraftGeometryError("source_face and target_face must be opposing faces with matching local dimensions")
+
+        features_to_mirror = [feature for feature in draft.features if feature.face == source.name]
+        if not features_to_mirror:
+            raise DraftGeometryError(f"No features found on source face: {source.name}")
+
+        for feature in features_to_mirror:
+            id_prefix = feature.id.rsplit("_", maxsplit=1)[0] if "_" in feature.id else feature.kind
+            draft.features.append(
+                _copy_feature_to_face(
+                    feature,
+                    feature_id=self._next_feature_id(draft, id_prefix),
+                    face=target.name,
                 )
             )
         draft.preview_step_path = None

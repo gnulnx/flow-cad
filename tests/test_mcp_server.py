@@ -56,6 +56,7 @@ def test_build_server_registers_draft_geometry_tools(monkeypatch) -> None:
     assert "draft_add_counterbore" in server.tools
     assert "draft_add_slot" in server.tools
     assert "draft_add_louver_pattern" in server.tools
+    assert "draft_mirror_features" in server.tools
     assert "draft_measure" in server.tools
     assert "draft_export_step" in server.tools
     assert "draft_discard" in server.tools
@@ -85,12 +86,19 @@ def test_mcp_draft_tools_write_only_project_local_draft_state(monkeypatch, tmp_p
         4.2,
         project_root=str(tmp_path),
     )
+    mirrored = server.tools["draft_mirror_features"](
+        draft_token,
+        "top",
+        "bottom",
+        project_root=str(tmp_path),
+    )
     measured = server.tools["draft_measure"](draft_token, project_root=str(tmp_path))
     exported = server.tools["draft_export_step"](draft_token, project_root=str(tmp_path))
     preview_path = Path(str(exported["preview_step_path"]))
 
+    assert mirrored["hole_centers"][1]["axis"] == [0.0, 0.0, -1.0]
     assert measured["bounding_box"]["size"] == [120.0, 45.0, 3.0]
-    assert measured["hole_centers"][0]["axis"] == [0.0, 0.0, 1.0]
+    assert [center["axis"] for center in measured["hole_centers"]] == [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]]
     assert preview_path.exists()
     assert preview_path.is_relative_to(tmp_path / ".flow" / "drafts")
     assert not preview_path.is_relative_to(tmp_path / "exports")

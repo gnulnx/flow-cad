@@ -56,6 +56,40 @@ def test_draft_panel_operations_return_facts_and_isolated_preview_step(tmp_path:
     assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
 
 
+def test_draft_features_can_be_mirrored_to_opposing_face(tmp_path: Path) -> None:
+    store = _draft_store(tmp_path)
+    created = store.create_box_part(part_id="mirrored_panel", length=40.0, width=20.0, height=3.0)
+    draft_token = created["draft_token"]
+    store.add_hole(draft_token, face="top", x=8.0, y=6.0, diameter=3.2)
+    store.add_counterbore(draft_token, face="top", x=30.0, y=10.0, diameter=6.0, depth=1.0)
+    exported = store.export_draft_step(draft_token)
+
+    mirrored = store.mirror_features(draft_token, source_face="top", target_face="bottom")
+
+    assert mirrored["preview_step_path"] is None
+    assert Path(str(exported["preview_step_path"])).exists()
+    assert [feature["face"] for feature in mirrored["feature_list"]] == ["top", "top", "bottom", "bottom"]
+    assert [feature["kind"] for feature in mirrored["feature_list"]] == ["hole", "counterbore", "hole", "counterbore"]
+    assert mirrored["feature_list"][2]["parameters"]["x"] == 8.0
+    assert mirrored["feature_list"][2]["parameters"]["y"] == 6.0
+    assert mirrored["hole_centers"][2]["axis"] == [0.0, 0.0, -1.0]
+    assert mirrored["hole_centers"][2]["center"] == [-12.0, -4.0, 0.0]
+    assert mirrored["hole_centers"][3]["axis"] == [0.0, 0.0, -1.0]
+
+
+def test_draft_feature_mirroring_requires_opposing_faces_with_features(tmp_path: Path) -> None:
+    store = _draft_store(tmp_path)
+    created = store.create_box_part(part_id="bad_mirror_panel", length=40.0, width=20.0, height=3.0)
+    draft_token = created["draft_token"]
+    store.add_hole(draft_token, face="top", x=8.0, y=6.0, diameter=3.2)
+
+    with pytest.raises(DraftGeometryError, match="opposing faces"):
+        store.mirror_features(draft_token, source_face="top", target_face="front")
+
+    with pytest.raises(DraftGeometryError, match="No features found"):
+        store.mirror_features(draft_token, source_face="bottom", target_face="top")
+
+
 def test_draft_state_can_be_reloaded_from_local_runtime_state(tmp_path: Path) -> None:
     store = _draft_store(tmp_path)
     created = store.create_box_part(part_id="reload_panel", length=20.0, width=10.0, height=2.0)

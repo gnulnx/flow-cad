@@ -177,7 +177,7 @@ Simple panels should not require an agent to hand-write a new Python generator
 before the user can see anything.
 
 Flow CAD should expose draft operations through MCP and the viewer backend. A
-minimum panel API could be:
+minimum draft-only panel API could be:
 
 ```text
 create_box_part(id, length, width, height, material, role)
@@ -189,7 +189,6 @@ add_louver_pattern(part_id, face, count, pitch, width, height, angle)
 mirror_features(part_id, source_face, target_face)
 measure_part(part_id)
 export_draft_step(part_id)
-promote_draft_to_source(part_id, target_file)
 ```
 
 For a basic panel, the draft interaction should be close to:
@@ -216,10 +215,15 @@ source.
 
 The initial draft-only operation API is documented in
 `docs/DraftGeometryAPI.md`. This covers draft box/panel creation, thickness
-changes, holes, slots, basic counterbores, louver-pattern slots, measurements,
-preview STEP export, viewer-backend routes, and MCP tools while keeping draft
-artifacts isolated under project-local runtime state. Transactions, viewer UI
-editing, and source promotion remain later steps.
+changes, holes, slots, basic counterbores, louver-pattern slots, feature
+mirroring, measurements, preview STEP export, viewer-backend routes, and MCP
+tools while keeping draft artifacts isolated under project-local runtime state.
+Transactions, viewer UI editing, and source promotion remain later steps.
+
+Direct `promote_draft_to_source(part_id, target_file)` is intentionally not part
+of the draft-only API. Promotion belongs behind transaction `accept()` and the
+Phase 3 source-promotion tools, where Flow CAD can generate reviewable source
+patches instead of hidden project-source mutations.
 
 ### 4. Use Geometry Transactions
 

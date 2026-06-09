@@ -272,6 +272,7 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/drafts/{draft_token}/holes" in route_paths
     assert "/api/drafts/{draft_token}/counterbores" in route_paths
     assert "/api/drafts/{draft_token}/slots" in route_paths
+    assert "/api/drafts/{draft_token}/mirror-features" in route_paths
     assert "/api/drafts/{draft_token}/measure" in route_paths
     assert "/api/drafts/{draft_token}/export-step" in route_paths
     assert "/api/reload" in route_paths
@@ -415,6 +416,15 @@ def test_viewer_backend_exposes_draft_panel_operations(tmp_path) -> None:
     measured = measure_response.json()
     assert measured["bounding_box"]["size"] == [120.0, 45.0, 3.0]
     assert measured["hole_centers"][0]["center"] == [-48.0, -14.5, 0.0]
+
+    mirror_response = client.post(
+        f"/api/drafts/{draft_token}/mirror-features",
+        json={"source_face": "top", "target_face": "bottom"},
+    )
+    assert mirror_response.status_code == 200
+    mirrored = mirror_response.json()
+    assert [feature["face"] for feature in mirrored["feature_list"]] == ["top", "bottom"]
+    assert mirrored["hole_centers"][1]["axis"] == [0.0, 0.0, -1.0]
 
     export_response = client.post(f"/api/drafts/{draft_token}/export-step")
     assert export_response.status_code == 200

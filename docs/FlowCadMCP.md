@@ -56,6 +56,7 @@ Draft geometry tools:
 - `draft_add_counterbore`
 - `draft_add_slot`
 - `draft_add_louver_pattern`
+- `draft_mirror_features`
 - `draft_measure`
 - `draft_export_step`
 - `draft_discard`

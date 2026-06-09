@@ -116,6 +116,14 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
+    @app.post("/api/drafts/{draft_token}/mirror-features")
+    def draft_mirror_features(draft_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_mirror_features(draft_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
     @app.get("/api/drafts/{draft_token}/measure")
     def draft_measure(draft_token: str) -> dict[str, object]:
         try:

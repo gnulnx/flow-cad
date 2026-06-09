@@ -311,6 +311,13 @@ class ViewerService:
             angle=payload.get("angle", 0.0),
         )
 
+    def draft_mirror_features(self, draft_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.mirror_features(
+            draft_token,
+            source_face=payload["source_face"],
+            target_face=payload["target_face"],
+        )
+
     def draft_measure(self, draft_token: str) -> dict[str, Any]:
         return self.drafts.measure_part(draft_token)
 
