@@ -68,7 +68,10 @@ flow start
 
 `flow start` runs the viewer API and frontend, scans for nearby free ports when
 the preferred ports are busy, and opens the browser by default. Use
-`--no-open-browser` for server-only startup.
+`--no-open-browser` for server-only startup. Agent/model defaults resolve from
+`~/.flow/config.toml` and project-local `.flow/config.toml`; if no runtime is
+configured and the local `codex` CLI is available, `flow start` selects Codex for
+the viewer process.
 
 Ask a running workbench to refresh project source, registry, geometry, and cache
 state:

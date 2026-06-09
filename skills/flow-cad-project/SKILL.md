@@ -11,7 +11,11 @@ initialized by `flow init`.
 ## Core Rules
 
 - Edit project source in `flow/`; do not hand-edit generated files in `exports/`
-  or local runtime state in `.flow/`.
+  or local runtime state in `.flow/`, except for intentional project-local
+  runtime preferences in `.flow/config.toml`.
+- Use `~/.flow/config.toml` for user-wide model/profile defaults and
+  `.flow/config.toml` for project-local overrides. Do not store provider secrets
+  or account tokens in project-local config.
 - Keep reusable Flow CAD runtime/tooling changes in the Flow CAD source repo,
   then reinstall that runtime editable before verifying the project.
 - Run `flow cad build` before viewer review or handoff. It refreshes STEP/STL

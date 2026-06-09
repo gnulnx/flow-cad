@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
+from flow_cad.config import AgentProfile, FlowCadConfig, load_flow_config
 from flow_cad.draft_geometry import DraftGeometryError
 from flow_cad.viewer.agent_runtime import (
     AgentRuntimeClient,
@@ -30,25 +31,30 @@ def _project_root_from_env() -> Path | None:
     return Path(value).resolve() if value else None
 
 
-def _agent_runtime_from_env(project_root: Path | None = None) -> AgentRuntimeClient:
-    runtime = (os.environ.get("FLOW_CAD_AGENT_RUNTIME") or "").strip().lower()
-    if runtime == "codex":
+def _agent_runtime_from_config(project_root: Path, config: FlowCadConfig) -> AgentRuntimeClient:
+    profile = config.active_agent_profile()
+    provider = profile.normalized_provider
+    if provider == "codex":
         return CodexExecAgentRuntimeClient(
-            project_root=str((project_root or Path.cwd()).resolve()),
-            codex_command=os.environ.get("FLOW_CAD_CODEX_COMMAND", "codex"),
-            model=os.environ.get("FLOW_CAD_CODEX_MODEL") or None,
-            sandbox=os.environ.get("FLOW_CAD_CODEX_SANDBOX", "read-only"),
-            request_timeout=float(os.environ.get("FLOW_CAD_CODEX_TIMEOUT", "120")),
+            project_root=str(project_root.resolve()),
+            codex_command=profile.command or "codex",
+            model=profile.model,
+            sandbox=profile.sandbox or "read-only",
+            request_timeout=profile.timeout_seconds or 120.0,
         )
 
-    endpoint = os.environ.get("FLOW_CAD_AGENT_RUNTIME_ENDPOINT")
-    if endpoint:
+    if profile.endpoint:
         return LlamaCppAgentRuntimeClient(
-            endpoint=endpoint,
-            model=os.environ.get("FLOW_CAD_AGENT_RUNTIME_MODEL", "llama3"),
-            default_profile=os.environ.get("FLOW_CAD_AGENT_RUNTIME_PROFILE", "default"),
+            endpoint=profile.endpoint,
+            model=profile.model or "llama3",
+            default_profile=profile.id,
         )
     return FakeAgentRuntimeClient()
+
+
+def _agent_runtime_from_env(project_root: Path | None = None) -> AgentRuntimeClient:
+    resolved_root = (project_root or Path.cwd()).resolve()
+    return _agent_runtime_from_config(resolved_root, load_flow_config(resolved_root))
 
 
 def _cad_safe_tools() -> list[dict[str, Any]]:
@@ -140,6 +146,7 @@ def _agent_turn_runtime_inputs(
     payload: dict[str, object],
     prepared: dict[str, Any],
     agent_runtime: AgentRuntimeClient,
+    profile: AgentProfile,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str | dict[str, Any] | None, dict[str, Any]]:
     context_packet = design_threads.assistant_context_packet(
         thread_id,
@@ -148,8 +155,19 @@ def _agent_turn_runtime_inputs(
     thread = prepared.get("thread") if isinstance(prepared.get("thread"), dict) else design_threads.get_thread(thread_id)
     messages = thread.get("messages", []) if isinstance(thread.get("messages"), list) else []
     model_profile = payload.get("model_profile") if isinstance(payload.get("model_profile"), (str, dict)) else None
+    if model_profile is None:
+        model_profile = {
+            "profile_id": profile.id,
+            "provider": profile.provider,
+            "model": profile.model,
+            "reasoning": profile.reasoning,
+        }
     metadata_base = {
         "runtime": agent_runtime.__class__.__name__,
+        "agent_profile_id": profile.id,
+        "agent_provider": profile.provider,
+        **({"agent_model": profile.model} if profile.model else {}),
+        **({"agent_reasoning": profile.reasoning} if profile.reasoning else {}),
         **(
             {"context_snapshot_id": prepared["context_snapshot"]["snapshot_id"]}
             if isinstance(prepared.get("context_snapshot"), dict)
@@ -208,23 +226,26 @@ def _persist_agent_runtime_event(
     return None
 
 
-def _agent_runtime_health(agent_runtime: AgentRuntimeClient) -> dict[str, Any]:
+def _agent_runtime_health(agent_runtime: AgentRuntimeClient, profile: AgentProfile) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "class": agent_runtime.__class__.__name__,
+        "profile_id": profile.id,
+        "profile_label": profile.display_name,
+        "provider": profile.provider,
+        "model": profile.model,
+        "reasoning": profile.reasoning,
     }
     if isinstance(agent_runtime, CodexExecAgentRuntimeClient):
         payload.update(
             {
-                "provider": "codex",
                 "command": agent_runtime.codex_command,
-                "model": agent_runtime.model,
                 "sandbox": agent_runtime.sandbox,
             }
         )
     elif isinstance(agent_runtime, LlamaCppAgentRuntimeClient):
-        payload.update({"provider": "llama_cpp"})
+        payload.update({"endpoint": profile.endpoint})
     elif isinstance(agent_runtime, FakeAgentRuntimeClient):
-        payload.update({"provider": "fake"})
+        pass
     return payload
 
 
@@ -233,14 +254,19 @@ def create_app(
     project_root: Path | None = None,
     thread_service: DesignThreadService | None = None,
     agent_runtime_client: AgentRuntimeClient | None = None,
+    config: FlowCadConfig | None = None,
 ) -> FastAPI:
     viewer_service = service or ViewerService(project_root or _project_root_from_env())
     design_threads = thread_service or DesignThreadService(viewer_service)
-    agent_runtime = agent_runtime_client or _agent_runtime_from_env(viewer_service.project_root)
+    flow_config = config or viewer_service.project.config
+    agent_profile = flow_config.active_agent_profile()
+    agent_runtime = agent_runtime_client or _agent_runtime_from_config(viewer_service.project_root, flow_config)
     app = FastAPI(title="Flow CAD Viewer API")
     app.state.viewer_service = viewer_service
     app.state.design_threads = design_threads
     app.state.agent_runtime = agent_runtime
+    app.state.flow_config = flow_config
+    app.state.agent_profile = agent_profile
 
     app.add_middleware(
         CORSMiddleware,
@@ -256,7 +282,12 @@ def create_app(
             "ok": True,
             "project_root": str(viewer_service.project_root),
             "revision": viewer_service.revision,
-            "agent_runtime": _agent_runtime_health(agent_runtime),
+            "config": {
+                "user_config_path": str(flow_config.user_config_path),
+                "project_config_path": str(flow_config.project_config_path) if flow_config.project_config_path else None,
+                "sources": [str(path) for path in flow_config.sources],
+            },
+            "agent_runtime": _agent_runtime_health(agent_runtime, agent_profile),
         }
 
     @app.get("/api/design-threads")
@@ -318,6 +349,7 @@ def create_app(
                 payload,
                 prepared,
                 agent_runtime,
+                agent_profile,
             )
             assistant_chunks: list[str] = []
             persisted_messages = [prepared["user_message"]]
@@ -375,6 +407,7 @@ def create_app(
                 payload,
                 prepared,
                 agent_runtime,
+                agent_profile,
             )
 
             yield _sse({"message": prepared["user_message"]})

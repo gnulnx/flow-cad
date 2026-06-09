@@ -841,6 +841,12 @@ Start with PS-0 from `docs/ProviderSupport.md`: a narrow Codex runtime bridge.
 This validates the user's current Codex plan before Flow CAD commits to the full
 provider framework.
 
+The first config foundation is now in place: `FlowCadConfig`, `AgentConfig`, and
+`AgentProfile` live in `src/flow_cad/config.py`; user defaults resolve from
+`~/.flow/config.toml` or `$FLOW_CAD_HOME/config.toml`; project-local overrides
+resolve from `.flow/config.toml`; and `FlowCadProject` carries the resolved
+config object.
+
 The Codex bridge should:
 
 - use the local `codex` CLI/runtime

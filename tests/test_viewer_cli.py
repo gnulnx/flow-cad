@@ -122,3 +122,28 @@ def test_viewer_env_respects_explicit_agent_runtime(tmp_path, monkeypatch) -> No
 
     assert env["FLOW_CAD_AGENT_RUNTIME"] == "fake"
     assert "FLOW_CAD_AGENT_RUNTIME_AUTODETECTED" not in env
+
+
+def test_viewer_env_respects_project_agent_config(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("FLOW_CAD_AGENT_RUNTIME", raising=False)
+    monkeypatch.delenv("FLOW_CAD_AGENT_RUNTIME_ENDPOINT", raising=False)
+    monkeypatch.setattr(viewer_cli.shutil, "which", lambda _command: "/usr/bin/codex")
+    config_path = tmp_path / ".flow" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        """
+[agent]
+default_profile = "local-fast"
+
+[agent.profiles.local-fast]
+provider = "llama-cpp"
+endpoint = "http://127.0.0.1:1234/v1"
+model = "local-test"
+""",
+        encoding="utf-8",
+    )
+
+    env = _viewer_env(tmp_path, "http://127.0.0.1:8123")
+
+    assert "FLOW_CAD_AGENT_RUNTIME" not in env
+    assert "FLOW_CAD_AGENT_RUNTIME_AUTODETECTED" not in env

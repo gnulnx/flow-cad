@@ -15,6 +15,8 @@ from pathlib import Path
 
 import rich_click as click
 
+from flow_cad.config import load_flow_config
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -119,7 +121,14 @@ def _viewer_env(project_root: Path, backend_url: str) -> dict[str, str]:
     env["FLOW_CAD_PROJECT_ROOT"] = str(project_root.resolve())
     env["FLOW_CAD_NO_VITE_OPEN"] = "1"
     env["VITE_FLOW_CAD_API"] = backend_url
-    if "FLOW_CAD_AGENT_RUNTIME" not in env and "FLOW_CAD_AGENT_RUNTIME_ENDPOINT" not in env and shutil.which("codex"):
+    config = load_flow_config(project_root, env=env)
+    profile = config.active_agent_profile()
+    if (
+        "FLOW_CAD_AGENT_RUNTIME" not in env
+        and "FLOW_CAD_AGENT_RUNTIME_ENDPOINT" not in env
+        and profile.normalized_provider == "fake"
+        and shutil.which("codex")
+    ):
         env["FLOW_CAD_AGENT_RUNTIME"] = "codex"
         env["FLOW_CAD_AGENT_RUNTIME_AUTODETECTED"] = "codex"
     return env

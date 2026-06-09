@@ -34,6 +34,7 @@ python -m pip install -e /home/gnulnx/flow-cad
 - Public CLI entry point: `src/flow_cad/cli.py` via `flow`
 - Build command implementation: `src/flow_cad/main.py`
 - Project manifest/bootstrap/runtime model: `src/flow_cad/project.py`
+- Flow CAD user/project runtime config model: `src/flow_cad/config.py`
 - Core export, cache, report, snapshot, and metadata logic: `src/flow_cad/core/`
 - Viewer API and STEP-first geometry authority: `src/flow_cad/viewer/`
 - Browser viewer frontend: `viewer/stl-viewer/`
@@ -98,6 +99,25 @@ If the shell Python lacks test dependencies, use this checkout's virtualenv:
 ```bash
 .venv/bin/python -m pytest
 ```
+
+## Runtime Config
+
+Flow CAD runtime configuration is represented by dataclasses in
+`src/flow_cad/config.py` and should be passed as a `FlowCadConfig` object through
+runtime code. Do not pass partial config fragments, loose provider dictionaries,
+or one-off model settings through unrelated APIs.
+
+- User defaults live in `~/.flow/config.toml`, or `$FLOW_CAD_HOME/config.toml`
+  when `FLOW_CAD_HOME` is set.
+- Project-local overrides live in `.flow/config.toml` under the Flow CAD project
+  root.
+- `FlowCadProject.paths.config` is the project-local config path and
+  `FlowCadProject.config` is the resolved config object.
+- Environment variables remain a temporary/CI escape hatch and should be folded
+  into `FlowCadConfig` at the boundary.
+- Secrets and OAuth tokens do not belong in project-local `.flow/config.toml`.
+  Store only provider/profile selection and non-secret endpoint/model metadata
+  there.
 
 ## Validation Rules
 

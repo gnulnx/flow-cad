@@ -192,25 +192,22 @@ metadata as text/JSON context.
 Model configuration is user-local by default. Project repos should not receive
 secrets or account tokens.
 
-Suggested storage:
+Implemented first-class config storage:
 
 ```text
-$FLOW_CAD_HOME/
-  config.json
-  model-profiles.json
-  model-cache/
-    <provider>.json
-  auth/
-    <provider>.json
+~/.flow/config.toml
+.flow/config.toml
 ```
 
-If `FLOW_CAD_HOME` is unset, use `~/.flow-cad/` for the first implementation to
-avoid adding another dependency. A later pass can adopt XDG directories if needed.
+If `FLOW_CAD_HOME` is set, user config resolves to
+`$FLOW_CAD_HOME/config.toml`; otherwise it resolves to `~/.flow/config.toml`.
+The resolved config is represented by `FlowCadConfig`, `AgentConfig`, and
+`AgentProfile` dataclasses in `src/flow_cad/config.py`.
 
 Project-specific overrides can live under `.flow/`:
 
 ```text
-.flow/model-profile.json
+.flow/config.toml
 ```
 
 Rules:
@@ -222,6 +219,30 @@ Rules:
   for CI and temporary testing.
 - Atomic writes are required for config, auth, and cache files.
 - Corrupt config should be backed up and reported with a clear recovery message.
+- Runtime code should pass `FlowCadConfig` through the app/project boundary
+  rather than passing partial provider dictionaries or loose model settings.
+
+Initial TOML shape:
+
+```toml
+[agent]
+default_profile = "codex-medium"
+
+[agent.profiles.codex-medium]
+provider = "codex"
+label = "Codex Medium"
+command = "codex"
+reasoning = "medium"
+sandbox = "read-only"
+timeout_seconds = 120
+
+[agent.profiles.local-fast]
+provider = "llama-cpp"
+label = "Local Fast"
+endpoint = "http://127.0.0.1:1234/v1"
+model = "local-model-name"
+reasoning = "none"
+```
 
 ## CLI UX
 

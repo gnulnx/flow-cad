@@ -189,6 +189,7 @@ def test_viewer_service_reports_active_version_and_hides_references_by_default(t
             reports=tmp_path / "reports",
             local_state=tmp_path / ".flow",
             cache=tmp_path / ".flow" / "registry.db",
+            config=tmp_path / ".flow" / "config.toml",
         ),
         docs=ProjectDocs(
             print_manifest=tmp_path / "docs" / "PRINT_MANIFEST.md",
@@ -318,6 +319,7 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
 
 
 def test_viewer_app_selects_codex_runtime_from_env(tmp_path, monkeypatch) -> None:
+    init_project(tmp_path)
     monkeypatch.setenv("FLOW_CAD_AGENT_RUNTIME", "codex")
     monkeypatch.setenv("FLOW_CAD_CODEX_COMMAND", "codex-test")
     monkeypatch.setenv("FLOW_CAD_CODEX_MODEL", "gpt-test")
@@ -335,6 +337,7 @@ def test_viewer_app_selects_codex_runtime_from_env(tmp_path, monkeypatch) -> Non
 
 
 def test_viewer_health_reports_agent_runtime(tmp_path, monkeypatch) -> None:
+    init_project(tmp_path)
     monkeypatch.setenv("FLOW_CAD_AGENT_RUNTIME", "codex")
     monkeypatch.setenv("FLOW_CAD_CODEX_COMMAND", "codex-test")
     monkeypatch.setenv("FLOW_CAD_CODEX_MODEL", "gpt-test")
@@ -348,11 +351,15 @@ def test_viewer_health_reports_agent_runtime(tmp_path, monkeypatch) -> None:
     payload = response.json()
     assert payload["agent_runtime"] == {
         "class": "CodexExecAgentRuntimeClient",
+        "profile_id": "env-codex",
+        "profile_label": "Codex",
         "provider": "codex",
-        "command": "codex-test",
         "model": "gpt-test",
+        "reasoning": None,
+        "command": "codex-test",
         "sandbox": "read-only",
     }
+    assert payload["config"]["project_config_path"] == str((tmp_path / ".flow" / "config.toml").resolve())
 
 
 def test_viewer_service_reload_and_direct_model(tmp_path) -> None:

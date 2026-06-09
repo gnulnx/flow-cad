@@ -573,6 +573,11 @@ two-step path:
    support promise: OpenAI, Gemini, LlamaStudio, LM Studio,
    local/OpenAI-compatible endpoints, OpenRouter, and beta Anthropic.
 
+The config foundation now uses `FlowCadConfig` dataclasses backed by
+`~/.flow/config.toml` or `$FLOW_CAD_HOME/config.toml` for user defaults and
+project-local `.flow/config.toml` for overrides. Runtime code should pass this
+resolved config object rather than partial provider/model fragments.
+
 LlamaStudio is a first-class provider alongside LM Studio, not a generic
 afterthought. Additional Hermes providers are out of scope for the first
 production slice unless there is user demand and a validation path.
