@@ -180,7 +180,7 @@ For text-only local models, the screenshot still improves the human record, and
 the assistant can use the annotation metadata plus viewer facts. For a future
 multimodal runtime, the same attachment can be sent as an image input.
 
-### Chat Runtime
+### Chat Runtime And Model Provider Broker
 
 Add an internal interface instead of binding Flow CAD directly to one model
 host:
@@ -189,9 +189,14 @@ host:
 AgentRuntimeClient.stream_chat(thread_id, messages, context_packet, tools, model_profile)
 ```
 
-The first implementation can be a local HTTP/SSE client that talks to a
-LlamaStudio-compatible or llama.cpp-compatible server. The Flow CAD service
-should own the CAD tool registry and should expose only safe Flow CAD tools:
+The runtime should be selected through a `flow model` provider broker documented
+in `docs/ProviderSupport.md`. This broker should follow the Hermes Agent model:
+users can pick local, hosted, account-backed, direct API, aggregator, or custom
+providers through one setup path. LlamaStudio and LM Studio are both first-class
+local providers, but neither should define the whole architecture.
+
+The Flow CAD service should own the CAD tool registry and should expose only
+safe Flow CAD tools:
 
 - read current viewer/project facts
 - create/update/discard draft transactions
@@ -200,32 +205,57 @@ should own the CAD tool registry and should expose only safe Flow CAD tools:
 - read profile summaries
 - return source-loop artifact summaries
 
-Do not expose LlamaStudio's generic `write_file` or shell `run_command` tools as
-the default Flow CAD viewer assistant path. CAD edits should go through Flow CAD
-draft, validation, and promotion services with the same filesystem boundaries as
-the current MCP tools.
+Do not expose generic `write_file`, `run_command`, shell, or broad filesystem
+tools as the default Flow CAD viewer assistant path. CAD edits should go through
+Flow CAD draft, validation, and promotion services with the same filesystem
+boundaries as the current MCP tools.
 
-## LlamaStudio Reuse Decision
+## Provider Setup Reuse Decision
 
-LlamaStudio is useful, but Flow CAD should not embed its current UI.
+Flow CAD should borrow provider setup behavior from Hermes Agent and local
+runtime behavior from LlamaStudio where each project is strongest.
+
+Hermes Agent reuse target:
+
+- provider picker and grouped provider UX
+- provider aliases and canonical provider profiles
+- auth modes for API key, OAuth, device login, local no-auth, and custom endpoint
+- live model discovery and cached model lists
+- provider-specific model validation fallbacks
+- config/secrets separation and atomic writes
+- fallback provider chains
+
+LlamaStudio reuse target:
+
+- local model runtime and profile concepts
+- local streaming event vocabulary where compatible
+- llama-server lifecycle handling
+- local tool-call loop patterns with bounded iterations
+
+LlamaStudio should remain a first-class named Flow CAD provider. LM Studio should
+also be a first-class named local provider. They are related local-runtime paths,
+but they are not the same integration.
 
 Reusable now:
 
-- conversation/thread persistence concepts
-- SSE event patterns for streaming text, reasoning, tool-call deltas, tool
-  execution start/end, and end/error markers
-- model/profile configuration ideas
-- llama-server lifecycle handling
-- tool-call loop with bounded iterations
-- frontend stream rendering patterns for reasoning and tool blocks
+- Hermes provider profile and registry patterns
+- Hermes auth/setup/model-discovery flows, copied or adapted with MIT
+  attribution where source is reused
+- Hermes tests around provider persistence, model validation, setup delegation,
+  and auth edge cases
+- LlamaStudio/LM Studio local endpoint probing and streaming adapter behavior
+- frontend stream rendering patterns for assistant text, reasoning, and tool
+  blocks
 
 Not directly reusable:
 
-- the HTMX/template frontend, because Flow CAD's viewer is React/Three
+- Hermes' full agent loop, because Flow CAD owns CAD context, tool boundaries,
+  and source-promotion rules
+- Hermes' generic workspace file and shell tools, because Flow CAD needs
+  CAD-specific operation boundaries
+- LlamaStudio's current UI, because Flow CAD's viewer is React/Three
 - global active-conversation assumptions, because Flow CAD needs project-scoped
   design threads
-- generic workspace file and shell tools, because Flow CAD needs CAD-specific
-  operation boundaries
 - a single `conversations.json` shape, because Flow CAD threads need screenshot
   attachments, context snapshots, draft transaction links, validator reports,
   and accepted artifact links
@@ -233,13 +263,13 @@ Not directly reusable:
 Recommended path:
 
 1. Build the Flow CAD thread store and React chat UI natively.
-2. Borrow LlamaStudio's SSE vocabulary and model/profile concepts where useful.
-3. Add an adapter that can call a running LlamaStudio or llama.cpp-compatible
-   server for streaming responses.
-4. Only extract a shared BLR local-agent runtime after a second application
-   needs the same code. The extraction target should be model lifecycle,
-   streaming, tool-call orchestration, and profiles, not the Flow CAD thread
-   schema or UI.
+2. Add the `flow model` provider broker from `docs/ProviderSupport.md`.
+3. Copy/adapt focused Hermes provider setup code rather than importing the whole
+   Hermes runtime.
+4. Add first-class local providers for LlamaStudio and LM Studio.
+5. Add hosted/account/API providers behind the same profile contract.
+6. Keep the `AgentRuntimeClient` boundary small so provider work does not leak
+   into the design-thread schema or CAD tool contracts.
 
 ## Required Backend Changes
 
@@ -653,8 +683,8 @@ and the production frontend build agree.
 ### CVR-6: Streaming Assistant Adapter
 
 Add a runtime-neutral streaming adapter with fake-runtime tests first, then a
-LlamaStudio or llama.cpp-compatible implementation. The adapter should receive
-compact context packets and CAD-safe tool schemas.
+provider-resolved implementation selected by `flow model`. The adapter should
+receive compact context packets and CAD-safe tool schemas.
 
 Done means a thread can stream assistant output and tool events without giving
 the assistant broad filesystem or shell access.
@@ -734,22 +764,30 @@ Tests:
 Done means the browser can receive incremental assistant output from the Flow
 CAD backend with the same persisted thread contract as non-streaming chat.
 
-#### CVR-6D: LlamaStudio Or llama.cpp-Compatible Client
+#### CVR-6D: Provider-Resolved Runtime Client
 
-Add a runtime implementation that can consume a local HTTP streaming endpoint
-using a LlamaStudio or llama.cpp-compatible event format. Keep it configurable
-through environment variables or service construction, and keep it optional so
-tests do not need a model server.
+Resolve the active model profile through the `flow model` provider broker. Keep
+environment variables as a temporary override for tests and local experiments,
+but make the saved provider profile the normal runtime source.
+
+Add the first concrete runtime clients behind the same adapter:
+
+- LlamaStudio
+- LM Studio
+- OpenAI-compatible local endpoint
+- fake provider for deterministic tests
 
 Tests:
 
-- line-oriented `data: {...}` chunks normalize into Flow CAD stream events
-- malformed chunks become structured warnings/errors without crashing the
-  stream
+- selected provider profiles resolve into runtime clients
+- env overrides still take precedence in tests
+- line-oriented `data: {...}` chunks normalize into Flow CAD stream events where
+  the provider uses SSE
+- malformed chunks become structured warnings/errors without crashing the stream
 - runtime configuration is optional and defaults to fake runtime in tests
 
-Done means Flow CAD has a concrete adapter path for a local model server without
-embedding another application's UI or generic workspace tool surface.
+Done means Flow CAD has concrete adapter paths for first-class local providers
+without embedding another application's UI or generic workspace tool surface.
 
 #### CVR-6E: Frontend Streaming Rendering
 
@@ -781,14 +819,32 @@ git diff --check
 Done means the runtime adapter, streaming API, persisted thread events,
 frontend incremental rendering, and production build are verified together.
 
-### CVR-7: LlamaStudio Shared Runtime Evaluation
+### CVR-7: Hermes-Style Model Provider Setup
 
-After CVR-6 works locally, decide whether to extract shared code from
-LlamaStudio. The extraction should be justified by real duplication between
-Flow CAD and at least one other BLR application.
+Implement the `flow model` provider broker described in
+`docs/ProviderSupport.md`. This is the provider setup layer for design-thread
+chat, worker packets, and future model-backed CAD tools.
 
-Done means there is either a small shared runtime package with tests or a
-documented decision to keep the adapter boundary only.
+The implementation should reuse Hermes Agent's MIT-licensed provider setup code
+where practical:
+
+- provider profiles and aliases
+- provider grouping and picker behavior
+- API-key/OAuth/device/custom-endpoint setup flows
+- model discovery, cache, validation, and soft-fallback behavior
+- fallback provider chains
+- config/secrets separation
+- regression tests around provider persistence and auth edge cases
+- a provider declaration shape that makes future Hermes provider updates easy to
+  compare and manually cherry-pick
+
+LlamaStudio and LM Studio must be first-class provider choices in this broker.
+OpenAI Codex is also important, but it is one provider among many, not the reason
+for the architecture.
+
+Done means `flow model` can select and test at least LlamaStudio, LM Studio, one
+hosted/account provider, one direct API-key provider, and one custom
+OpenAI-compatible endpoint, and the viewer backend can use the selected profile.
 
 ## Risks And Mitigations
 
@@ -800,7 +856,12 @@ documented decision to keep the adapter boundary only.
   explicit source-loop commands.
 - Screenshot trust: pair images with camera, visible part ids, selected ids, and
   backend facts so the assistant is not guessing from pixels alone.
-- Model-host coupling: keep `AgentRuntimeClient` small and runtime-neutral.
+- Model-host coupling: keep `AgentRuntimeClient` small and runtime-neutral, with
+  provider setup isolated in `flow model`.
+- Provider sprawl: copy Hermes' profile/registry/test patterns so adding a
+  provider is usually data plus a small setup strategy, not viewer code.
+- License drift: confirm Flow CAD's project license and preserve Hermes' MIT
+  notices before copying substantial source.
 - Project-specific leakage: keep robot-specific design intent in project
   validators, docs, and local skills; Flow CAD owns only the thread/runtime
   machinery.
@@ -819,14 +880,19 @@ The rework is complete when:
 - accepted drafts link to source patch, generated source, validator stub,
   acceptance manifest, and source-loop commands
 - focused validator results and profile summaries can be attached to the thread
+- `flow model` can configure the active provider/model through a Hermes-style
+  provider setup flow
+- LlamaStudio and LM Studio are both first-class local provider options
 - a streaming assistant can use the thread context and call CAD-safe tools
+  through the selected provider profile
 - no chat path mutates project source, exports, reports, or handoff bundles
   without the existing reviewable source-loop boundary
 
 ## Recommended Next Step
 
-Update `docs/PERFORMANCE.md` to add item 6A and revise the MCP roadmap so the
-viewer LLM interface is no longer just a late "pane that can call tools." Then
-start CVR-1 and CVR-2 before doing more UI polish. Persistence and context
-snapshots are the foundation; the chat UI and model adapter should sit on those
-contracts rather than becoming another transient command surface.
+Keep `docs/PERFORMANCE.md` pointed at this plan and
+`docs/ProviderSupport.md`. Start with the persisted design-thread contracts and
+the `flow model` provider scaffold before doing more UI polish. Persistence,
+context snapshots, and provider configuration are the foundation; chat streaming
+should sit on those contracts rather than becoming another transient command
+surface.

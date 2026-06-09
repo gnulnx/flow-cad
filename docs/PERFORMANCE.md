@@ -336,8 +336,11 @@ The later assistant slice covers:
 
 - a runtime-neutral streaming assistant adapter with CAD-safe tools rather than
   broad shell or filesystem access
-- evaluation of LlamaStudio as a reusable local-agent runtime source without
-  embedding its HTMX UI into the React/Three viewer
+- a Hermes Agent style model-provider setup layer, documented in
+  `docs/ProviderSupport.md`, so Flow CAD can use local, hosted, account-backed,
+  direct API, aggregator, and custom endpoint providers
+- first-class LlamaStudio and LM Studio local-provider integrations without
+  treating either one as the entire architecture
 
 Item 6A is complete only when the viewer has a real chat interface with durable
 history, can automatically attach full work context to a design turn, can retain
@@ -544,9 +547,9 @@ Add controlled promotion tools:
 
 Promotion should produce reviewable diffs, not hidden source edits.
 
-### Phase 4: Local Model Adapter For Design Threads
+### Phase 4: Model Provider Adapter For Design Threads
 
-After persistent design threads exist, add a local-model adapter that can use
+After persistent design threads exist, add a model-provider adapter that can use
 read-only facts, draft transactions, focused validators, profiles, viewport
 snapshots, and screenshot attachments from those threads. The assistant should
 never need to guess the selected part, visible context, frame, measurements,
@@ -556,6 +559,12 @@ facts automatically.
 This phase should use the MCP/shared-service tools as the safe CAD operation
 surface, but the user-facing experience is the project design thread, not a
 single command box.
+
+Provider setup is tracked in `docs/ProviderSupport.md`. The target is a
+Hermes-style `flow model` command that can configure LlamaStudio, LM Studio,
+OpenAI-compatible local endpoints, hosted aggregators, account-backed providers,
+direct API providers, fallback chains, and custom endpoints. LlamaStudio is a
+first-class provider alongside LM Studio, not a generic afterthought.
 
 ## Acceptance Criteria
 
@@ -572,6 +581,9 @@ The performance project is successful when:
 - The viewer has persistent design threads with message history, viewport
   context, screenshots, annotations, draft events, validator events, and accepted
   artifact links.
+- `flow model` provides a Hermes-style provider setup experience with durable
+  provider/model selection, model testing, capability metadata, and first-class
+  LlamaStudio and LM Studio local providers.
 - The viewer has a project-aware orientation cube that makes configured
   front/rear/top/bottom labels and selected-part local axes visible.
 - MCP tools can create boxes, holes, slots, and patterns as draft transactions.
@@ -588,9 +600,15 @@ The performance project is successful when:
 6. Add a left-dock `Source | Chat` viewer workspace with real chat history.
 7. Attach draft preview, validator, profile, screenshot, and accepted-artifact
    events to design threads.
-8. Add a small project-aware orientation cube to the viewer.
-9. Add a worker-packet template for Hermes/local model subtasks.
-10. Use the next simple panel change as the benchmark case.
+8. Scaffold `flow model` provider support from `docs/ProviderSupport.md`,
+   reusing Hermes Agent provider setup code where practical.
+9. Add first-class LlamaStudio and LM Studio provider adapters.
+10. Keep provider declarations close enough to Hermes that future provider fixes
+    can be manually cherry-picked without making automatic sync a first-pass
+    requirement.
+11. Add a small project-aware orientation cube to the viewer.
+12. Add a worker-packet template for Hermes/local model subtasks.
+13. Use the next simple panel change as the benchmark case.
 
 The first benchmark should be concrete:
 
