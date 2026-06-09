@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from flow_cad.core.metadata import PartDefinition, definition_export_subdir
 from flow_cad.draft_geometry import DraftGeometryStore
+from flow_cad.preview_commands import PreviewCommandContext, parse_panel_command
 from flow_cad.project import FlowCadProject, load_project
 from flow_cad.viewer.geometry_authority import (
     GeometryAuthorityError,
@@ -56,6 +57,13 @@ def _relative_path(path: Path, project_root: Path) -> str:
 
 def _as_float_tuple(values: tuple[float, float, float]) -> list[float]:
     return [float(values[0]), float(values[1]), float(values[2])]
+
+
+def _maybe_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _source_file_for_callable(func: Callable[..., Any]) -> Path | None:
@@ -253,6 +261,133 @@ class ViewerService:
             "excerpt": excerpt,
         }
 
+    def preview_context(self, component_id: str) -> dict[str, Any]:
+        definition = self._definition(component_id)
+        placement_map = self._placement_map()
+        default_visible_ids = self._default_visible_part_keys()
+
+        part_payload = self._part_payload(
+            definition,
+            placement_map.get(definition.id, []),
+            default_visible=definition.id in default_visible_ids,
+        )
+
+        context_payload = self._part_source_context_payload(definition)
+        snap_summary = self._preview_snap_feature_summary(component_id)
+        bounds_payload = self._preview_bounds_payload(component_id)
+        source_context_available = bool(context_payload.get("available"))
+
+        return {
+            **part_payload,
+            "component_id": definition.id,
+            "active_assembly_id": self._active_assembly_id(),
+            "source_context": context_payload,
+            "source_context_available": source_context_available,
+            "source_url": part_payload["source_url"] if source_context_available else None,
+            "snap_feature_summary": snap_summary,
+            "preview_bounds": bounds_payload,
+            "source_measurements": self._measurement_summary(
+                bounds_payload,
+                str(part_payload["geometry_authority"]),
+                "part",
+            ),
+            "project_frame": self._project_frame_payload(),
+            "local_frame": self._local_frame_payload(part_payload["occurrences"]),
+            "mating_contracts": self._mating_contracts_payload(),
+        }
+
+    def preview_command_proposal(self, payload: dict[str, Any]) -> dict[str, Any]:
+        command = str(payload.get("command") or "")
+        component_id = payload.get("part_id") or payload.get("component_id")
+        context = self._preview_command_context(component_id) if isinstance(component_id, str) and component_id else None
+        parsed = parse_panel_command(command, context=context)
+        result = parsed.to_payload()
+        result["part_id"] = component_id
+        return result
+
+    def draft_transaction_preview_model(self, transaction_token: str) -> dict[str, Any]:
+        preview_payload, _, display_stl_path = self._prepare_draft_preview_model(transaction_token)
+        geometry = geometry_for_artifact("step").to_payload()
+        step_path = Path(preview_payload["preview_step_path"]) if isinstance(preview_payload.get("preview_step_path"), str) else None
+        preview_step_path = str(step_path) if step_path is not None else None
+        draft_payload = preview_payload.get("draft") if isinstance(preview_payload.get("draft"), dict) else {}
+        dimensions = draft_payload.get("dimensions") if isinstance(draft_payload, dict) else None
+        feature_list = draft_payload.get("feature_list", []) if isinstance(draft_payload, dict) else []
+        feature_count = len(feature_list) if isinstance(feature_list, list) else 0
+        part_id = str(preview_payload.get("part_id") or draft_payload.get("part_id") or "")
+
+        return {
+            "ok": True,
+            "transaction_token": transaction_token,
+            "part_id": part_id,
+            "model_url": f"/api/draft-transactions/{transaction_token}/model",
+            "draft": draft_payload or preview_payload.get("draft"),
+            "preview_step_path": preview_step_path,
+            "preview_step_relative_path": _relative_path(step_path, self.project_root) if step_path is not None else None,
+            "source_step_path": preview_step_path,
+            "display_stl_path": str(display_stl_path),
+            "display_stl_relative_path": _relative_path(display_stl_path, self.project_root),
+            "geometry_authority": geometry["geometry_authority"],
+            "quality_label": geometry["quality_label"],
+            "source_format": "step",
+            "capabilities": geometry["capabilities"],
+            "warnings": geometry["warnings"],
+            "facts": self._draft_preview_facts(dimensions, feature_count),
+            "dimensions": self._draft_dimension_summary(dimensions),
+            "source_loop_commands": self._source_loop_commands(preview_payload),
+            **{
+                key: preview_payload.get(key)
+                for key in (
+                    "status",
+                    "generated_source_path",
+                    "generated_source_relative_path",
+                    "validator_stub_path",
+                    "validator_stub_relative_path",
+                    "source_patch_path",
+                    "source_patch_relative_path",
+                    "acceptance_manifest_path",
+                    "acceptance_manifest_relative_path",
+                )
+                if key in preview_payload
+            },
+        }
+
+    def draft_transaction_model(self, transaction_token: str) -> Path:
+        _, _, display_stl_path = self._prepare_draft_preview_model(transaction_token)
+        return display_stl_path
+
+    def draft_transaction_status(self, transaction_token: str) -> dict[str, Any]:
+        payload = self.drafts.transaction_measure(transaction_token)
+        return self._with_source_loop_metadata(payload)
+
+    def _prepare_draft_preview_model(self, transaction_token: str) -> tuple[dict[str, Any], Path, Path]:
+        status_payload = self.drafts.transaction_measure(transaction_token)
+        preview_step_path = status_payload.get("preview_step_path")
+
+        # Refresh draft step only when preview has never been generated for the
+        # current operation sequence.
+        status = str(status_payload.get("status") or "")
+        operations = status_payload.get("operations", []) or []
+        if (
+            not isinstance(preview_step_path, str)
+            or (status == "open" and operations and operations[-1].get("name") != "preview")
+        ):
+            status_payload = self.drafts.transaction_preview(transaction_token)
+            preview_step_path = status_payload.get("preview_step_path")
+
+        if not isinstance(preview_step_path, str):
+            raise ArtifactNotFoundError(f"Draft transaction preview has no STEP artifact yet: {transaction_token}")
+
+        step_path = Path(preview_step_path)
+        display_stl_path = self._transaction_preview_stl_path(transaction_token)
+        metadata_path = self._cached_metadata_path(display_stl_path)
+        if not self._display_cache_is_fresh(step_path, display_stl_path, metadata_path):
+            converted = self.converter(step_path, display_stl_path)
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            metadata_path.write_text(json.dumps(display_mesh_cache_metadata(step_path), indent=2, sort_keys=True))
+            display_stl_path = converted
+        return status_payload, step_path, display_stl_path
+
     def draft_create_box(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.drafts.create_box_part(
             id=payload.get("id"),
@@ -402,7 +537,8 @@ class ViewerService:
         return self.drafts.transaction_preview(transaction_token)
 
     def draft_transaction_accept(self, transaction_token: str) -> dict[str, Any]:
-        return self.drafts.accept_transaction(transaction_token)
+        payload = self.drafts.accept_transaction(transaction_token)
+        return self._with_source_loop_metadata(payload)
 
     def draft_transaction_discard(self, transaction_token: str) -> dict[str, Any]:
         return self.drafts.discard_transaction(transaction_token)
@@ -449,6 +585,192 @@ class ViewerService:
             "in_assembly": bool(occurrences),
             "default_visible": default_visible,
         }
+
+    def _part_source_context_payload(self, definition: PartDefinition) -> dict[str, Any]:
+        try:
+            context = self.source_context(definition.id)
+        except ArtifactNotFoundError:
+            return {
+                "available": False,
+            }
+
+        return {
+            "available": True,
+            "symbol": context["symbol"],
+            "file_path": context["file_path"],
+            "relative_file_path": context["relative_file_path"],
+        }
+
+    def _preview_command_context(self, component_id: str) -> PreviewCommandContext:
+        context = self.preview_context(component_id)
+        dimensions = context.get("source_measurements")
+        if not isinstance(dimensions, dict):
+            dimensions = {}
+        return PreviewCommandContext(
+            part_id=component_id,
+            length=_maybe_float(dimensions.get("length_mm")),
+            width=_maybe_float(dimensions.get("width_mm")),
+            thickness=_maybe_float(dimensions.get("height_mm")),
+        )
+
+    def _preview_snap_feature_summary(self, component_id: str) -> dict[str, Any]:
+        payload = self.snap_features(component_id)
+        return {
+            "available": True,
+            "source_format": payload.get("source_format"),
+            "count": len(payload.get("features", [])),
+            "warnings": payload.get("warnings", []),
+            "feature_quality": payload.get("geometry_authority"),
+        }
+
+    def _preview_bounds_payload(self, component_id: str) -> dict[str, Any] | None:
+        artifact = self._artifact(self._definition(component_id))
+        if artifact is None:
+            return None
+
+        display_path, _source_format = self.model_path(component_id)
+        bounds = self._mesh_bounds(display_path)
+        if bounds is None:
+            return None
+
+        return {
+            "artifact_path": _relative_path(display_path, self.project_root),
+            "source_format": "stl",
+            **bounds,
+        }
+
+    def _measurement_summary(
+        self,
+        bounds_payload: dict[str, Any] | None,
+        authority: str,
+        source: str,
+    ) -> dict[str, Any] | None:
+        if bounds_payload is None:
+            return None
+        size = bounds_payload.get("size")
+        if not isinstance(size, list) or len(size) != 3:
+            return None
+        return {
+            "length_mm": float(size[0]),
+            "width_mm": float(size[1]),
+            "height_mm": float(size[2]),
+            "authority": authority,
+            "source": source,
+        }
+
+    def _project_frame_payload(self) -> dict[str, Any]:
+        return {
+            "units": "mm",
+            "origin_mm": [0.0, 0.0, 0.0],
+            "axes": {
+                "x_positive": "right",
+                "y_positive": "front",
+                "z_positive": "top",
+            },
+        }
+
+    def _local_frame_payload(self, occurrences: Any) -> dict[str, Any]:
+        occurrence = occurrences[0] if isinstance(occurrences, list) and occurrences else {}
+        return {
+            "units": "mm",
+            "origin_mm": occurrence.get("location", [0.0, 0.0, 0.0]) if isinstance(occurrence, dict) else [0.0, 0.0, 0.0],
+            "rotation_deg": occurrence.get("rotation", [0.0, 0.0, 0.0]) if isinstance(occurrence, dict) else [0.0, 0.0, 0.0],
+            "axes": {
+                "x_positive": "part-local +X",
+                "y_positive": "part-local +Y",
+                "z_positive": "part-local +Z",
+            },
+        }
+
+    def _mating_contracts_payload(self) -> dict[str, Any]:
+        path = self.project.docs.part_interfaces
+        return {
+            "available": path.exists(),
+            "relative_path": _relative_path(path, self.project_root),
+            "summary": "Project mating-interface contracts live in the project part-interfaces document.",
+        }
+
+    def _draft_dimension_summary(self, dimensions: Any) -> dict[str, Any] | None:
+        if not isinstance(dimensions, dict):
+            return None
+        try:
+            length = float(dimensions["length"])
+            width = float(dimensions["width"])
+            height = float(dimensions["height"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return {
+            "length_mm": length,
+            "width_mm": width,
+            "height_mm": height,
+            "authority": "step_kernel",
+            "source": "preview",
+        }
+
+    def _draft_preview_facts(self, dimensions: Any, feature_count: int) -> list[str]:
+        facts: list[str] = []
+        summary = self._draft_dimension_summary(dimensions)
+        if summary is not None:
+            facts.append(
+                "Draft dimensions: "
+                f"{summary['length_mm']:g} x {summary['width_mm']:g} x {summary['height_mm']:g} mm"
+            )
+        facts.append(f"Draft features: {feature_count}")
+        return facts
+
+    def _mesh_bounds(self, mesh_path: Path) -> dict[str, Any] | None:
+        if mesh_path.suffix.lower() != ".stl":
+            return None
+
+        try:
+            from build123d import import_stl
+        except Exception as exc:  # pragma: no cover - depends on local CAD install
+            raise ConversionUnavailableError(
+                "Mesh bounds require build123d/OCP. Install project dependencies or configure the CAD environment."
+            ) from exc
+
+        try:
+            shape = import_stl(mesh_path)
+            bbox = shape.bounding_box()
+        except Exception:
+            return None
+
+        min_point = [float(bbox.min.X), float(bbox.min.Y), float(bbox.min.Z)]
+        max_point = [float(bbox.max.X), float(bbox.max.Y), float(bbox.max.Z)]
+        size = [max_point[index] - min_point[index] for index in range(3)]
+        center = [(min_point[index] + max_point[index]) / 2.0 for index in range(3)]
+        return {
+            "units": "mm",
+            "min": min_point,
+            "max": max_point,
+            "size": size,
+            "center": center,
+        }
+
+    def _transaction_preview_stl_path(self, transaction_token: str) -> Path:
+        return self.viewer_cache_dir / "draft-transactions" / transaction_token / "preview.stl"
+
+    def _source_loop_commands(self, transaction_payload: dict[str, Any]) -> list[str]:
+        token = transaction_payload.get("transaction_token", "")
+        part_id = str(transaction_payload.get("part_id") or transaction_payload.get("draft", {}).get("part_id") or "")
+        commands = [f"flow validate run panel-basic --draft-transaction {token}"]
+        if token and part_id:
+            commands.extend(
+                [
+                    f"flow cad build --part {part_id}",
+                    f"flow validate run panel-basic --part {part_id} --draft-transaction {token}",
+                ]
+            )
+        return commands
+
+    def _with_source_loop_metadata(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload["source_loop_commands"] = self._source_loop_commands(payload)
+        source_patch_path = payload.get("source_patch_path")
+        if isinstance(source_patch_path, str):
+            patch_path = Path(source_patch_path)
+            if patch_path.exists() and patch_path.is_relative_to(self.project.paths.local_state):
+                payload["source_patch_preview"] = patch_path.read_text(encoding="utf-8")[:4000]
+        return payload
 
     def _artifact(self, definition: PartDefinition) -> Artifact | None:
         export_subdir = definition_export_subdir(definition)

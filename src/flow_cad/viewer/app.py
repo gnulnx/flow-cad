@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from flow_cad.draft_geometry import DraftGeometryError
-from flow_cad.viewer.service import ViewerError, ViewerService
+from flow_cad.viewer.service import ArtifactNotFoundError, ViewerError, ViewerService
 
 
 def _project_root_from_env() -> Path | None:
@@ -65,6 +65,20 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
     def snap_features(component_id: str) -> dict[str, object]:
         try:
             return viewer_service.snap_features(component_id)
+        except ViewerError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/parts/{component_id}/preview-context")
+    def part_preview_context(component_id: str) -> dict[str, object]:
+        try:
+            return viewer_service.preview_context(component_id)
+        except ViewerError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/preview-commands/panel")
+    def preview_command_proposal(payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.preview_command_proposal(payload)
         except ViewerError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -219,6 +233,35 @@ def create_app(service: ViewerService | None = None, project_root: Path | None =
     def draft_transaction_preview(transaction_token: str) -> dict[str, object]:
         try:
             return viewer_service.draft_transaction_preview(transaction_token)
+        except DraftGeometryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/preview-model")
+    def draft_transaction_preview_model(transaction_token: str) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_preview_model(transaction_token)
+        except (DraftGeometryError, ViewerError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/draft-transactions/{transaction_token}/model")
+    def draft_transaction_model(transaction_token: str) -> FileResponse:
+        try:
+            path = viewer_service.draft_transaction_model(transaction_token)
+        except (DraftGeometryError, ArtifactNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        return FileResponse(
+            path,
+            media_type="model/stl",
+            filename=path.name,
+            headers={"X-Flow-CAD-Source-Format": "stl"},
+        )
+
+    @app.get("/api/draft-transactions/{transaction_token}/status")
+    def draft_transaction_status(transaction_token: str) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_status(transaction_token)
         except DraftGeometryError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

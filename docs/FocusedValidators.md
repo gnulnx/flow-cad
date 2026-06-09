@@ -405,6 +405,24 @@ Verification:
 - Manual command transcript in docs shows the intended loop.
 - `flow cad profile --last` identifies validator time by validator/check.
 
+Benchmark command transcript:
+
+```bash
+flow validate run panel-basic --draft-transaction <transaction-token> --json
+git apply .flow/draft-transactions/<transaction-token>/accept/source.patch
+# Register the reviewed generated part source in flow/assemblies/robot.py.
+flow cad build --part benchmark_panel --no-stl --no-snapshots --no-reports
+flow validate run panel-basic --part benchmark_panel --json
+flow cad profile --last
+```
+
+The deterministic regression for this loop is
+`tests/test_focused_validators.py::test_benchmark_panel_source_loop_accepts_builds_and_profiles`.
+It accepts the benchmark panel transaction, applies the review patch, registers
+the generated part, rebuilds only that touched part, runs `panel-basic` on the
+draft and STEP-backed source paths, and asserts the focused validator and source
+loop budgets.
+
 Done means:
 
 - A simple rectangular panel can be focused-validated in seconds, and slow

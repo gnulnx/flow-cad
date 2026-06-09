@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -208,6 +209,84 @@ def test_panel_validator_uses_draft_transaction_acceptance_facts() -> None:
         "panel_hole_diameter_mismatch",
         "panel_keepout_violation",
     }
+
+
+def test_benchmark_panel_source_loop_accepts_builds_and_profiles(tmp_path: Path, monkeypatch) -> None:
+    init_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    project = load_project(tmp_path, fallback_to_bundled=False)
+    store = DraftGeometryStore(project)
+
+    begun = store.begin_transaction(part_id="benchmark_panel")
+    token = str(begun["transaction_token"])
+    store.transaction_create_box(token, length=120.0, width=45.0, height=3.0, material="PETG")
+    store.transaction_add_hole(token, face="top", x=12.0, y=8.0, diameter=4.2)
+    store.transaction_add_hole(token, face="top", x=108.0, y=8.0, diameter=4.2)
+    store.transaction_add_louver_pattern(
+        token,
+        face="front",
+        count=3,
+        pitch=12.0,
+        x=60.0,
+        y=1.5,
+        width=10.0,
+        height=1.0,
+    )
+    accepted = store.accept_transaction(token)
+
+    draft_validate = runner.invoke(
+        flow,
+        ["validate", "run", "panel-basic", "--draft-transaction", token, "--json"],
+        catch_exceptions=False,
+    )
+    subprocess.run(["git", "apply", str(accepted["source_patch_path"])], cwd=tmp_path, check=True)
+
+    assembly_path = tmp_path / "flow" / "assemblies" / "robot.py"
+    assembly_source = assembly_path.read_text(encoding="utf-8")
+    assembly_source = assembly_source.replace(
+        "from flow.parts.example import make_example_block\n",
+        "from flow.parts.example import make_example_block\nfrom flow.parts.benchmark_panel import make_benchmark_panel\n",
+    )
+    assembly_source = assembly_source.replace(
+        '    PartDefinition("example_block", "example", "example_block.step", make_example_block),\n)',
+        (
+            '    PartDefinition("example_block", "example", "example_block.step", make_example_block),\n'
+            '    PartDefinition("benchmark_panel", "panel", "benchmark_panel.step", make_benchmark_panel, family="panel"),\n'
+            ")"
+        ),
+    )
+    assembly_path.write_text(assembly_source, encoding="utf-8")
+
+    source_loop_started = time.perf_counter()
+    build = runner.invoke(
+        flow,
+        ["cad", "build", "--part", "benchmark_panel", "--no-stl", "--no-snapshots", "--no-reports"],
+        catch_exceptions=False,
+    )
+    source_validate = runner.invoke(
+        flow,
+        ["validate", "run", "panel-basic", "--part", "benchmark_panel", "--json"],
+        catch_exceptions=False,
+    )
+    source_loop_ms = (time.perf_counter() - source_loop_started) * 1000.0
+    profile = runner.invoke(flow, ["cad", "profile", "--last"], catch_exceptions=False)
+
+    draft_payload = json.loads(draft_validate.output)
+    source_payload = json.loads(source_validate.output)
+
+    assert draft_validate.exit_code == 0
+    assert draft_payload["reports"][0]["input_summary"]["geometry_authority"] == "draft"
+    assert draft_payload["reports"][0]["elapsed_ms"] < 10_000.0
+    assert build.exit_code == 0
+    assert "Exported 1 STEP files to" in build.output
+    assert source_validate.exit_code == 0
+    assert source_payload["reports"][0]["ok"] is True
+    assert source_payload["reports"][0]["input_summary"]["geometry_authority"] == "step"
+    assert source_payload["reports"][0]["elapsed_ms"] < 10_000.0
+    assert source_loop_ms < 60_000.0
+    assert profile.exit_code == 0
+    assert "panel-basic" in profile.output
 
 
 def test_runner_reports_missing_validator_and_missing_manifest(tmp_path: Path, monkeypatch) -> None:

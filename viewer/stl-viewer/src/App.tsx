@@ -1,10 +1,20 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import {
+  type ChangeEvent,
+  type DragEvent as ReactDragEvent,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import Viewer from './components/Viewer'
 import FileDropZone from './components/FileDropZone'
 import ModelList from './components/ModelList'
 import Toolbar from './components/Toolbar'
 import SourcePanel from './components/SourcePanel'
+import CommandPane from './components/CommandPane'
 import { calculateMeshMetrics } from './meshMetrics'
 import {
   MODEL_WIREFRAME_COLOR,
@@ -18,7 +28,13 @@ import {
 import type {
   GeometryCapabilities,
   ModelData,
+  PreviewContext,
   PartMetadataDraft,
+  BackendPreviewOperation,
+  DraftPreviewModelPayload,
+  DraftAcceptanceArtifacts,
+  PreviewCommandProposal,
+  ProposedPreviewOperation,
   RotationMode,
   SnapFeature,
   SnapFeaturePayload,
@@ -46,6 +62,189 @@ const MESH_ONLY_CAPABILITIES: GeometryCapabilities = {
 }
 
 const CLIENT_STL_WARNING = 'STL-only mesh: viewing and approximate mesh measurements are available; exact CAD editing is disabled.'
+const PREVIEW_MODEL_COLOR = '#f97316'
+const PREVIEW_MODEL_WIREFRAME = '#fbbf24'
+const PREVIEW_MODEL_WARNINGS = ['Draft preview geometry: verify with source loop before accepting.']
+
+type ModelStateWriter = (updater: (previous: ModelData[]) => ModelData[]) => void
+
+function parsePositiveFloat(value: string) {
+  const numeric = Number.parseFloat(value)
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null
+}
+
+function fallbackParsePanelCommand(command: string): { operations: ProposedPreviewOperation[]; warnings: string[] } {
+  const lower = command.toLowerCase().trim()
+  if (!lower) {
+    return { operations: [], warnings: ['No command entered.'] }
+  }
+
+  const warnings: string[] = []
+  const operations: ProposedPreviewOperation[] = []
+
+  const dimensionMatch = lower.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i)
+  if (dimensionMatch) {
+    const length = parsePositiveFloat(dimensionMatch[1])
+    const width = parsePositiveFloat(dimensionMatch[2])
+    const thickness = parsePositiveFloat(dimensionMatch[3])
+    if (length && width && thickness) {
+      operations.push({
+        kind: 'box',
+        summary: `resize base panel to ${length} x ${width} x ${thickness} mm`,
+        payload: {
+          length,
+          width,
+          height: thickness,
+        },
+        endpoint: 'box',
+      })
+    }
+  }
+
+  const holeMatch = lower.match(/(\d+)\s*holes?[^\n]*(m\d+)\s*clearance/i)
+  if (holeMatch) {
+    const count = parsePositiveFloat(holeMatch[1])
+    const diameter = parsePositiveFloat(holeMatch[2].slice(1))
+    if (count && diameter) {
+      operations.push({
+        kind: 'hole',
+        summary: `add ${count} x m${diameter} clearance holes`,
+        payload: {
+          face: 'front',
+          count: count,
+          diameter,
+          x: 0,
+          y: 0,
+        },
+        endpoint: 'holes',
+      })
+    }
+  }
+
+  const louverMatch = lower.match(/(\d+)\s*louver/i)
+  if (louverMatch) {
+    const count = parsePositiveFloat(louverMatch[1])
+    if (count) {
+      operations.push({
+        kind: 'louver-patterns',
+        summary: `add ${count} louver pattern`,
+        payload: {
+          face: 'front',
+          count,
+          pitch: 10,
+          x: 0,
+          y: 0,
+          width: 3,
+          height: 8,
+          angle: 0,
+        },
+        endpoint: 'louver-patterns',
+      })
+    }
+  }
+
+  if (!operations.length) {
+    warnings.push('Unsupported command: no recognized geometry operations.')
+  }
+
+  return { operations, warnings }
+}
+
+function operationSummary(operation: BackendPreviewOperation) {
+  const params = operation.parameters
+  if (operation.name === 'create_box') {
+    return `resize base panel to ${params.length} x ${params.width} x ${params.height} mm`
+  }
+  if (operation.name === 'add_hole') {
+    return `add ${params.diameter} mm clearance hole on ${params.face}`
+  }
+  if (operation.name === 'add_louver_pattern') {
+    return `add ${params.count} louver pattern on ${params.face}`
+  }
+  if (operation.name === 'set_panel_thickness') {
+    return `set panel thickness to ${params.thickness} mm`
+  }
+  return operation.name
+}
+
+function proposedOperationFromBackend(operation: BackendPreviewOperation): ProposedPreviewOperation | null {
+  if (operation.name === 'create_box') {
+    return {
+      kind: 'box',
+      endpoint: 'box',
+      summary: operationSummary(operation),
+      payload: operation.parameters,
+    }
+  }
+  if (operation.name === 'add_hole') {
+    return {
+      kind: 'hole',
+      endpoint: 'holes',
+      summary: operationSummary(operation),
+      payload: operation.parameters,
+    }
+  }
+  if (operation.name === 'add_louver_pattern') {
+    return {
+      kind: 'louver-patterns',
+      endpoint: 'louver-patterns',
+      summary: operationSummary(operation),
+      payload: operation.parameters,
+    }
+  }
+  if (operation.name === 'set_panel_thickness') {
+    return {
+      kind: 'thickness',
+      endpoint: 'thickness',
+      summary: operationSummary(operation),
+      payload: operation.parameters,
+    }
+  }
+  return null
+}
+
+function proposalFromBackend(payload: PreviewCommandProposal) {
+  const operations = payload.operations
+    .map(proposedOperationFromBackend)
+    .filter((operation): operation is ProposedPreviewOperation => Boolean(operation))
+  return {
+    operations,
+    warnings: [...payload.warnings, ...payload.assumptions, ...payload.errors],
+  }
+}
+
+function buildHeaders(body: unknown) {
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  } satisfies RequestInit
+}
+
+function normalizeDraftEndpoint(base: string, token: string, route: string) {
+  return apiUrl(base, `/api/draft-transactions/${token}/${route}`)
+}
+
+function fallbackPreviewContext(part: ViewerPart): PreviewContext {
+  return {
+    component_id: part.id,
+    module_id: part.module_id,
+    family: part.family,
+    version: part.version,
+    role: part.role,
+    material: part.material,
+    artifact_format: part.artifact_format,
+    artifact_path: part.artifact_path,
+    source_context_available: Boolean(part.source_url),
+    source_url: part.source_url,
+    occurrences: part.occurrences,
+    geometry_authority: part.geometry_authority,
+    quality_label: part.quality_label,
+    capabilities: part.capabilities,
+    warnings: part.warnings,
+    source_measurements: null,
+  }
+}
 
 function backendBaseUrl() {
   const params = new URLSearchParams(window.location.search)
@@ -86,6 +285,21 @@ export default function App() {
   const [activeVersion, setActiveVersion] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ViewerColorMode>('workbench')
   const [partMetadataDrafts, setPartMetadataDrafts] = useState<Record<string, PartMetadataDraft>>({})
+  const [previewContext, setPreviewContext] = useState<PreviewContext | null>(null)
+  const [previewCommand, setPreviewCommand] = useState('')
+  const [proposedOperations, setProposedOperations] = useState<ProposedPreviewOperation[]>([])
+  const [proposalWarnings, setProposalWarnings] = useState<string[]>([])
+  const [draftTransactionToken, setDraftTransactionToken] = useState<string | null>(null)
+  const [previewModelPayload, setPreviewModelPayload] = useState<DraftPreviewModelPayload | null>(null)
+  const [acceptanceArtifacts, setAcceptanceArtifacts] = useState<DraftAcceptanceArtifacts | null>(null)
+  const [previewModels, setPreviewModels] = useState<ModelData[]>([])
+  const [commandBusy, setCommandBusy] = useState({
+    propose: false,
+    apply: false,
+    preview: false,
+    accept: false,
+    discard: false,
+  })
   const loadingPartIdsRef = useRef<Set<string>>(new Set())
 
   // Resizing state hooks
@@ -113,6 +327,7 @@ export default function App() {
       capabilities: MESH_ONLY_CAPABILITIES,
       warnings: [CLIENT_STL_WARNING],
     },
+    targetModelState: ModelStateWriter = setModels,
   ) => {
     const geometry = new STLLoader().parse(content)
     geometry.computeVertexNormals()
@@ -139,7 +354,7 @@ export default function App() {
       metrics,
     }
 
-    setModels((prev) => {
+    targetModelState((prev) => {
       const remaining = prev.filter((existing) => existing.partId !== partId)
       return [...remaining, model]
     })
@@ -196,6 +411,10 @@ export default function App() {
     const previousRevision = backendRevisionRef.current
     if (previousRevision !== null && payload.revision !== previousRevision) {
       setModels((prev) => prev.filter((model) => model.partId.startsWith('file:') || model.partId.startsWith('url:')))
+      setPreviewModels([])
+      setPreviewModelPayload(null)
+      setDraftTransactionToken(null)
+      setAcceptanceArtifacts(null)
       setSourceContext(null)
       setActiveName(null)
       setClearMeasurementsRequest((value) => value + 1)
@@ -218,6 +437,29 @@ export default function App() {
     () => parts.map((part) => mergePartDraft(part, partMetadataDrafts[part.id])),
     [partMetadataDrafts, parts],
   )
+
+  const clearDraftState = useCallback(() => {
+    setDraftTransactionToken(null)
+    setPreviewContext(null)
+    setPreviewCommand('')
+    setProposedOperations([])
+    setProposalWarnings([])
+    setPreviewModelPayload(null)
+    setAcceptanceArtifacts(null)
+    setPreviewModels([])
+  }, [])
+
+  const setBusy = useCallback((action: keyof typeof commandBusy, busy: boolean) => {
+    setCommandBusy((current) => ({ ...current, [action]: busy }))
+  }, [])
+
+  const activePreviewPartRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (activePreviewPartRef.current === activeName) return
+    activePreviewPartRef.current = activeName
+    clearDraftState()
+  }, [activeName, clearDraftState])
 
   const handlePartMetadataChange = useCallback((partId: string, patch: Partial<PartMetadataDraft>) => {
     setPartMetadataDrafts((current) => {
@@ -283,8 +525,9 @@ export default function App() {
     if (!reloadResponse.ok) {
       throw new Error(await responseDetail(reloadResponse))
     }
+    clearDraftState()
     await loadViewerState()
-  }, [apiBase, loadViewerState])
+  }, [apiBase, clearDraftState, loadViewerState])
 
   const loadStlFile = useCallback((file: File) => {
     const reader = new FileReader()
@@ -393,6 +636,33 @@ export default function App() {
     })
   }, [activeName, apiBase, viewerParts])
 
+  useEffect(() => {
+    if (!activeName || activeName.startsWith('file:') || activeName.startsWith('url:')) {
+      setPreviewContext(null)
+      return
+    }
+
+    const part = viewerParts.find((candidate) => candidate.id === activeName)
+    if (!part) {
+      setPreviewContext(null)
+      return
+    }
+
+    const loadPreviewContext = async () => {
+      const response = await fetch(apiUrl(apiBase, `/api/parts/${activeName}/preview-context`))
+      if (!response.ok) {
+        setPreviewContext(fallbackPreviewContext(part))
+        return
+      }
+      setPreviewContext(await response.json() as PreviewContext)
+    }
+
+    loadPreviewContext().catch((err) => {
+      console.error(`Failed to load preview context for ${activeName}:`, err)
+      setPreviewContext(fallbackPreviewContext(part))
+    })
+  }, [activeName, apiBase, viewerParts])
+
   const handleFiles = useCallback((files: FileList) => {
     const stlFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.stl'))
     if (stlFiles.length === 0) {
@@ -408,7 +678,7 @@ export default function App() {
     })
   }, [loadStlFile])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback((e: ReactDragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     console.log('Drop event on FileDropZone')
@@ -418,30 +688,226 @@ export default function App() {
     setIsDragOver(false)
   }, [handleFiles])
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: ReactDragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setIsDragOver(true)
   }, [])
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
+  const handleDragLeave = useCallback((e: ReactDragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setIsDragOver(false)
   }, [])
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.length) {
       handleFiles(e.target.files)
       e.target.value = ''
     }
   }, [handleFiles])
 
+  const handlePreviewCommandChange = useCallback((value: string) => {
+    setPreviewCommand(value)
+  }, [])
+
+  const selectedPart = activeName ? viewerParts.find((part) => part.id === activeName) ?? null : null
+
+  const handlePropose = useCallback(async () => {
+    setBusy('propose', true)
+    try {
+      let parsed: { operations: ProposedPreviewOperation[]; warnings: string[] }
+      try {
+        const response = await fetch(
+          apiUrl(apiBase, '/api/preview-commands/panel'),
+          buildHeaders({
+            command: previewCommand,
+            part_id: selectedPart?.id,
+          }),
+        )
+        if (!response.ok) {
+          throw new Error(await responseDetail(response))
+        }
+        parsed = proposalFromBackend(await response.json() as PreviewCommandProposal)
+      } catch (err) {
+        console.warn('Falling back to client-side preview command parser:', err)
+        parsed = fallbackParsePanelCommand(previewCommand)
+      }
+
+      setProposedOperations(parsed.operations)
+      setProposalWarnings(parsed.warnings)
+      if (!parsed.operations.length) {
+        setStatusMessage('No operations proposed. Update command input.')
+      } else {
+        setStatusMessage(`Proposed ${parsed.operations.length} operation${parsed.operations.length === 1 ? '' : 's'}.`)
+      }
+    } finally {
+      setBusy('propose', false)
+    }
+  }, [apiBase, previewCommand, selectedPart])
+
+  const applyOperations = useCallback(async (transactionToken: string) => {
+    if (!selectedPart) return
+
+    for (const operation of proposedOperations) {
+      const payload = {
+        part_id: selectedPart.id,
+        ...operation.payload,
+      }
+      const response = await fetch(normalizeDraftEndpoint(apiBase, transactionToken, operation.endpoint), buildHeaders(payload))
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+    }
+  }, [apiBase, proposedOperations, selectedPart])
+
+  const handleApply = useCallback(async () => {
+    if (!activeName || !selectedPart) return
+    if (!proposedOperations.length) {
+      setProposalWarnings(['No proposed operations to apply.'])
+      return
+    }
+
+    setBusy('apply', true)
+    try {
+      let transactionToken = draftTransactionToken
+      if (!transactionToken) {
+        const response = await fetch(
+          apiUrl(apiBase, '/api/draft-transactions'),
+          buildHeaders({ part_id: selectedPart.id, module_id: selectedPart.module_id }),
+        )
+        if (!response.ok) {
+          throw new Error(await responseDetail(response))
+        }
+        const payload = await response.json() as { transaction_token: string }
+        transactionToken = payload.transaction_token
+        setDraftTransactionToken(transactionToken)
+      }
+
+      await applyOperations(transactionToken)
+      setPreviewModelPayload(null)
+      setPreviewModels([])
+      setStatusMessage('Draft operations applied. Generate preview when ready.')
+    } catch (err) {
+      console.error('Failed to apply operations:', err)
+      setStatusMessage(`Failed to apply draft operations: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy('apply', false)
+    }
+  }, [activeName, applyOperations, apiBase, draftTransactionToken, proposedOperations, selectedPart])
+
+  const loadPreviewModel = useCallback(async (token: string) => {
+    let response = await fetch(normalizeDraftEndpoint(apiBase, token, 'preview-model'), { method: 'POST' })
+    if (!response.ok) {
+      response = await fetch(normalizeDraftEndpoint(apiBase, token, 'preview'), { method: 'POST' })
+    }
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+
+    const payload = await response.json() as DraftPreviewModelPayload
+    setPreviewModelPayload(payload)
+
+    if (!selectedPart) {
+      return
+    }
+
+    const modelResponse = await fetch(apiUrl(apiBase, payload.model_url))
+    if (!modelResponse.ok) {
+      throw new Error(await responseDetail(modelResponse))
+    }
+    const content = await modelResponse.arrayBuffer()
+    loadStlBuffer(
+      `preview:${payload.transaction_token}`,
+      `draft:${payload.transaction_token}`,
+      selectedPart.occurrences.length ? selectedPart.occurrences : [IDENTITY_OCCURRENCE],
+      content,
+      [],
+      {
+        sourceKind: 'client_stl',
+        geometryAuthority: payload.geometry_authority,
+        qualityLabel: payload.quality_label,
+        capabilities: {
+          ...MESH_ONLY_CAPABILITIES,
+          exact_topology: payload.geometry_authority === 'step_kernel',
+          exact_measurement: payload.geometry_authority === 'step_kernel',
+          exact_editing: false,
+        },
+        warnings: Array.from(new Set([...PREVIEW_MODEL_WARNINGS, ...payload.warnings, ...selectedPart.warnings])),
+      },
+      setPreviewModels,
+    )
+    setStatusMessage('Preview model loaded.')
+  }, [apiBase, selectedPart, loadStlBuffer])
+
+  const handlePreview = useCallback(async () => {
+    if (!draftTransactionToken) return
+    setBusy('preview', true)
+    try {
+      await loadPreviewModel(draftTransactionToken)
+    } catch (err) {
+      console.error('Failed to load preview model:', err)
+      setStatusMessage(`Failed to preview: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy('preview', false)
+    }
+  }, [draftTransactionToken, loadPreviewModel])
+
+  const handleAccept = useCallback(async () => {
+    if (!draftTransactionToken) return
+
+    setBusy('accept', true)
+    try {
+      const response = await fetch(normalizeDraftEndpoint(apiBase, draftTransactionToken, 'accept'), { method: 'POST' })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      const payload = await response.json() as DraftAcceptanceArtifacts
+      setAcceptanceArtifacts(payload)
+      setStatusMessage(`Draft accepted: ${payload.acceptance_manifest_path}`)
+      setPreviewModelPayload(null)
+      setPreviewModels([])
+      setDraftTransactionToken(null)
+      setProposedOperations([])
+      setProposalWarnings([])
+    } catch (err) {
+      console.error('Failed to accept draft:', err)
+      setStatusMessage(`Failed to accept draft: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy('accept', false)
+    }
+  }, [apiBase, draftTransactionToken])
+
+  const handleDiscard = useCallback(async () => {
+    if (!draftTransactionToken) return
+
+    setBusy('discard', true)
+    try {
+      const response = await fetch(apiUrl(apiBase, `/api/draft-transactions/${draftTransactionToken}`), { method: 'DELETE' })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      clearDraftState()
+      setStatusMessage('Draft transaction discarded.')
+    } catch (err) {
+      console.error('Failed to discard draft:', err)
+      setStatusMessage(`Failed to discard draft: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy('discard', false)
+    }
+  }, [apiBase, clearDraftState, draftTransactionToken])
+
+  const handleResetCommand = useCallback(() => {
+    setPreviewCommand('')
+    setProposedOperations([])
+    setProposalWarnings([])
+  }, [])
+
   const handleFitToView = useCallback(() => {
     setFitRequest((value) => value + 1)
   }, [])
 
-  const startResizingSource = useCallback((e: React.PointerEvent) => {
+  const startResizingSource = useCallback((e: ReactPointerEvent) => {
     e.preventDefault()
     setIsResizingSource(true)
     
@@ -465,7 +931,7 @@ export default function App() {
     document.addEventListener('pointerup', handlePointerUp)
   }, [sourceWidth, handleFitToView])
 
-  const startResizingParts = useCallback((e: React.PointerEvent) => {
+  const startResizingParts = useCallback((e: ReactPointerEvent) => {
     e.preventDefault()
     setIsResizingParts(true)
 
@@ -528,7 +994,7 @@ export default function App() {
   const visibleModels = useMemo(
     () => {
       const partById = new Map(viewerParts.map((part) => [part.id, part]))
-      return models
+      const selectedRegistryModels = models
         .filter((model) => selectedIds.includes(model.partId))
         .map((model) => {
           const part = partById.get(model.partId)
@@ -539,8 +1005,17 @@ export default function App() {
             wireframeColor: colorMode === 'model' ? MODEL_WIREFRAME_COLOR : WORKBENCH_WIREFRAME_COLOR,
           }
         })
+
+      return [
+        ...selectedRegistryModels,
+        ...previewModels.map((model) => ({
+          ...model,
+          color: PREVIEW_MODEL_COLOR,
+          wireframeColor: PREVIEW_MODEL_WIREFRAME,
+        })),
+      ]
     },
-    [colorMode, models, selectedIds, viewerParts],
+    [colorMode, models, previewModels, selectedIds, viewerParts],
   )
   const visibleWarnings = useMemo(
     () => Array.from(new Set(visibleModels.flatMap((model) => model.warnings))).slice(0, 3),
@@ -622,6 +1097,24 @@ export default function App() {
             />
           </FileDropZone>
         </div>
+        <CommandPane
+          selectedPartId={activeName}
+          context={previewContext}
+          commandText={previewCommand}
+          proposalWarnings={proposalWarnings}
+          proposedOperations={proposedOperations}
+          previewModel={previewModelPayload}
+          acceptanceArtifacts={acceptanceArtifacts}
+          busy={commandBusy}
+          hasTransaction={Boolean(draftTransactionToken)}
+          onCommandChange={handlePreviewCommandChange}
+          onPropose={handlePropose}
+          onApply={handleApply}
+          onPreview={handlePreview}
+          onAccept={handleAccept}
+          onDiscard={handleDiscard}
+          onReset={handleResetCommand}
+        />
         {partsCollapsed ? null : (
           <div 
             className={`resize-handle right-handle ${isResizingParts ? 'active' : ''}`}

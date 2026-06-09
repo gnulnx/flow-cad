@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from flow_cad.viewer.app import create_app
@@ -26,6 +27,23 @@ def _write_stl(project_root: Path, module_id: str = "example", filename: str = "
     path = _export_path(project_root, "stl", module_id, filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("solid sample\nendsolid sample\n")
+    return path
+
+
+def _write_box_stl(
+    project_root: Path,
+    module_id: str = "example",
+    filename: str = "example_block.stl",
+    *,
+    length: float = 20.0,
+    width: float = 45.0,
+    height: float = 3.0,
+) -> Path:
+    from build123d import Box, export_stl
+
+    path = _export_path(project_root, "stl", module_id, filename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    export_stl(Box(length, width, height), path)
     return path
 
 
@@ -267,6 +285,8 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/parts" in route_paths
     assert "/api/parts/{component_id}/model" in route_paths
     assert "/api/parts/{component_id}/source" in route_paths
+    assert "/api/parts/{component_id}/preview-context" in route_paths
+    assert "/api/preview-commands/panel" in route_paths
     assert "/api/parts/{component_id}/snap-features" in route_paths
     assert "/api/drafts/box" in route_paths
     assert "/api/drafts/{draft_token}/holes" in route_paths
@@ -280,6 +300,9 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/draft-transactions/{transaction_token}/holes" in route_paths
     assert "/api/draft-transactions/{transaction_token}/louver-patterns" in route_paths
     assert "/api/draft-transactions/{transaction_token}/preview" in route_paths
+    assert "/api/draft-transactions/{transaction_token}/preview-model" in route_paths
+    assert "/api/draft-transactions/{transaction_token}/model" in route_paths
+    assert "/api/draft-transactions/{transaction_token}/status" in route_paths
     assert "/api/draft-transactions/{transaction_token}/accept" in route_paths
     assert "/api/reload" in route_paths
 
@@ -312,6 +335,109 @@ def test_viewer_api_reports_missing_converter(tmp_path) -> None:
         assert str(exc) == "missing STEP converter"
     else:
         raise AssertionError("Expected missing converter error")
+
+
+def test_viewer_api_returns_step_part_preview_context(tmp_path) -> None:
+    from build123d import Box
+
+    _write_build123d_step(tmp_path, Box(20.0, 45.0, 3.0))
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    response = client.get("/api/parts/example_block/preview-context")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["id"] == "example_block"
+    assert payload["component_id"] == "example_block"
+    assert payload["module_id"] == "example"
+    assert payload["geometry_authority"] == "step_kernel"
+    assert payload["source_context"]["available"] is True
+    assert payload["source_context_available"] is True
+    assert payload["source_context"]["symbol"] == "_make_example_block"
+    assert payload["snap_feature_summary"]["source_format"] == "step"
+    assert payload["snap_feature_summary"]["available"] is True
+    assert payload["preview_bounds"]["source_format"] == "stl"
+    assert payload["preview_bounds"]["size"][0] == pytest.approx(20.0)
+    assert payload["preview_bounds"]["size"][1] == pytest.approx(45.0)
+    assert payload["preview_bounds"]["size"][2] == pytest.approx(3.0)
+    assert payload["source_measurements"] == {
+        "length_mm": pytest.approx(20.0),
+        "width_mm": pytest.approx(45.0),
+        "height_mm": pytest.approx(3.0),
+        "authority": "step_kernel",
+        "source": "part",
+    }
+    assert payload["project_frame"]["axes"]["z_positive"] == "top"
+    assert payload["local_frame"]["origin_mm"] == [0.0, 0.0, 0.0]
+    assert payload["mating_contracts"]["relative_path"] == "docs/PART_INTERFACES.md"
+
+
+def test_viewer_api_returns_stl_only_preview_context_with_exact_edit_warning(tmp_path) -> None:
+    _write_box_stl(tmp_path, length=20.0, width=45.0, height=3.0)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    response = client.get("/api/parts/example_block/preview-context")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["geometry_authority"] == "mesh"
+    assert payload["capabilities"]["exact_editing"] is False
+    assert any("STL-only mesh" in warning for warning in payload["warnings"])
+    assert payload["snap_feature_summary"]["source_format"] == "stl"
+    assert payload["preview_bounds"]["size"][0] == pytest.approx(20.0)
+    assert payload["preview_bounds"]["size"][1] == pytest.approx(45.0)
+    assert payload["preview_bounds"]["size"][2] == pytest.approx(3.0)
+
+
+def test_viewer_api_returns_preview_context_for_missing_artifact(tmp_path) -> None:
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    response = client.get("/api/parts/example_block/preview-context")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["geometry_authority"] == "missing"
+    assert payload["artifact_format"] is None
+    assert payload["artifact_path"] is None
+    assert payload["warnings"] == ["No generated STEP or STL artifact is available. Run `flow cad build` first."]
+    assert payload["snap_feature_summary"]["source_format"] is None
+    assert payload["preview_bounds"] is None
+    assert payload["source_measurements"] is None
+
+
+def test_viewer_backend_proposes_panel_preview_operations_without_side_effects(tmp_path) -> None:
+    from build123d import Box
+
+    init_project(tmp_path)
+    _write_build123d_step(tmp_path, Box(120.0, 45.0, 3.0))
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    response = client.post(
+        "/api/preview-commands/panel",
+        json={
+            "part_id": "example_block",
+            "command": (
+                "Make this a 120 x 45 x 3 mm panel, add two M4 clearance holes 12 mm from "
+                "the front edge, and put five louvers on the outside face."
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["part_id"] == "example_block"
+    operation_names = [operation["name"] for operation in payload["operations"]]
+    assert operation_names.count("create_box") == 1
+    assert operation_names.count("add_hole") == 2
+    assert operation_names.count("add_louver_pattern") == 1
+    assert any("Outside face is ambiguous" in warning for warning in payload["warnings"])
+    assert not (tmp_path / ".flow" / "draft-transactions").exists()
+    assert not (tmp_path / ".flow" / "drafts").exists()
 
 
 def test_viewer_service_extracts_step_snap_features(tmp_path) -> None:
@@ -439,6 +565,105 @@ def test_viewer_backend_exposes_draft_panel_operations(tmp_path) -> None:
     assert preview_path.is_relative_to(tmp_path / ".flow" / "drafts")
 
 
+def test_viewer_backend_exposes_draft_transaction_preview_model(tmp_path) -> None:
+    init_project(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    begin_response = client.post("/api/draft-transactions", json={"part_id": "api_transaction_panel"})
+    assert begin_response.status_code == 200
+    transaction_token = begin_response.json()["transaction_token"]
+
+    create_response = client.post(
+        f"/api/draft-transactions/{transaction_token}/box",
+        json={"length": 120.0, "width": 45.0, "height": 3.0, "material": "PETG"},
+    )
+    assert create_response.status_code == 200
+
+    hole_response = client.post(
+        f"/api/draft-transactions/{transaction_token}/holes",
+        json={"face": "top", "x": 12.0, "y": 8.0, "diameter": 4.2},
+    )
+    assert hole_response.status_code == 200
+
+    preview_response = client.post(f"/api/draft-transactions/{transaction_token}/preview-model")
+    assert preview_response.status_code == 200
+    payload = preview_response.json()
+    assert payload["transaction_token"] == transaction_token
+    assert payload["model_url"] == f"/api/draft-transactions/{transaction_token}/model"
+    assert payload["part_id"] == "api_transaction_panel"
+    assert payload["source_format"] == "step"
+    assert payload["geometry_authority"] == "step_kernel"
+    assert payload["quality_label"] == "exact"
+    assert payload["dimensions"] == {
+        "length_mm": 120.0,
+        "width_mm": 45.0,
+        "height_mm": 3.0,
+        "authority": "step_kernel",
+        "source": "preview",
+    }
+    assert "Draft features: 1" in payload["facts"]
+
+    display_stl_path = Path(payload["display_stl_path"])
+    preview_step_path = Path(payload["preview_step_path"])
+    assert payload["source_step_path"] == payload["preview_step_path"]
+    assert display_stl_path.exists()
+    assert display_stl_path.is_relative_to(tmp_path / ".flow" / "viewer-cache" / "draft-transactions")
+    assert not display_stl_path.is_relative_to(tmp_path / "exports")
+    assert preview_step_path.exists()
+    assert preview_step_path.is_relative_to(tmp_path / ".flow" / "drafts")
+    assert not preview_step_path.is_relative_to(tmp_path / "exports")
+    assert any(
+        cmd.startswith("flow validate run panel-basic --draft-transaction")
+        for cmd in payload["source_loop_commands"]
+    )
+    assert any(cmd.startswith("flow cad build --part") for cmd in payload["source_loop_commands"])
+
+
+def test_viewer_backend_refreshes_stale_draft_transaction_preview_model(tmp_path) -> None:
+    init_project(tmp_path)
+    counters = {"calls": 0}
+
+    def converter(source: Path, destination: Path) -> Path:
+        counters["calls"] += 1
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(f"solid preview {counters['calls']}\\nendsolid preview\\n")
+        return destination
+
+    service = ViewerService(tmp_path, converter=converter)
+    client = TestClient(create_app(service=service))
+
+    begin_response = client.post("/api/draft-transactions", json={"part_id": "api_transaction_panel"})
+    assert begin_response.status_code == 200
+    transaction_token = begin_response.json()["transaction_token"]
+
+    create_response = client.post(
+        f"/api/draft-transactions/{transaction_token}/box",
+        json={"length": 120.0, "width": 45.0, "height": 3.0, "material": "PETG"},
+    )
+    assert create_response.status_code == 200
+
+    preview_response = client.post(f"/api/draft-transactions/{transaction_token}/preview-model")
+    assert preview_response.status_code == 200
+    assert counters["calls"] == 1
+    first_payload = preview_response.json()
+    first_path = Path(first_payload["display_stl_path"])
+    first_content = first_path.read_text()
+
+    hole_response = client.post(
+        f"/api/draft-transactions/{transaction_token}/holes",
+        json={"face": "top", "x": 12.0, "y": 8.0, "diameter": 4.2},
+    )
+    assert hole_response.status_code == 200
+
+    second_preview = client.post(f"/api/draft-transactions/{transaction_token}/preview-model")
+    assert second_preview.status_code == 200
+    assert counters["calls"] == 2
+    second_payload = second_preview.json()
+    assert second_payload["display_stl_path"] == first_payload["display_stl_path"]
+    assert first_path.read_text() != first_content
+
+
 def test_viewer_backend_exposes_draft_transaction_workflow(tmp_path) -> None:
     init_project(tmp_path)
     service = ViewerService(tmp_path)
@@ -475,3 +700,12 @@ def test_viewer_backend_exposes_draft_transaction_workflow(tmp_path) -> None:
     assert source_patch_path.is_relative_to(tmp_path / ".flow" / "draft-transactions")
     assert not (tmp_path / "flow" / "parts" / "api_transaction_panel.py").exists()
     assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
+
+    status_response = client.get(f"/api/draft-transactions/{transaction_token}/status")
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["status"] == "accepted"
+    assert status_payload["generated_source_path"] == accepted["generated_source_path"]
+    assert "diff --git a/flow/parts/api_transaction_panel.py" in status_payload["source_patch_preview"]
+    assert any("flow validate run panel-basic --draft-transaction" in cmd for cmd in status_payload["source_loop_commands"])
+    assert any("--part api_transaction_panel" in cmd for cmd in status_payload["source_loop_commands"])

@@ -286,34 +286,54 @@ the documented validator pattern through `flow init`.
 
 ### 6. Make Viewer Preview First Class
 
-The viewer should support a fast edit loop:
+The viewer-preview roadmap is broken into verifiable tickets in
+`docs/ViewerPreview.md`.
 
-- Select a part.
-- Ask for a change in natural language.
-- Convert the request into draft geometry operations.
-- Preview the result immediately.
-- Show dimensions, feature facts, and warnings in the inspector.
-- Accept the draft into editable source.
-- Run the focused source loop.
+That plan covers:
 
-The viewer should expose an LLM command pane because many design changes are
-spatial and visual. A useful command is not "write Python"; it is:
+- selected-part preview context
+- constrained command-to-operation proposals
+- draft transaction application and immediate preview display
+- preview inspector facts, warnings, and current-vs-draft deltas
+- acceptance into reviewable source-loop artifacts
+- focused validator and benchmark proof
 
-```text
-Make this a 120 x 45 x 3 mm panel, add two M4 clearance holes 12 mm from the
-front edge, and put five louvers on the outside face.
-```
+Item 6 is complete only when the viewer can display draft geometry before
+project source changes, show the selected-part context and draft facts that led
+to that preview, accept the draft into review artifacts without hidden source
+mutation, and prove the benchmark panel flow through backend, frontend, and
+focused-validator tests.
 
-The LLM pane should show:
+### 6A. Add Persistent Design Threads And Viewport-Aware Chat
 
-- Selected part id and placement.
-- Local frame orientation.
-- Project/global frame orientation.
-- Current dimensions.
-- Known mating contracts.
-- Proposed operations before applying them.
-- A diff between current and draft geometry.
-- The generated source patch after acceptance.
+The viewer-preview command pane is useful as a deterministic operation surface,
+but it is not enough for real design review. Flow CAD also needs persistent
+project design threads that preserve the conversation, viewport context,
+screenshots, annotations, draft transactions, validation results, accepted
+artifacts, and source-loop commands that led to a change.
+
+The work plan is documented in `docs/CodexViewerReworkPlan.md`.
+
+That plan covers:
+
+- project-local design thread persistence under `.flow/design-threads/`
+- context snapshots that combine camera, visible parts, selected parts,
+  measurements, draft state, active assembly, backend revision, and authoritative
+  backend facts
+- a left-dock `Source | Chat` tab set so source review remains available while
+  Chat becomes the normal design-review workspace
+- screenshot capture and annotation attachments tied to thread context
+- draft preview, accept, discard, focused-validator, and profile events recorded
+  into the thread history
+- a runtime-neutral streaming assistant adapter with CAD-safe tools rather than
+  broad shell or filesystem access
+- evaluation of LlamaStudio as a reusable local-agent runtime source without
+  embedding its HTMX UI into the React/Three viewer
+
+Item 6A is complete only when the viewer has a real chat interface with durable
+history, can automatically attach full work context to a design turn, can retain
+visual review evidence through screenshots and annotations, and can show the
+draft/validator/source-loop evidence behind accepted changes after reload.
 
 ### 7. Add A Shared Orientation Cube
 
@@ -515,11 +535,17 @@ Add controlled promotion tools:
 
 Promotion should produce reviewable diffs, not hidden source edits.
 
-### Phase 4: Viewer LLM Interface
+### Phase 4: Viewer Design Threads And LLM Interface
 
-Add an LLM pane in the viewer that can call the read-only and draft MCP tools.
-The pane should never need to guess the selected part, frame, or dimensions; the
-viewer already has that context.
+Add persistent viewer design threads and a chat interface that can use read-only
+facts, draft transactions, focused validators, profiles, viewport snapshots, and
+screenshot attachments. The assistant should never need to guess the selected
+part, visible context, frame, measurements, draft state, or accepted artifacts;
+the viewer and backend should attach those facts automatically.
+
+This phase should use the MCP/shared-service tools as the safe CAD operation
+surface, but the user-facing experience is the project design thread, not a
+single command box.
 
 ## Acceptance Criteria
 
@@ -533,6 +559,9 @@ The performance project is successful when:
   than today.
 - The build profiler identifies slow work by part and phase.
 - The viewer can show draft geometry before project source is changed.
+- The viewer has persistent design threads with message history, viewport
+  context, screenshots, annotations, draft events, validator events, and accepted
+  artifact links.
 - The viewer has a project-aware orientation cube that makes configured
   front/rear/top/bottom labels and selected-part local axes visible.
 - MCP tools can create boxes, holes, slots, and patterns as draft transactions.
@@ -545,10 +574,13 @@ The performance project is successful when:
 2. Add reusable helpers for focused part-family validators.
 3. Prototype read-only MCP facts for part bbox, placement, and features.
 4. Prototype draft box plus through-hole tools.
-5. Add a viewer command pane that can operate on the selected part.
-6. Add a small project-aware orientation cube to the viewer.
-7. Add a worker-packet template for Hermes/local model subtasks.
-8. Use the next simple panel change as the benchmark case.
+5. Add persistent design threads and viewport context snapshots.
+6. Add a left-dock `Source | Chat` viewer workspace with real chat history.
+7. Attach draft preview, validator, profile, screenshot, and accepted-artifact
+   events to design threads.
+8. Add a small project-aware orientation cube to the viewer.
+9. Add a worker-packet template for Hermes/local model subtasks.
+10. Use the next simple panel change as the benchmark case.
 
 The first benchmark should be concrete:
 

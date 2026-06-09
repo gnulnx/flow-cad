@@ -135,3 +135,100 @@ export interface PartMetadataDraft {
   inertia_kg_m2: [string, string, string, string, string, string]
   mass_source: string
 }
+
+export interface PreviewContext {
+  component_id: string
+  module_id: string
+  family: string
+  version: string
+  role: string
+  material: string
+  artifact_format: 'step' | 'stl' | null
+  artifact_path: string | null
+  source_context_available: boolean
+  source_url: string | null
+  occurrences: ViewerOccurrence[]
+  geometry_authority: 'step_kernel' | 'mesh' | 'missing'
+  quality_label: 'exact' | 'approximate' | 'missing'
+  capabilities: GeometryCapabilities
+  warnings: string[]
+  source_measurements: MeasurementSummary | null
+  active_assembly_id?: string | null
+  project_frame?: FrameSummary
+  local_frame?: FrameSummary
+  mating_contracts?: MatingContractSummary
+}
+
+export interface MeasurementSummary {
+  length_mm: number
+  width_mm: number
+  height_mm: number
+  authority: 'step_kernel' | 'mesh' | 'missing'
+  source: 'part' | 'preview'
+}
+
+export interface FrameSummary {
+  units: string
+  origin_mm: [number, number, number]
+  rotation_deg?: [number, number, number]
+  axes: Record<string, string>
+}
+
+export interface MatingContractSummary {
+  available: boolean
+  relative_path: string
+  summary: string
+}
+
+export interface ProposedPreviewOperation {
+  kind: 'box' | 'hole' | 'louver-patterns' | 'thickness' | 'unknown'
+  summary: string
+  payload: Record<string, unknown>
+  endpoint: 'box' | 'holes' | 'louver-patterns' | 'thickness'
+}
+
+export interface BackendPreviewOperation {
+  name: 'create_box' | 'add_hole' | 'add_louver_pattern' | 'set_panel_thickness' | string
+  parameters: Record<string, unknown>
+}
+
+export interface PreviewCommandProposal {
+  command: string
+  ok: boolean
+  operations: BackendPreviewOperation[]
+  warnings: string[]
+  assumptions: string[]
+  errors: string[]
+  part_id?: string | null
+}
+
+export interface DraftPreviewSession {
+  transaction_token: string | null
+  proposed_operations: ProposedPreviewOperation[]
+  preview_model: DraftPreviewModelPayload | null
+  acceptance_artifacts: DraftAcceptanceArtifacts | null
+}
+
+export interface DraftPreviewModelPayload {
+  transaction_token: string
+  part_id: string
+  model_url: string
+  display_stl_path: string | null
+  source_step_path: string | null
+  geometry_authority: 'step_kernel' | 'mesh' | 'missing'
+  quality_label: 'exact' | 'approximate' | 'missing'
+  facts: string[]
+  warnings: string[]
+  dimensions: MeasurementSummary | null
+}
+
+export interface DraftAcceptanceArtifacts {
+  transaction_token: string
+  source_patch_path: string
+  generated_source_path: string
+  validator_stub_path: string
+  acceptance_manifest_path: string
+  source_loop_commands?: string[]
+  source_patch_preview?: string
+  command_source?: string
+}
