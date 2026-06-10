@@ -31,14 +31,20 @@ class VisualEvidenceNotFoundError(ThreadStorageError):
     status_code = 404
 
 
+class VisualEvidenceRequestNotFoundError(ThreadStorageError):
+    status_code = 404
+
+
 DESIGN_THREADS_SCHEMA_VERSION = 1
 THREAD_SCHEMA_VERSION = 1
 THREAD_MESSAGE_SCHEMA_VERSION = 1
 THREAD_CONTEXT_SNAPSHOT_SCHEMA_VERSION = 1
 THREAD_DRAFT_EVENT_SCHEMA_VERSION = 1
+THREAD_VISUAL_EVIDENCE_REQUEST_SCHEMA_VERSION = 1
 THREAD_VISUAL_EVIDENCE_PRESETS = {"front", "back", "left", "right", "top", "bottom", "iso"}
 THREAD_VISUAL_EVIDENCE_DEFAULT_PRESET = "iso"
 THREAD_VISUAL_EVIDENCE_DEFAULT_SOURCE = "agent"
+THREAD_VISUAL_EVIDENCE_REQUEST_STATUSES = {"pending", "fulfilled", "failed"}
 VALID_ANNOTATION_KINDS = {"note", "circle", "freehand"}
 
 
@@ -312,6 +318,46 @@ def _normalize_visual_evidence_input(payload: Any) -> dict[str, Any]:
     }
 
 
+def _normalize_visual_evidence_request_input(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ThreadValidationError("visual evidence request payload must be an object")
+
+    preset = payload.get("preset")
+    if preset is None:
+        preset = payload.get("view")
+    metadata = _as_mapping(payload.get("metadata"))
+    purpose = str(payload.get("purpose") or "").strip()
+
+    return {
+        "request_id": payload.get("request_id"),
+        "source": _normalize_visual_evidence_source(payload.get("source")),
+        "preset": _normalize_view_preset(preset),
+        "width": _normalize_positive_int(payload.get("width")),
+        "height": _normalize_positive_int(payload.get("height")),
+        "selected_ids": _normalize_string_list(payload.get("selected_ids")),
+        "visible_ids": _normalize_string_list(payload.get("visible_ids")),
+        "part_ids": _normalize_string_list(payload.get("part_ids")),
+        "purpose": purpose if purpose else None,
+        "metadata": metadata,
+    }
+
+
+def _normalize_visual_evidence_request_status(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ThreadValidationError("visual evidence request status must be a string")
+    status = value.strip().lower()
+    if not status:
+        return None
+    if status not in THREAD_VISUAL_EVIDENCE_REQUEST_STATUSES:
+        raise ThreadValidationError(
+            f"visual evidence request status '{status}' is invalid (expected one of: "
+            f"{', '.join(sorted(THREAD_VISUAL_EVIDENCE_REQUEST_STATUSES))})"
+        )
+    return status
+
+
 def _as_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -483,6 +529,8 @@ def _default_thread_payload(thread_id: str, title: str | None, *, now: str) -> d
         "snapshot_count": 0,
         "visual_evidence": [],
         "visual_evidence_count": 0,
+        "visual_evidence_requests": [],
+        "visual_evidence_request_count": 0,
     }
 
 
@@ -583,14 +631,17 @@ class DesignThreadService:
         snapshots = self._thread_snapshots(thread_id)
         attachments = self._thread_attachments(thread_id)
         visual_evidence = self._thread_visual_evidence(thread_id)
+        visual_evidence_requests = self._thread_visual_evidence_requests(thread_id)
         thread["messages"] = messages
         thread["context_snapshots"] = snapshots
         thread["attachments"] = attachments
         thread["visual_evidence"] = visual_evidence
+        thread["visual_evidence_requests"] = visual_evidence_requests
         thread["message_count"] = len(messages)
         thread["snapshot_count"] = len(snapshots)
         thread["attachment_count"] = len(attachments)
         thread["visual_evidence_count"] = len(visual_evidence)
+        thread["visual_evidence_request_count"] = len(visual_evidence_requests)
         return thread
 
     def add_visual_evidence(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -629,6 +680,121 @@ class DesignThreadService:
         _write_json_atomic(metadata_path, metadata)
 
         return metadata
+
+    def request_visual_evidence(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        thread = self._require_thread(thread_id)
+        thread_id = thread["thread_id"]
+        input_data = _normalize_visual_evidence_request_input(payload)
+
+        request_id = _safe_thread_id(str(input_data["request_id"] or f"ver_{uuid.uuid4().hex}"), fallback="ver")
+        now = _utc_now()
+        request = {
+            "schema_version": THREAD_VISUAL_EVIDENCE_REQUEST_SCHEMA_VERSION,
+            "request_id": request_id,
+            "thread_id": thread_id,
+            "status": "pending",
+            "source": input_data["source"],
+            "view": input_data["preset"],
+            "width": input_data["width"],
+            "height": input_data["height"],
+            "selected_ids": input_data["selected_ids"],
+            "visible_ids": input_data["visible_ids"],
+            "part_ids": input_data["part_ids"],
+            "purpose": input_data["purpose"],
+            "metadata": input_data["metadata"],
+            "created_at": now,
+            "updated_at": now,
+            "artifact_id": None,
+            "error": None,
+        }
+        _write_json_atomic(self._thread_visual_evidence_request_path(thread_id, request_id), request)
+        return request
+
+    def list_visual_evidence_requests(self, thread_id: str, status: str | None = None) -> dict[str, Any]:
+        thread = self._require_thread(thread_id)
+        normalized_status = _normalize_visual_evidence_request_status(status)
+        requests = self._thread_visual_evidence_requests(thread["thread_id"])
+        if normalized_status:
+            requests = [
+                request
+                for request in requests
+                if str(request.get("status") or "").strip().lower() == normalized_status
+            ]
+        return {
+            "ok": True,
+            "thread_id": thread["thread_id"],
+            "status": normalized_status,
+            "count": len(requests),
+            "visual_evidence_requests": requests,
+        }
+
+    def get_visual_evidence_request(self, thread_id: str, request_id: str) -> dict[str, Any]:
+        self._require_thread(thread_id)
+        safe_request_id = _safe_thread_id(request_id, fallback="ver")
+        request = _read_json(self._thread_visual_evidence_request_path(thread_id, safe_request_id))
+        if request is None:
+            raise VisualEvidenceRequestNotFoundError(
+                f"Visual evidence request not found: {safe_request_id} in thread {thread_id}"
+            )
+        return request
+
+    def fulfill_visual_evidence_request(self, thread_id: str, request_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        request = self.get_visual_evidence_request(thread_id, request_id)
+        if str(request.get("status") or "").strip().lower() != "pending":
+            raise ThreadValidationError(f"Visual evidence request is already {request.get('status') or 'closed'}")
+
+        input_payload = payload if isinstance(payload, dict) else {}
+        request_metadata = _as_mapping(request.get("metadata"))
+        payload_metadata = _as_mapping(input_payload.get("metadata"))
+        evidence_payload = {
+            **input_payload,
+            "source": input_payload.get("source") or request.get("source") or "agent",
+            "view": input_payload.get("view") or request.get("view") or THREAD_VISUAL_EVIDENCE_DEFAULT_PRESET,
+            "selected_ids": input_payload.get("selected_ids") or request.get("selected_ids") or [],
+            "visible_ids": input_payload.get("visible_ids") or request.get("visible_ids") or [],
+            "part_ids": input_payload.get("part_ids") or request.get("part_ids") or [],
+            "purpose": input_payload.get("purpose") or request.get("purpose"),
+            "metadata": {
+                **request_metadata,
+                **payload_metadata,
+                "visual_evidence_request_id": request["request_id"],
+                "requested_at": request.get("created_at"),
+            },
+        }
+        evidence = self.add_visual_evidence(thread_id, evidence_payload)
+
+        now = _utc_now()
+        request.update(
+            {
+                "status": "fulfilled",
+                "artifact_id": evidence["artifact_id"],
+                "error": None,
+                "fulfilled_at": now,
+                "updated_at": now,
+            }
+        )
+        _write_json_atomic(self._thread_visual_evidence_request_path(thread_id, request["request_id"]), request)
+        return {"ok": True, "request": request, "visual_evidence": evidence}
+
+    def fail_visual_evidence_request(self, thread_id: str, request_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        request = self.get_visual_evidence_request(thread_id, request_id)
+        if str(request.get("status") or "").strip().lower() != "pending":
+            raise ThreadValidationError(f"Visual evidence request is already {request.get('status') or 'closed'}")
+
+        error = "Visual evidence request failed"
+        if isinstance(payload, dict) and isinstance(payload.get("error"), str) and payload["error"].strip():
+            error = payload["error"].strip()
+        now = _utc_now()
+        request.update(
+            {
+                "status": "failed",
+                "error": error,
+                "failed_at": now,
+                "updated_at": now,
+            }
+        )
+        _write_json_atomic(self._thread_visual_evidence_request_path(thread_id, request["request_id"]), request)
+        return {"ok": True, "request": request}
 
     def get_visual_evidence(self, thread_id: str, artifact_id: str) -> dict[str, Any]:
         self._require_thread(thread_id)
@@ -1354,6 +1520,9 @@ class DesignThreadService:
     def _thread_visual_evidence_dir(self, thread_id: str) -> Path:
         return self._thread_dir(thread_id) / "visual-evidence"
 
+    def _thread_visual_evidence_requests_dir(self, thread_id: str) -> Path:
+        return self._thread_visual_evidence_dir(thread_id) / "requests"
+
     def _thread_attachment_png_path(self, thread_id: str, attachment_id: str) -> Path:
         return self._thread_attachments_dir(thread_id) / f"{_safe_thread_id(attachment_id, fallback='att')}.png"
 
@@ -1365,6 +1534,10 @@ class DesignThreadService:
 
     def _thread_visual_evidence_metadata_path(self, thread_id: str, artifact_id: str) -> Path:
         return self._thread_visual_evidence_png_path(thread_id, artifact_id).with_suffix(".json")
+
+    def _thread_visual_evidence_request_path(self, thread_id: str, request_id: str) -> Path:
+        safe_request_id = _safe_thread_id(request_id, fallback="ver")
+        return self._thread_visual_evidence_requests_dir(thread_id) / f"{safe_request_id}.json"
 
     def _thread_snapshot_path(self, thread_id: str, snapshot_id: str) -> Path:
         safe_snapshot_id = _safe_thread_id(snapshot_id, fallback="snapshot")
@@ -1383,6 +1556,14 @@ class DesignThreadService:
         return [
             _read_json(path) or {"artifact_id": path.stem, "kind": "visual_evidence"}
             for path in _ordered_json_files(visual_evidence_dir)
+            if path.is_file()
+        ]
+
+    def _thread_visual_evidence_requests(self, thread_id: str) -> list[dict[str, Any]]:
+        requests_dir = self._thread_visual_evidence_requests_dir(thread_id)
+        return [
+            _read_json(path) or {"request_id": path.stem, "status": "unknown"}
+            for path in _ordered_json_files(requests_dir)
             if path.is_file()
         ]
 

@@ -18,6 +18,7 @@ Messages = Sequence[dict[str, Any]]
 
 SAFE_TOOL_NAMES = (
     "read_viewer_context",
+    "request_visual_evidence",
     "create_draft_transaction",
     "apply_draft_operations",
     "generate_preview_model",

@@ -90,6 +90,7 @@ def test_build_compact_tool_schemas_filters_unsafe_tools() -> None:
     schemas = build_compact_tool_schemas(
         [
             {"name": "read_viewer_context", "description": "Read context", "parameters": {"properties": {"part_id": {"type": "string"}}}},
+            {"name": "request_visual_evidence", "description": "Request render", "parameters": {"properties": {"thread_id": {"type": "string"}}}},
             {"name": "run_command", "description": "Shell hook"},
             {"name": "create_draft_transaction", "parameters": {"properties": {"part_id": {"type": "string"}, "op": {"type": "string"}}}},
             {"name": "write_file", "description": "Filesystem"},
@@ -102,6 +103,7 @@ def test_build_compact_tool_schemas_filters_unsafe_tools() -> None:
     schema_names = [schema["function"]["name"] for schema in schemas]
     assert schema_names == [
         "read_viewer_context",
+        "request_visual_evidence",
         "create_draft_transaction",
         "generate_preview_model",
         "read_profile_summary",

@@ -84,6 +84,8 @@ def test_build_server_registers_draft_geometry_tools(monkeypatch) -> None:
     assert "profile_last" in server.tools
     assert "visual_evidence_list" in server.tools
     assert "visual_evidence_get" in server.tools
+    assert "request_visual_evidence" in server.tools
+    assert "visual_evidence_requests_list" in server.tools
     assert "visual_evidence_create" in server.tools
 
 
@@ -255,4 +257,49 @@ def test_mcp_visual_evidence_tools_write_thread_local_artifacts(monkeypatch, tmp
     assert loaded["metadata"]["caller"] == "mcp-test"
     assert png_path.exists()
     assert png_path.is_relative_to(evidence_root)
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
+
+
+def test_mcp_request_visual_evidence_writes_thread_local_request(monkeypatch, tmp_path: Path) -> None:
+    install_fake_fastmcp(monkeypatch)
+    init_project(tmp_path)
+    monkeypatch.setenv("FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS", str(tmp_path))
+
+    service = mcp_server.design_thread_service(str(tmp_path))
+    thread = service.create_thread({"title": "MCP visual evidence request"})
+
+    server = mcp_server.build_server()
+    requested = server.tools["request_visual_evidence"](
+        thread["thread_id"],
+        project_root=str(tmp_path),
+        view="right",
+        width=1024,
+        height=768,
+        purpose="agent wants side view",
+        selected_ids=["example_block"],
+        visible_ids=["example_block", "other"],
+        part_ids=["example_block"],
+        metadata={"agent": "mcp-test"},
+        request_id="../../agent/request",
+    )
+    listed = server.tools["visual_evidence_requests_list"](
+        thread["thread_id"],
+        project_root=str(tmp_path),
+        status="pending",
+    )
+
+    request_root = tmp_path / ".flow" / "design-threads" / thread["thread_id"] / "visual-evidence" / "requests"
+    request_path = request_root / f"{requested['request_id']}.json"
+
+    assert requested["request_id"] == "agent-request"
+    assert requested["status"] == "pending"
+    assert requested["view"] == "right"
+    assert requested["width"] == 1024
+    assert requested["height"] == 768
+    assert requested["purpose"] == "agent wants side view"
+    assert listed["ok"] is True
+    assert listed["count"] == 1
+    assert listed["visual_evidence_requests"][0]["request_id"] == requested["request_id"]
+    assert request_path.exists()
+    assert request_path.is_relative_to(request_root)
     assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))

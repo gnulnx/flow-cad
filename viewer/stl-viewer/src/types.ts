@@ -209,11 +209,34 @@ export interface ThreadVisualEvidenceArtifact {
   metadata?: Record<string, unknown>
 }
 
+export type ThreadVisualEvidenceRequestStatus = 'pending' | 'fulfilled' | 'failed' | string
+
+export interface ThreadVisualEvidenceRequest {
+  schema_version?: number
+  request_id: string
+  thread_id?: string
+  status: ThreadVisualEvidenceRequestStatus
+  source: string
+  view: VisualEvidenceViewPreset | string
+  width?: number | null
+  height?: number | null
+  selected_ids: string[]
+  visible_ids: string[]
+  part_ids: string[]
+  purpose?: string | null
+  metadata?: Record<string, unknown>
+  created_at?: string
+  updated_at?: string
+  artifact_id?: string | null
+  error?: string | null
+}
+
 export interface CreateThreadVisualEvidencePayload {
   source: string
   view: VisualEvidenceViewPreset
   content_type: 'image/png'
   data_url: string
+  request_id?: string
   width: number | null
   height: number | null
   camera?: Record<string, unknown>
@@ -354,6 +377,8 @@ export interface DesignThreadRecord {
   attachment_count?: number
   visual_evidence_count?: number
   visual_evidence?: ThreadVisualEvidenceArtifact[]
+  visual_evidence_request_count?: number
+  visual_evidence_requests?: ThreadVisualEvidenceRequest[]
   messages: DesignThreadEvent[]
   context_snapshots?: ThreadContextSnapshot[]
   attachments?: ViewportAttachmentRecord[]

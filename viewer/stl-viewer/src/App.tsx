@@ -52,6 +52,7 @@ import type {
   DesignThreadsPayload,
   DesignThreadEvent,
   ThreadVisualEvidenceArtifact,
+  ThreadVisualEvidenceRequest,
   CreateThreadVisualEvidencePayload,
   VisualEvidenceViewPreset,
   DraftThreadAction,
@@ -84,6 +85,13 @@ const CLIENT_STL_WARNING = 'STL-only mesh: viewing and approximate mesh measurem
 const PREVIEW_MODEL_COLOR = '#f97316'
 const PREVIEW_MODEL_WIREFRAME = '#fbbf24'
 const PREVIEW_MODEL_WARNINGS = ['Draft preview geometry: verify with source loop before accepting.']
+const VISUAL_EVIDENCE_PRESETS: VisualEvidenceViewPreset[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso']
+
+function normalizeVisualEvidenceView(value: string | null | undefined): VisualEvidenceViewPreset {
+  return VISUAL_EVIDENCE_PRESETS.includes(value as VisualEvidenceViewPreset)
+    ? value as VisualEvidenceViewPreset
+    : 'iso'
+}
 
 function extractThreadAttachmentIds(thread: DesignThreadRecord | null) {
   if (!thread) return [] as string[]
@@ -160,6 +168,20 @@ function extractThreadVisualEvidenceCount(thread: DesignThreadRecord | null) {
   if (!thread) return 0
   if (typeof thread.visual_evidence_count === 'number') return thread.visual_evidence_count
   return extractThreadVisualEvidence(thread).length
+}
+
+function extractThreadVisualEvidenceRequests(thread: DesignThreadRecord | null) {
+  if (!thread) return [] as ThreadVisualEvidenceRequest[]
+  return (thread.visual_evidence_requests ?? [])
+    .filter((request): request is ThreadVisualEvidenceRequest => (
+      typeof request?.request_id === 'string' && request.request_id.trim().length > 0
+    ))
+}
+
+function extractThreadVisualEvidenceRequestCount(thread: DesignThreadRecord | null) {
+  if (!thread) return 0
+  if (typeof thread.visual_evidence_request_count === 'number') return thread.visual_evidence_request_count
+  return extractThreadVisualEvidenceRequests(thread).length
 }
 
 type ModelStateWriter = (updater: (previous: ModelData[]) => ModelData[]) => void
@@ -594,7 +616,12 @@ export default function App() {
   const [threadAttachmentIds, setThreadAttachmentIds] = useState<string[]>([])
   const [threadVisualEvidence, setThreadVisualEvidence] = useState<ThreadVisualEvidenceArtifact[]>([])
   const [threadVisualEvidenceCount, setThreadVisualEvidenceCount] = useState(0)
+  const [threadVisualEvidenceRequests, setThreadVisualEvidenceRequests] = useState<ThreadVisualEvidenceRequest[]>([])
+  const [threadVisualEvidenceRequestCount, setThreadVisualEvidenceRequestCount] = useState(0)
   const [visualEvidenceView, setVisualEvidenceView] = useState<VisualEvidenceViewPreset>('iso')
+  const [visualEvidenceFollowMode, setVisualEvidenceFollowMode] = useState(false)
+  const visualEvidenceFollowModeRef = useRef(false)
+  const fulfillingVisualEvidenceRequestsRef = useRef<Set<string>>(new Set())
   const [latestAttachmentId, setLatestAttachmentId] = useState<string | null>(null)
   const [chatStreamUnavailable, setChatStreamUnavailable] = useState(false)
   const [markupActive, setMarkupActive] = useState(false)
@@ -749,6 +776,8 @@ export default function App() {
     setLatestAttachmentId(extractLatestAttachmentId(payload))
     setThreadVisualEvidence(extractThreadVisualEvidence(payload))
     setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload))
+    setThreadVisualEvidenceRequests(extractThreadVisualEvidenceRequests(payload))
+    setThreadVisualEvidenceRequestCount(extractThreadVisualEvidenceRequestCount(payload))
     return payload
   }, [apiBase])
 
@@ -759,6 +788,8 @@ export default function App() {
     setLatestAttachmentId(extractLatestAttachmentId(payload))
     setThreadVisualEvidence(extractThreadVisualEvidence(payload))
     setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload))
+    setThreadVisualEvidenceRequests(extractThreadVisualEvidenceRequests(payload))
+    setThreadVisualEvidenceRequestCount(extractThreadVisualEvidenceRequestCount(payload))
   }, [])
 
   const appendThreadEvents = useCallback((threadId: string, messages: DesignThreadEvent[]) => {
@@ -779,6 +810,8 @@ export default function App() {
       setLatestAttachmentId(extractLatestAttachmentId(next))
       setThreadVisualEvidence(extractThreadVisualEvidence(next))
       setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(next))
+      setThreadVisualEvidenceRequests(extractThreadVisualEvidenceRequests(next))
+      setThreadVisualEvidenceRequestCount(extractThreadVisualEvidenceRequestCount(next))
 
       return next
     })
@@ -885,6 +918,8 @@ export default function App() {
       setLatestAttachmentId(extractLatestAttachmentId(payload))
       setThreadVisualEvidence(extractThreadVisualEvidence(payload))
       setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload))
+      setThreadVisualEvidenceRequests(extractThreadVisualEvidenceRequests(payload))
+      setThreadVisualEvidenceRequestCount(extractThreadVisualEvidenceRequestCount(payload))
     }
     await loadThreadSummaries()
     return payload
@@ -951,6 +986,159 @@ export default function App() {
     setThreadVisualEvidenceCount((current) => (isNew ? current + 1 : current))
     return evidence
   }, [apiBase, selectedIds, visualEvidenceView])
+
+  const upsertVisualEvidenceRequest = useCallback((request: ThreadVisualEvidenceRequest) => {
+    setThreadVisualEvidenceRequests((current) => {
+      const index = current.findIndex((candidate) => candidate.request_id === request.request_id)
+      if (index === -1) return [...current, request]
+      const next = [...current]
+      next[index] = request
+      return next
+    })
+  }, [])
+
+  const fulfillVisualEvidenceRequest = useCallback(async (
+    threadId: string,
+    request: ThreadVisualEvidenceRequest,
+  ) => {
+    const view = normalizeVisualEvidenceView(String(request.view || 'iso'))
+    const requestedPartIds = request.part_ids?.filter((partId) => partId.trim()) ?? []
+    const renderModels = requestedPartIds.length
+      ? visibleModelsRef.current.filter((model) => requestedPartIds.includes(model.partId))
+      : visibleModelsRef.current
+    try {
+      const capture = await renderVisualEvidenceCapture({
+        models: renderModels,
+        view,
+        width: typeof request.width === 'number' ? request.width : undefined,
+        height: typeof request.height === 'number' ? request.height : undefined,
+      })
+      const requestVisibleIds = request.visible_ids?.length ? request.visible_ids : []
+      const currentVisibleIds = requestVisibleIds.length
+        ? requestVisibleIds
+        : (visiblePartIdsRef.current.length ? visiblePartIdsRef.current : selectedIds)
+      const selectedForRequest = request.selected_ids?.length ? request.selected_ids : selectedIds
+      const partIdsForRequest = requestedPartIds.length ? requestedPartIds : currentVisibleIds
+      const payload = {
+        source: request.source || 'agent',
+        view,
+        request_id: request.request_id,
+        content_type: 'image/png',
+        data_url: capture.dataUrl,
+        width: capture.width,
+        height: capture.height,
+        camera: capture.camera,
+        viewport: capture.viewport,
+        selected_ids: selectedForRequest,
+        visible_ids: currentVisibleIds,
+        part_ids: partIdsForRequest,
+        purpose: request.purpose || 'agent-request',
+        metadata: {
+          ...(request.metadata ?? {}),
+          backend_revision: backendRevisionRef.current,
+          capture_source: 'separate-render-context',
+          fulfillment_source: 'viewer-request-worker',
+          render_context: capture.viewport.render_context,
+          visual_evidence_request_id: request.request_id,
+        },
+      } as CreateThreadVisualEvidencePayload
+
+      const response = await fetch(
+        apiUrl(apiBase, `/api/design-threads/${threadId}/visual-evidence-requests/${request.request_id}/complete`),
+        buildHeaders(payload),
+      )
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      const completed = await response.json() as {
+        request?: ThreadVisualEvidenceRequest
+        visual_evidence?: ThreadVisualEvidenceArtifact
+      }
+      if (completed.request) {
+        upsertVisualEvidenceRequest(completed.request)
+      }
+      if (completed.visual_evidence) {
+        const evidence = {
+          ...completed.visual_evidence,
+          image_url: completed.visual_evidence.image_url
+            || completed.visual_evidence.image_endpoint
+            || `/api/design-threads/${threadId}/visual-evidence/${completed.visual_evidence.artifact_id}/image`,
+        }
+        let isNew = false
+        setThreadVisualEvidence((current) => {
+          if (current.some((candidate) => candidate.artifact_id === evidence.artifact_id)) return current
+          isNew = true
+          return [...current, evidence]
+        })
+        setThreadVisualEvidenceCount((current) => (isNew ? current + 1 : current))
+        if (visualEvidenceFollowModeRef.current) {
+          setVisualEvidenceView(view)
+        }
+      }
+      await loadThread(threadId)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fulfill visual evidence request'
+      try {
+        const response = await fetch(
+          apiUrl(apiBase, `/api/design-threads/${threadId}/visual-evidence-requests/${request.request_id}/fail`),
+          buildHeaders({ error: message }),
+        )
+        if (response.ok) {
+          const failed = await response.json() as { request?: ThreadVisualEvidenceRequest }
+          if (failed.request) {
+            upsertVisualEvidenceRequest(failed.request)
+          }
+        }
+      } catch (failError) {
+        console.warn('Failed to record visual evidence request failure:', failError)
+      }
+    } finally {
+      fulfillingVisualEvidenceRequestsRef.current.delete(request.request_id)
+    }
+  }, [apiBase, loadThread, selectedIds, upsertVisualEvidenceRequest])
+
+  useEffect(() => {
+    visualEvidenceFollowModeRef.current = visualEvidenceFollowMode
+  }, [visualEvidenceFollowMode])
+
+  useEffect(() => {
+    if (!activeThreadId) return undefined
+    let cancelled = false
+    const pollThread = () => {
+      void loadThread(activeThreadId).catch((error) => {
+        if (!cancelled) {
+          console.warn('Visual evidence request poll failed:', error instanceof Error ? error.message : error)
+        }
+      })
+    }
+    const intervalId = window.setInterval(pollThread, 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [activeThreadId, loadThread])
+
+  useEffect(() => {
+    if (!activeThreadId) return
+    if (!visibleModelsRef.current.length) return
+    const pendingRequests = threadVisualEvidenceRequests.filter((request) => (
+      request.status === 'pending'
+      && typeof request.request_id === 'string'
+      && request.request_id.trim().length > 0
+      && !fulfillingVisualEvidenceRequestsRef.current.has(request.request_id)
+    ))
+    if (!pendingRequests.length) return
+
+    pendingRequests.forEach((request) => {
+      fulfillingVisualEvidenceRequestsRef.current.add(request.request_id)
+      upsertVisualEvidenceRequest({
+        ...request,
+        status: 'in_flight',
+        updated_at: new Date().toISOString(),
+      })
+      void fulfillVisualEvidenceRequest(activeThreadId, request)
+    })
+  }, [activeThreadId, fulfillVisualEvidenceRequest, models.length, threadVisualEvidenceRequests, upsertVisualEvidenceRequest])
 
   const sendThreadChatMessage = useCallback(async (threadId: string, payload: DesignThreadChatPayload) => {
     const contextSnapshot = payload.context_snapshot
@@ -1853,8 +2041,12 @@ export default function App() {
           onRequestVisualEvidence={createVisualEvidence}
           visualEvidenceView={visualEvidenceView}
           onVisualEvidenceViewChange={setVisualEvidenceView}
+          visualEvidenceFollowMode={visualEvidenceFollowMode}
+          onVisualEvidenceFollowModeChange={setVisualEvidenceFollowMode}
           threadVisualEvidence={threadVisualEvidence}
           threadVisualEvidenceCount={threadVisualEvidenceCount}
+          threadVisualEvidenceRequests={threadVisualEvidenceRequests}
+          threadVisualEvidenceRequestCount={threadVisualEvidenceRequestCount}
           onBuildViewerContext={buildViewerContextPayload}
           threadAttachmentIds={threadAttachmentIds}
           markupActive={markupActive}

@@ -529,6 +529,8 @@ Add MCP tools that answer without changing source:
 - `profile_last`
 - `visual_evidence_list`
 - `visual_evidence_get`
+- `request_visual_evidence`
+- `visual_evidence_requests_list`
 
 This lets agents and local models inspect before editing.
 
@@ -545,6 +547,8 @@ Add draft-only tools:
 - `draft_discard`
 - `visual_evidence_create` for storing thread-local PNG evidence that an
   existing renderer or browser session already produced
+- `request_visual_evidence` for asking an active browser session to capture a
+  named offscreen render without moving the user's viewport
 
 These tools should write only local runtime draft state, temporary preview
 artifacts, or thread-local visual evidence.

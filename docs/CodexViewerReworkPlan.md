@@ -882,17 +882,22 @@ Frontend:
 
 Agent/runtime:
 
-- add a CAD-safe `request_visual_evidence` tool after the storage and frontend
-  contract is proved
+- add a CAD-safe `request_visual_evidence` tool that records pending browser
+  render requests and lets the viewer fulfill them through the offscreen render
+  context
 - send artifact metadata to text-only models and image references to
   vision-capable providers
-- keep live viewport mirroring behind a later explicit Follow Mode toggle
+- keep live viewport mirroring behind a later explicit Follow Mode expansion;
+  the current Follow Mode is a tray-level debug tracker and does not move the
+  user's camera
 
 Tests:
 
 - backend storage, retrieval, invalid image, invalid preset, and path containment
 - frontend visual evidence rendering, named view selection, and separate render
   capture path
+- MCP request registration, thread-local request storage, and browser request
+  fulfillment/failure paths
 - MCP visual evidence tool registration and thread-local write boundary
 - integration smoke against `/home/gnulnx/b3_robot`
 

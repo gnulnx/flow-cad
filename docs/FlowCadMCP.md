@@ -87,6 +87,8 @@ Design-thread visual evidence tools:
 
 - `visual_evidence_list`
 - `visual_evidence_get`
+- `request_visual_evidence`
+- `visual_evidence_requests_list`
 - `visual_evidence_create`
 
 These tools use `DraftGeometryStore` and return the same structured facts as the
@@ -221,9 +223,10 @@ current draft API, both interfaces call `DraftGeometryStore`.
 
 For visual evidence, the viewer backend and MCP server call the design-thread
 service. MCP can create/list/read durable evidence artifacts when the caller
-already has PNG image data. A later `request_visual_evidence` tool should call a
-shared render service or agent-owned render context; it should not drive the
-user's live viewport directly.
+already has PNG image data. MCP can also call `request_visual_evidence` to write
+a pending browser-render request under the design thread. The viewer fulfills
+that request with its offscreen render context and marks the request fulfilled
+or failed. MCP must not drive the user's live viewport directly.
 
 ## Readiness Checks
 

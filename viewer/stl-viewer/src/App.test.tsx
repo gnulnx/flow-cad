@@ -3,9 +3,15 @@ import userEvent from '@testing-library/user-event'
 import { BufferGeometry, Float32BufferAttribute } from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { renderVisualEvidenceCapture } from './visualEvidenceRender'
 
 const viewerRenderProps = vi.hoisted(() => [] as Array<{ clearMeasurementsRequest: number; models: Array<Record<string, unknown>> }>)
-const visualEvidenceRenderCalls = vi.hoisted(() => [] as Array<{ models: Array<Record<string, unknown>>; view: string }>)
+const visualEvidenceRenderCalls = vi.hoisted(() => [] as Array<{
+  models: Array<Record<string, unknown>>
+  view: string
+  width?: number
+  height?: number
+}>)
 
 vi.mock('./components/Viewer', () => ({
   default: (props: { clearMeasurementsRequest: number; models: Array<Record<string, unknown>> }) => {
@@ -326,6 +332,8 @@ interface MockDesignThread {
   context_snapshots: Record<string, unknown>[]
   visual_evidence?: MockVisualEvidencePayload[]
   visual_evidence_count?: number
+  visual_evidence_requests?: MockVisualEvidenceRequestPayload[]
+  visual_evidence_request_count?: number
 }
 
 interface MockAttachmentPayload {
@@ -356,6 +364,25 @@ interface MockVisualEvidencePayload {
   part_ids: string[]
   purpose: string
   created_at: string
+  metadata?: Record<string, unknown>
+}
+
+interface MockVisualEvidenceRequestPayload {
+  request_id: string
+  thread_id: string
+  status: string
+  source: string
+  view: string
+  width?: number | null
+  height?: number | null
+  selected_ids: string[]
+  visible_ids: string[]
+  part_ids: string[]
+  purpose: string | null
+  created_at: string
+  updated_at: string
+  artifact_id: string | null
+  error: string | null
   metadata?: Record<string, unknown>
 }
 
@@ -493,6 +520,10 @@ describe('App source loading', () => {
             updated_at: now,
             messages: [],
             context_snapshots: [],
+            visual_evidence: [],
+            visual_evidence_count: 0,
+            visual_evidence_requests: [],
+            visual_evidence_request_count: 0,
           }
           designThreads.push(thread)
           return jsonResponse(thread)
@@ -542,6 +573,84 @@ describe('App source loading', () => {
           })
 
           return jsonResponse(attachment)
+        }
+        if (route === 'visual-evidence-requests' && method === 'POST') {
+          const body = jsonBody(init)
+          const requestId = String(body.request_id || `ver-${(thread.visual_evidence_requests?.length ?? 0) + 1}`)
+          const request: MockVisualEvidenceRequestPayload = {
+            request_id: requestId,
+            thread_id: threadId,
+            status: 'pending',
+            source: String(body.source ?? 'agent'),
+            view: String(body.view ?? 'iso'),
+            width: typeof body.width === 'number' ? body.width : null,
+            height: typeof body.height === 'number' ? body.height : null,
+            selected_ids: Array.isArray(body.selected_ids) ? body.selected_ids : [],
+            visible_ids: Array.isArray(body.visible_ids) ? body.visible_ids : [],
+            part_ids: Array.isArray(body.part_ids) ? body.part_ids : [],
+            purpose: typeof body.purpose === 'string' ? body.purpose : null,
+            created_at: '2026-06-09T12:00:35Z',
+            updated_at: '2026-06-09T12:00:35Z',
+            artifact_id: null,
+            error: null,
+            metadata: typeof body.metadata === 'object' && body.metadata !== null
+              ? body.metadata as Record<string, unknown>
+              : undefined,
+          }
+          thread.visual_evidence_requests = thread.visual_evidence_requests ?? []
+          thread.visual_evidence_requests.push(request)
+          thread.visual_evidence_request_count = thread.visual_evidence_requests.length
+          return jsonResponse(request)
+        }
+        const visualEvidenceRequestMatch = route.match(/^visual-evidence-requests\/([^/]+)\/(complete|fail)$/)
+        if (visualEvidenceRequestMatch && method === 'POST') {
+          const requestId = visualEvidenceRequestMatch[1]
+          const action = visualEvidenceRequestMatch[2]
+          const request = thread.visual_evidence_requests?.find((candidate) => candidate.request_id === requestId)
+          if (!request) return Promise.resolve(new Response('not found', { status: 404 }))
+          const body = jsonBody(init)
+          if (action === 'fail') {
+            request.status = 'failed'
+            request.error = String(body.error ?? 'failed')
+            request.updated_at = '2026-06-09T12:00:55Z'
+            return jsonResponse({ ok: true, request })
+          }
+
+          attachmentCounter += 1
+          const artifactId = `ve-${String(attachmentCounter).padStart(2, '0')}`
+          const evidence: MockVisualEvidencePayload = {
+            artifact_id: artifactId,
+            source: String(body.source ?? request.source),
+            view: String(body.view ?? request.view),
+            content_type: 'image/png',
+            path: `visual-evidence/${artifactId}.png`,
+            image_url: `/api/design-threads/${threadId}/visual-evidence/${artifactId}/image`,
+            width: typeof body.width === 'number' ? body.width : null,
+            height: typeof body.height === 'number' ? body.height : null,
+            selected_ids: Array.isArray(body.selected_ids) ? body.selected_ids : request.selected_ids,
+            visible_ids: Array.isArray(body.visible_ids) ? body.visible_ids : request.visible_ids,
+            part_ids: Array.isArray(body.part_ids) ? body.part_ids : request.part_ids,
+            purpose: typeof body.purpose === 'string' ? body.purpose : request.purpose ?? 'agent-request',
+            created_at: '2026-06-09T12:00:50Z',
+            metadata: typeof body.metadata === 'object' && body.metadata !== null
+              ? body.metadata as Record<string, unknown>
+              : undefined,
+          }
+          thread.visual_evidence = thread.visual_evidence ?? []
+          thread.visual_evidence.push(evidence)
+          thread.visual_evidence_count = thread.visual_evidence.length
+          request.status = 'fulfilled'
+          request.artifact_id = artifactId
+          request.updated_at = '2026-06-09T12:00:50Z'
+          return jsonResponse({ ok: true, request, visual_evidence: evidence })
+        }
+        if (route === 'visual-evidence-requests' && method === 'GET') {
+          return jsonResponse({
+            ok: true,
+            thread_id: threadId,
+            count: thread.visual_evidence_requests?.length ?? 0,
+            visual_evidence_requests: thread.visual_evidence_requests ?? [],
+          })
         }
         if (route === 'visual-evidence' && method === 'POST') {
           const body = jsonBody(init)
@@ -1112,6 +1221,125 @@ describe('App source loading', () => {
 
     expect(findFetchCall('/attachments/viewport-screenshot')).toBeUndefined()
     await screen.findByText('id: ve-01')
+    expect(await screen.findByAltText('Visual evidence front')).toBeInTheDocument()
+  })
+
+  it('fulfills pending visual evidence requests through the offscreen render worker', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByText('wheel_box_test_body'))
+    await openThreadDrawer(user)
+    await user.type(screen.getByLabelText('New thread title'), 'Agent visual request')
+    await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+    await screen.findByText('Agent visual request')
+    await user.click(screen.getByRole('button', { name: 'Follow mode' }))
+    expect(screen.getByRole('button', { name: 'Follow mode' })).toHaveAttribute('aria-pressed', 'true')
+
+    designThreads[0].visual_evidence_requests = [
+      {
+        request_id: 'ver-agent',
+        thread_id: designThreads[0].thread_id,
+        status: 'pending',
+        source: 'agent',
+        view: 'top',
+        width: 1200,
+        height: 800,
+        selected_ids: ['wheel_box_test_body'],
+        visible_ids: ['wheel_box_test_body'],
+        part_ids: ['wheel_box_test_body'],
+        purpose: 'agent top review',
+        created_at: '2026-06-09T12:02:00Z',
+        updated_at: '2026-06-09T12:02:00Z',
+        artifact_id: null,
+        error: null,
+        metadata: { caller: 'mcp' },
+      },
+    ]
+    designThreads[0].visual_evidence_request_count = 1
+
+    const completeCall = await waitFor(() => {
+      const value = findFetchCall('/visual-evidence-requests/ver-agent/complete')
+      expect(value).toBeDefined()
+      return value
+    }, { timeout: 3500 })
+    const completeBody = jsonBody(completeCall![1] as RequestInit)
+
+    expect(visualEvidenceRenderCalls).toHaveLength(1)
+    expect(visualEvidenceRenderCalls[0]).toMatchObject({
+      view: 'top',
+      width: 1200,
+      height: 800,
+    })
+    expect(visualEvidenceRenderCalls[0].models).toHaveLength(1)
+    expect(completeBody).toMatchObject({
+      source: 'agent',
+      view: 'top',
+      request_id: 'ver-agent',
+      data_url: 'data:image/png;base64,T0ZGU0NSRUV4=',
+      selected_ids: ['wheel_box_test_body'],
+      visible_ids: ['wheel_box_test_body'],
+      part_ids: ['wheel_box_test_body'],
+      purpose: 'agent top review',
+      metadata: {
+        caller: 'mcp',
+        capture_source: 'separate-render-context',
+        fulfillment_source: 'viewer-request-worker',
+        render_context: 'offscreen-browser',
+        visual_evidence_request_id: 'ver-agent',
+      },
+    })
+    expect(findFetchCall('/attachments/viewport-screenshot')).toBeUndefined()
+    await screen.findByText('status: fulfilled')
+    await screen.findByText('artifact: ve-01')
+    await waitFor(() => expect(screen.getByLabelText('Visual evidence view')).toHaveValue('top'))
+  })
+
+  it('records failed visual evidence requests without using user attachments', async () => {
+    const user = userEvent.setup()
+    vi.mocked(renderVisualEvidenceCapture).mockRejectedValueOnce(new Error('render unavailable'))
+
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByText('wheel_box_test_body'))
+    await openThreadDrawer(user)
+    await user.type(screen.getByLabelText('New thread title'), 'Failed agent request')
+    await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+    await screen.findByText('Failed agent request')
+
+    designThreads[0].visual_evidence_requests = [
+      {
+        request_id: 'ver-fail',
+        thread_id: designThreads[0].thread_id,
+        status: 'pending',
+        source: 'agent',
+        view: 'right',
+        selected_ids: ['wheel_box_test_body'],
+        visible_ids: ['wheel_box_test_body'],
+        part_ids: ['wheel_box_test_body'],
+        purpose: 'agent side review',
+        created_at: '2026-06-09T12:02:00Z',
+        updated_at: '2026-06-09T12:02:00Z',
+        artifact_id: null,
+        error: null,
+      },
+    ]
+    designThreads[0].visual_evidence_request_count = 1
+
+    const failCall = await waitFor(() => {
+      const value = findFetchCall('/visual-evidence-requests/ver-fail/fail')
+      expect(value).toBeDefined()
+      return value
+    }, { timeout: 3500 })
+    const failBody = jsonBody(failCall![1] as RequestInit)
+
+    expect(failBody.error).toBe('render unavailable')
+    expect(findFetchCall('/attachments/viewport-screenshot')).toBeUndefined()
+    await screen.findByText('status: failed')
+    await screen.findByText('render unavailable')
   })
 
   it('recovers persisted design thread history on browser reload', async () => {

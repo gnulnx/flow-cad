@@ -535,6 +535,59 @@ def build_server() -> FastMCP:
         )
         return design_thread_service(project_root).get_visual_evidence(thread_id, artifact_id)
 
+    @mcp.tool(
+        name="request_visual_evidence",
+        description="Request an offscreen browser render for a design thread; the viewer fulfills it asynchronously.",
+    )
+    def request_visual_evidence_tool(
+        thread_id: str,
+        project_root: str | None = None,
+        view: str = "iso",
+        source: str = "agent",
+        width: int | None = None,
+        height: int | None = None,
+        purpose: str | None = None,
+        selected_ids: list[str] | None = None,
+        visible_ids: list[str] | None = None,
+        part_ids: list[str] | None = None,
+        metadata: dict[str, object] | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "request_visual_evidence called. project_root=%s thread_id=%s source=%s view=%s",
+            project_root,
+            thread_id,
+            source,
+            view,
+        )
+        payload = {
+            "request_id": request_id,
+            "source": source,
+            "view": view,
+            "width": width,
+            "height": height,
+            "purpose": purpose,
+            "selected_ids": selected_ids or [],
+            "visible_ids": visible_ids or [],
+            "part_ids": part_ids or [],
+            "metadata": metadata or {},
+        }
+        return design_thread_service(project_root).request_visual_evidence(thread_id, payload)
+
+    @mcp.tool(name="visual_evidence_requests_list", description="List render requests for a design thread.")
+    def visual_evidence_requests_list_tool(
+        thread_id: str,
+        project_root: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "visual_evidence_requests_list called. project_root=%s thread_id=%s status=%s",
+            project_root,
+            thread_id,
+            status,
+        )
+        return design_thread_service(project_root).list_visual_evidence_requests(thread_id, status=status)
+
     @mcp.tool(name="visual_evidence_create", description="Store a PNG visual evidence artifact for a design thread.")
     def visual_evidence_create_tool(
         thread_id: str,
@@ -584,7 +637,8 @@ def build_server() -> FastMCP:
         "draft_transaction_add_counterbore, draft_transaction_add_slot, draft_transaction_add_louver_pattern, "
         "draft_transaction_mirror_features, draft_transaction_measure, draft_transaction_preview, "
         "draft_transaction_accept, draft_transaction_discard, validator_list, validator_run, profile_last, "
-        "visual_evidence_list, visual_evidence_get, visual_evidence_create"
+        "visual_evidence_list, visual_evidence_get, request_visual_evidence, "
+        "visual_evidence_requests_list, visual_evidence_create"
     )
     return mcp
 

@@ -15,6 +15,7 @@ import type {
   ViewportMarkupTool,
   ViewportAttachmentRecord,
   ViewportScreenshotPayload,
+  ThreadVisualEvidenceRequest,
 } from '../types'
 import type { PreviewContext, ProposedPreviewOperation, DraftAcceptanceArtifacts, DraftPreviewModelPayload } from '../types'
 
@@ -65,8 +66,12 @@ interface DesignThreadDockProps {
   onRequestVisualEvidence?: (threadId: string) => Promise<ThreadVisualEvidenceArtifact | null>
   visualEvidenceView: VisualEvidenceViewPreset
   onVisualEvidenceViewChange: (view: VisualEvidenceViewPreset) => void
+  visualEvidenceFollowMode: boolean
+  onVisualEvidenceFollowModeChange: (enabled: boolean) => void
   threadVisualEvidence: ThreadVisualEvidenceArtifact[]
   threadVisualEvidenceCount?: number
+  threadVisualEvidenceRequests: ThreadVisualEvidenceRequest[]
+  threadVisualEvidenceRequestCount?: number
   onBuildViewerContext: (options?: { includeViewportScreenshot?: boolean }) => Record<string, unknown>
   threadAttachmentIds: string[]
   markupActive: boolean
@@ -142,8 +147,12 @@ export default function DesignThreadDock({
   onRequestVisualEvidence,
   visualEvidenceView,
   onVisualEvidenceViewChange,
+  visualEvidenceFollowMode,
+  onVisualEvidenceFollowModeChange,
   threadVisualEvidence,
   threadVisualEvidenceCount,
+  threadVisualEvidenceRequests,
+  threadVisualEvidenceRequestCount,
   onBuildViewerContext,
   threadAttachmentIds,
   markupActive,
@@ -184,6 +193,23 @@ export default function DesignThreadDock({
       }
     },
     [activeAssemblyId, activeProjectRevision, selectedPartIds.length, visiblePartIds.length],
+  )
+  const requestStatusCounts = useMemo(() => {
+    return threadVisualEvidenceRequests.reduce(
+      (counts, request) => {
+        const status = String(request.status || 'pending').toLowerCase()
+        if (status === 'fulfilled') counts.fulfilled += 1
+        else if (status === 'failed') counts.failed += 1
+        else if (status === 'in_flight') counts.inFlight += 1
+        else counts.pending += 1
+        return counts
+      },
+      { pending: 0, inFlight: 0, fulfilled: 0, failed: 0 },
+    )
+  }, [threadVisualEvidenceRequests])
+  const recentVisualEvidenceRequests = useMemo(
+    () => threadVisualEvidenceRequests.slice(-4).reverse(),
+    [threadVisualEvidenceRequests],
   )
 
   const commandBusyState = useMemo(
@@ -512,7 +538,38 @@ export default function DesignThreadDock({
                 <option value="top">Top</option>
                 <option value="bottom">Bottom</option>
               </select>
+              <button
+                type="button"
+                className={`btn-tool ${visualEvidenceFollowMode ? 'active' : ''}`}
+                aria-pressed={visualEvidenceFollowMode}
+                onClick={() => onVisualEvidenceFollowModeChange(!visualEvidenceFollowMode)}
+                disabled={!activeThreadId || isThreadMuted}
+              >
+                Follow mode
+              </button>
+              <div className="visual-evidence-request-status" aria-label="Visual evidence request status">
+                <span className="context-pill">pending: {requestStatusCounts.pending}</span>
+                <span className="context-pill">rendering: {requestStatusCounts.inFlight}</span>
+                <span className="context-pill">failed: {requestStatusCounts.failed}</span>
+                {typeof threadVisualEvidenceRequestCount === 'number' ? (
+                  <span className="context-pill">requests: {threadVisualEvidenceRequestCount}</span>
+                ) : null}
+              </div>
               {visualEvidenceError ? <span className="thread-error">{visualEvidenceError}</span> : null}
+              {recentVisualEvidenceRequests.length ? (
+                <ul className="visual-evidence-request-list" role="list" aria-label="Recent visual evidence requests">
+                  {recentVisualEvidenceRequests.map((request) => (
+                    <li key={request.request_id} className="visual-evidence-request-item" role="listitem">
+                      <span className="context-pill">status: {request.status}</span>
+                      <span className="context-pill">view: {request.view}</span>
+                      {request.purpose ? <span className="context-pill">purpose: {request.purpose}</span> : null}
+                      {request.artifact_id ? <span className="context-pill">artifact: {request.artifact_id}</span> : null}
+                      {request.error ? <span className="thread-error">{request.error}</span> : null}
+                      <span className="context-pill">id: {request.request_id}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {threadVisualEvidence.length ? (
                 <ul className="visual-evidence-list" role="list">
                   {threadVisualEvidence.map((artifact) => {
@@ -528,9 +585,16 @@ export default function DesignThreadDock({
                           ) : null}
                         </div>
                         {imageHref ? (
-                          <a className="btn-tool visual-evidence-link" href={imageHref} target="_blank" rel="noreferrer">
-                            Open image
-                          </a>
+                          <>
+                            <img
+                              className="visual-evidence-preview"
+                              src={imageHref}
+                              alt={`Visual evidence ${artifact.view}`}
+                            />
+                            <a className="btn-tool visual-evidence-link" href={imageHref} target="_blank" rel="noreferrer">
+                              Open image
+                            </a>
+                          </>
                         ) : null}
                         <span className="context-pill">id: {artifact.artifact_id}</span>
                       </li>

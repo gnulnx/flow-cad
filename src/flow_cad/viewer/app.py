@@ -21,6 +21,7 @@ from flow_cad.viewer.agent_runtime import (
 from flow_cad.viewer.threads import (
     DesignThreadService,
     VisualEvidenceNotFoundError,
+    VisualEvidenceRequestNotFoundError,
     ThreadNotFoundError,
     ThreadStorageError,
 )
@@ -64,6 +65,19 @@ def _cad_safe_tools() -> list[dict[str, Any]]:
             "name": "read_viewer_context",
             "description": "Read the active Flow CAD design-thread and viewport context.",
             "parameters": {"properties": {"thread_id": {"type": "string"}}},
+        },
+        {
+            "name": "request_visual_evidence",
+            "description": "Ask the Flow CAD viewer to capture an offscreen visual evidence render for a thread.",
+            "parameters": {
+                "properties": {
+                    "thread_id": {"type": "string"},
+                    "view": {"type": "string", "enum": ["front", "back", "left", "right", "top", "bottom", "iso"]},
+                    "purpose": {"type": "string"},
+                    "part_ids": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["thread_id"],
+            },
         },
         {
             "name": "create_draft_transaction",
@@ -473,6 +487,54 @@ def create_app(
         try:
             return design_threads.add_visual_evidence(thread_id, payload)
         except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/visual-evidence-requests")
+    def create_visual_evidence_request(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.request_visual_evidence(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/design-threads/{thread_id}/visual-evidence-requests")
+    def list_visual_evidence_requests(thread_id: str, status: str | None = None) -> dict[str, object]:
+        try:
+            return design_threads.list_visual_evidence_requests(thread_id, status=status)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/design-threads/{thread_id}/visual-evidence-requests/{request_id}")
+    def get_visual_evidence_request(thread_id: str, request_id: str) -> dict[str, object]:
+        try:
+            return design_threads.get_visual_evidence_request(thread_id, request_id)
+        except (ThreadNotFoundError, VisualEvidenceRequestNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/visual-evidence-requests/{request_id}/complete")
+    def complete_visual_evidence_request(
+        thread_id: str,
+        request_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        try:
+            return design_threads.fulfill_visual_evidence_request(thread_id, request_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError, VisualEvidenceRequestNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/visual-evidence-requests/{request_id}/fail")
+    def fail_visual_evidence_request(
+        thread_id: str,
+        request_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        try:
+            return design_threads.fail_visual_evidence_request(thread_id, request_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError, VisualEvidenceRequestNotFoundError) as exc:
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
