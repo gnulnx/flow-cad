@@ -18,7 +18,7 @@ from flow_cad.step_io import normalize_step_file
 DRAFT_SCHEMA_VERSION = 1
 DRAFT_TRANSACTION_SCHEMA_VERSION = 1
 
-DraftFeatureKind = Literal["hole", "counterbore", "slot"]
+DraftFeatureKind = Literal["hole", "counterbore", "slot", "raised_wall"]
 
 
 class DraftGeometryError(RuntimeError):
@@ -71,6 +71,7 @@ class DraftFeature:
     depth: float | None = None
     length: float | None = None
     width: float | None = None
+    height: float | None = None
     angle: float = 0.0
 
     def to_state(self) -> dict[str, Any]:
@@ -81,7 +82,7 @@ class DraftFeature:
             "x": self.x,
             "y": self.y,
         }
-        for key in ("diameter", "through", "depth", "length", "width", "angle"):
+        for key in ("diameter", "through", "depth", "length", "width", "height", "angle"):
             value = getattr(self, key)
             if value is not None:
                 payload[key] = value
@@ -100,6 +101,7 @@ class DraftFeature:
             depth=float(payload["depth"]) if payload.get("depth") is not None else None,
             length=float(payload["length"]) if payload.get("length") is not None else None,
             width=float(payload["width"]) if payload.get("width") is not None else None,
+            height=float(payload["height"]) if payload.get("height") is not None else None,
             angle=float(payload.get("angle", 0.0)),
         )
 
@@ -332,6 +334,36 @@ def _axis_box(size: tuple[float, float, float], center: tuple[float, float, floa
     return Box(*size).moved(Location(center))
 
 
+def _face_box_size(spec: FaceSpec, u_size: float, v_size: float, normal_size: float) -> tuple[float, float, float]:
+    values = [0.0, 0.0, 0.0]
+    values[spec.u_axis] = u_size
+    values[spec.v_axis] = v_size
+    values[spec.normal_axis] = normal_size
+    return (values[0], values[1], values[2])
+
+
+def _raised_feature_center(
+    part: DraftPart,
+    spec: FaceSpec,
+    x: float,
+    y: float,
+    height: float,
+) -> tuple[float, float, float]:
+    center = list(_point_on_face(part, spec, x, y))
+    center[spec.normal_axis] += spec.normal_sign * height / 2.0
+    return (center[0], center[1], center[2])
+
+
+def _raised_wall_shape(part: DraftPart, spec: FaceSpec, feature: DraftFeature):
+    assert feature.length is not None
+    assert feature.width is not None
+    assert feature.height is not None
+    return _axis_box(
+        _face_box_size(spec, feature.length, feature.width, feature.height),
+        _raised_feature_center(part, spec, feature.x, feature.y, feature.height),
+    )
+
+
 def _top_slot_cut(length: float, width: float, cut_depth: float, center: tuple[float, float, float], angle: float):
     body_length = max(length - width, 0.0)
     if body_length > 0:
@@ -416,6 +448,7 @@ def _copy_feature_to_face(feature: DraftFeature, *, feature_id: str, face: str) 
         depth=feature.depth,
         length=feature.length,
         width=feature.width,
+        height=feature.height,
         angle=feature.angle,
     )
 
@@ -429,8 +462,9 @@ def _source_for_draft(draft: DraftPart) -> str:
     function_name = f"make_{module_name}"
     needs_cylinder = any(feature.kind in {"hole", "counterbore"} for feature in draft.features)
     needs_slot = any(feature.kind == "slot" for feature in draft.features)
+    needs_raised_wall = any(feature.kind == "raised_wall" for feature in draft.features)
     imports = "Box"
-    if needs_cylinder or needs_slot:
+    if needs_cylinder or needs_slot or needs_raised_wall:
         imports += ", Cylinder, Location"
 
     lines = [
@@ -525,6 +559,16 @@ def _source_for_draft(draft: DraftPart) -> str:
                 "    part = part - "
                 f"_slot_cut({feature.length!r}, {feature.width!r}, {_axis_length(draft, spec)!r}, "
                 f"{spec.normal_axis}, {_tuple_literal(center)}, {feature.angle!r})"
+            )
+        elif feature.kind == "raised_wall":
+            assert feature.length is not None
+            assert feature.width is not None
+            assert feature.height is not None
+            center = _raised_feature_center(draft, spec, feature.x, feature.y, feature.height)
+            size = _face_box_size(spec, feature.length, feature.width, feature.height)
+            lines.append(
+                "    part = part + "
+                f"Box(*{_tuple_literal(size)}).moved(Location({_tuple_literal(center)}))"
             )
     lines.extend(
         [
@@ -712,6 +756,34 @@ class DraftGeometryStore:
             length=slot_length,
             width=slot_width,
             angle=_float_value("angle", angle),
+        )
+        draft.features.append(feature)
+        draft.preview_step_path = None
+        self._write_state(draft)
+        return self._payload(draft)
+
+    def add_raised_wall(
+        self,
+        draft_token: str,
+        *,
+        face: str,
+        x: float,
+        y: float,
+        length: float,
+        width: float,
+        height: float,
+    ) -> dict[str, Any]:
+        draft = self._require(draft_token)
+        _face(face)
+        feature = DraftFeature(
+            id=self._next_feature_id(draft, "raised_wall"),
+            kind="raised_wall",
+            face=str(face).lower(),
+            x=_float_value("x", x),
+            y=_float_value("y", y),
+            length=_require_positive("length", length),
+            width=_require_positive("width", width),
+            height=_require_positive("height", height),
         )
         draft.features.append(feature)
         draft.preview_step_path = None
@@ -937,6 +1009,41 @@ class DraftGeometryStore:
         )
         return self._transaction_payload(transaction, draft_payload=draft_payload)
 
+    def transaction_add_raised_wall(
+        self,
+        transaction_token: str,
+        *,
+        face: str,
+        x: float,
+        y: float,
+        length: float,
+        width: float,
+        height: float,
+    ) -> dict[str, Any]:
+        transaction, draft_token = self._require_open_transaction_draft(transaction_token)
+        draft_payload = self.add_raised_wall(
+            draft_token,
+            face=face,
+            x=x,
+            y=y,
+            length=length,
+            width=width,
+            height=height,
+        )
+        self._record_transaction_operation(
+            transaction,
+            "add_raised_wall",
+            {
+                "face": str(face).lower(),
+                "x": float(x),
+                "y": float(y),
+                "length": float(length),
+                "width": float(width),
+                "height": float(height),
+            },
+        )
+        return self._transaction_payload(transaction, draft_payload=draft_payload)
+
     def transaction_add_louver_pattern(
         self,
         transaction_token: str,
@@ -1116,6 +1223,9 @@ class DraftGeometryStore:
                     )
                 elif feature.kind == "slot":
                     cut = _slot_cut(draft, spec, feature)
+                elif feature.kind == "raised_wall":
+                    shape = shape + _raised_wall_shape(draft, spec, feature)
+                    continue
                 else:
                     continue
                 shape = shape - cut
@@ -1130,7 +1240,11 @@ class DraftGeometryStore:
         for feature in draft.features:
             spec = _face(feature.face)
             axis = list(spec.axis)
-            center = list(_point_on_face(draft, spec, feature.x, feature.y, at_mid_depth=True))
+            if feature.kind == "raised_wall":
+                assert feature.height is not None
+                center = list(_raised_feature_center(draft, spec, feature.x, feature.y, feature.height))
+            else:
+                center = list(_point_on_face(draft, spec, feature.x, feature.y, at_mid_depth=True))
             footprint_u, footprint_v = self._feature_footprint(feature)
             edge_distance = _edge_distance(draft, spec, feature.x, feature.y, footprint_u, footprint_v)
             edge_warning = _warning_for_edge_distance(feature.id, feature.kind, edge_distance)
@@ -1175,6 +1289,10 @@ class DraftGeometryStore:
                 feature_payload["length"] = feature.length
                 feature_payload["width"] = feature.width
                 feature_payload["angle"] = feature.angle
+            if feature.kind == "raised_wall":
+                feature_payload["length"] = feature.length
+                feature_payload["width"] = feature.width
+                feature_payload["height"] = feature.height
             payloads.append(feature_payload)
         return payloads, warnings, hole_centers
 
@@ -1185,6 +1303,8 @@ class DraftGeometryStore:
             return feature.diameter, feature.diameter
         assert feature.length is not None
         assert feature.width is not None
+        if feature.kind == "raised_wall":
+            return feature.length, feature.width
         radians = math.radians(feature.angle)
         half_u = abs(math.cos(radians)) * feature.length / 2.0 + abs(math.sin(radians)) * feature.width / 2.0
         half_v = abs(math.sin(radians)) * feature.length / 2.0 + abs(math.cos(radians)) * feature.width / 2.0

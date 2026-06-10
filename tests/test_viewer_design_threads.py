@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from flow_cad.viewer.agent_runtime import FakeAgentRuntimeClient
@@ -286,6 +287,306 @@ def test_viewer_design_threads_chat_fallback_persists_runtime_assistant_and_view
     reloaded = client.get(f"/api/design-threads/{thread_id}").json()
     assert [message["type"] for message in reloaded["messages"]] == ["user_message", "assistant_message"]
     assert reloaded["context_snapshots"][0]["viewer_state"]["viewport_screenshot"]["data_url"].startswith("data:image/png")
+
+
+def test_viewer_design_threads_chat_creates_deterministic_base_plate_draft(tmp_path) -> None:
+    _write_example_step(tmp_path)
+
+    def fake_converter(step_path: Path, stl_path: Path) -> Path:
+        assert step_path.exists()
+        stl_path.parent.mkdir(parents=True, exist_ok=True)
+        stl_path.write_text("solid preview\nendsolid preview\n", encoding="utf-8")
+        return stl_path
+
+    service = ViewerService(tmp_path, converter=fake_converter)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "This should not be used."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Draft from chat"}).json()["thread_id"]
+
+    response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": "Please create a base plate that is 100mm x 100mm x 10mm thick",
+            "context_snapshot": {
+                "visible_part_ids": [],
+                "selected_part_ids": [],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["draft_result"]["ok"] is True
+    assert payload["draft_result"]["part_id"] == "base_plate"
+    assert payload["draft_preview_model"]["part_id"] == "base_plate"
+    assert payload["draft_preview_model"]["dimensions"]["length_mm"] == 100.0
+    assert payload["draft_preview_model"]["dimensions"]["width_mm"] == 100.0
+    assert payload["draft_preview_model"]["dimensions"]["height_mm"] == 10.0
+
+    message_types = [message["type"] for message in payload["messages"]]
+    assert message_types == ["user_message", "draft_event", "draft_event", "draft_event", "assistant_message"]
+    draft_events = [message for message in payload["messages"] if message["type"] == "draft_event"]
+    assert [event["content"]["action"] for event in draft_events] == ["propose", "apply", "preview"]
+    transaction_token = payload["draft_result"]["transaction_token"]
+    assert draft_events[-1]["content"]["draft_transaction_token"] == transaction_token
+    assert draft_events[-1]["content"]["preview_model"]["model_url"] == f"/api/draft-transactions/{transaction_token}/model"
+    assert payload["messages"][-1]["content"].startswith("Created draft `base_plate` as 100 x 100 x 10 mm.")
+    assert "This should not be used." not in payload["messages"][-1]["content"]
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert reloaded["linked_draft_transaction_tokens"] == [transaction_token]
+    assert [message["type"] for message in reloaded["messages"]] == message_types
+    assert (service.project.paths.local_state / "draft-transactions" / transaction_token / "transaction.json").exists()
+
+
+def test_viewer_design_threads_chat_creates_deterministic_panel_draft_with_selected_part_context(tmp_path) -> None:
+    _write_example_step(tmp_path)
+
+    def fake_converter(step_path: Path, stl_path: Path) -> Path:
+        assert step_path.exists()
+        stl_path.parent.mkdir(parents=True, exist_ok=True)
+        stl_path.write_text("solid preview\nendsolid preview\n", encoding="utf-8")
+        return stl_path
+
+    service = ViewerService(tmp_path, converter=fake_converter)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "This should not be used."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+
+    thread_id = client.post("/api/design-threads", json={"title": "ThirdTest"}).json()["thread_id"]
+
+    response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": "Please create a panel that is 100mm x 100mm and 10mm thick.",
+            "context_snapshot": {
+                "visible_part_ids": [],
+                "selected_part_ids": ["example_block"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["draft_result"]["ok"] is True
+    assert payload["draft_result"]["part_id"] == "draft_panel"
+    assert payload["draft_result"]["selected_part_id"] == "example_block"
+    assert payload["draft_preview_model"]["dimensions"]["length_mm"] == 100.0
+    assert payload["draft_preview_model"]["dimensions"]["width_mm"] == 100.0
+    assert payload["draft_preview_model"]["dimensions"]["height_mm"] == 10.0
+    assert [message["type"] for message in payload["messages"]] == [
+        "user_message",
+        "draft_event",
+        "draft_event",
+        "draft_event",
+        "assistant_message",
+    ]
+    assert "This should not be used." not in payload["messages"][-1]["content"]
+
+
+def test_viewer_design_threads_chat_creates_deterministic_plate_draft_with_by_typo(tmp_path) -> None:
+    _write_example_step(tmp_path)
+
+    def fake_converter(step_path: Path, stl_path: Path) -> Path:
+        assert step_path.exists()
+        stl_path.parent.mkdir(parents=True, exist_ok=True)
+        stl_path.write_text("solid preview\nendsolid preview\n", encoding="utf-8")
+        return stl_path
+
+    service = ViewerService(tmp_path, converter=fake_converter)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "This should not be used."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+
+    thread_id = client.post("/api/design-threads", json={"title": "4th test"}).json()["thread_id"]
+
+    response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": "create a plate that is 100mm byu 100mm by 10mm",
+            "context_snapshot": {
+                "visible_part_ids": [],
+                "selected_part_ids": ["example_block"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["draft_result"]["ok"] is True
+    assert payload["draft_result"]["part_id"] == "draft_plate"
+    assert payload["draft_result"]["selected_part_id"] == "example_block"
+    assert payload["draft_preview_model"]["dimensions"]["length_mm"] == 100.0
+    assert payload["draft_preview_model"]["dimensions"]["width_mm"] == 100.0
+    assert payload["draft_preview_model"]["dimensions"]["height_mm"] == 10.0
+    assert [message["type"] for message in payload["messages"]] == [
+        "user_message",
+        "draft_event",
+        "draft_event",
+        "draft_event",
+        "assistant_message",
+    ]
+    assert "This should not be used." not in payload["messages"][-1]["content"]
+
+
+def test_viewer_design_threads_chat_applies_followup_holes_to_active_draft_transaction(tmp_path) -> None:
+    _write_example_step(tmp_path)
+
+    def fake_converter(step_path: Path, stl_path: Path) -> Path:
+        assert step_path.exists()
+        stl_path.parent.mkdir(parents=True, exist_ok=True)
+        stl_path.write_text("solid preview\nendsolid preview\n", encoding="utf-8")
+        return stl_path
+
+    service = ViewerService(tmp_path, converter=fake_converter)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "This should not be used."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Followup draft"}).json()["thread_id"]
+    create_response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": "create a plate that is 100mm by 120mm by 10mm",
+            "context_snapshot": {
+                "visible_part_ids": [],
+                "selected_part_ids": ["example_block"],
+            },
+        },
+    )
+    create_payload = create_response.json()
+    transaction_token = create_payload["draft_result"]["transaction_token"]
+
+    followup_response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": "Place m5 holes in each corner 10mm from each side",
+            "context_snapshot": {
+                "visible_part_ids": [f"draft:{transaction_token}"],
+                "selected_part_ids": ["example_block"],
+                "draft_transaction_token": transaction_token,
+            },
+        },
+    )
+
+    assert followup_response.status_code == 200
+    followup_payload = followup_response.json()
+    assert followup_payload["draft_result"]["ok"] is True
+    assert followup_payload["draft_result"]["transaction_token"] == transaction_token
+    operations = followup_payload["draft_result"]["applied_operations"]
+    hole_operations = [operation for operation in operations if operation["name"] == "add_hole"]
+    assert len(hole_operations) == 4
+    assert [operation["parameters"]["diameter"] for operation in hole_operations] == [5.0, 5.0, 5.0, 5.0]
+    assert {(operation["parameters"]["x"], operation["parameters"]["y"]) for operation in hole_operations} == {
+        (10.0, 10.0),
+        (90.0, 10.0),
+        (10.0, 110.0),
+        (90.0, 110.0),
+    }
+    assert followup_payload["draft_preview_model"]["transaction_token"] == transaction_token
+    assert followup_payload["draft_preview_model"]["draft"]["features"]
+    assert "This should not be used." not in followup_payload["messages"][-1]["content"]
+
+
+def test_viewer_design_threads_chat_applies_annotated_raised_walls_to_active_draft_transaction(tmp_path) -> None:
+    _write_example_step(tmp_path)
+
+    def fake_converter(step_path: Path, stl_path: Path) -> Path:
+        assert step_path.exists()
+        stl_path.parent.mkdir(parents=True, exist_ok=True)
+        stl_path.write_text("solid preview\nendsolid preview\n", encoding="utf-8")
+        return stl_path
+
+    def freehand_box(min_x: float, max_x: float, min_y: float, max_y: float) -> dict[str, object]:
+        return {
+            "kind": "freehand",
+            "points": [
+                {"x": min_x, "y": min_y},
+                {"x": max_x, "y": min_y},
+                {"x": max_x, "y": max_y},
+                {"x": min_x, "y": max_y},
+                {"x": min_x, "y": min_y},
+            ]
+        }
+
+    service = ViewerService(tmp_path, converter=fake_converter)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "This should not be used."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Annotated walls"}).json()["thread_id"]
+    create_payload = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": "create a plate that is 100mm by 120mm by 10mm",
+            "context_snapshot": {
+                "visible_part_ids": [],
+                "selected_part_ids": ["example_block"],
+            },
+        },
+    ).json()
+    transaction_token = create_payload["draft_result"]["transaction_token"]
+
+    followup_response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": (
+                "Using your view tool examine the annotated image. I'd like to see raised wall from our "
+                "base part in these rectangles that raise up 20, 30, 40, 50mm high respectively."
+            ),
+            "context_snapshot": {
+                "visible_part_ids": [f"draft:{transaction_token}"],
+                "selected_part_ids": ["example_block"],
+                "draft_transaction_token": transaction_token,
+                "annotations": [
+                    freehand_box(0.10, 0.20, 0.20, 0.40),
+                    freehand_box(0.30, 0.60, 0.10, 0.20),
+                    freehand_box(0.70, 0.80, 0.25, 0.55),
+                    freehand_box(0.35, 0.65, 0.70, 0.80),
+                ],
+            },
+        },
+    )
+
+    assert followup_response.status_code == 200
+    followup_payload = followup_response.json()
+    assert followup_payload["draft_result"]["ok"] is True
+    assert followup_payload["draft_result"]["transaction_token"] == transaction_token
+    operations = followup_payload["draft_result"]["applied_operations"]
+    wall_operations = [operation for operation in operations if operation["name"] == "add_raised_wall"]
+    assert len(wall_operations) == 4
+    assert [operation["parameters"]["height"] for operation in wall_operations] == [20.0, 30.0, 40.0, 50.0]
+    assert wall_operations[0]["parameters"]["face"] == "top"
+    assert wall_operations[0]["parameters"]["x"] == pytest.approx(15.0)
+    assert wall_operations[0]["parameters"]["y"] == pytest.approx(36.0)
+    assert wall_operations[0]["parameters"]["length"] == pytest.approx(10.0)
+    assert wall_operations[0]["parameters"]["width"] == pytest.approx(24.0)
+    assert wall_operations[0]["parameters"]["height"] == pytest.approx(20.0)
+    features = followup_payload["draft_preview_model"]["draft"]["feature_list"]
+    assert len([feature for feature in features if feature["kind"] == "raised_wall"]) == 4
+    assert "This should not be used." not in followup_payload["messages"][-1]["content"]
 
 
 def _sse_payloads(stream_text: str) -> list[dict[str, object]]:

@@ -823,6 +823,18 @@ def test_viewer_backend_exposes_draft_transaction_workflow(tmp_path) -> None:
     )
     assert hole_response.status_code == 200
 
+    wall_response = client.post(
+        f"/api/draft-transactions/{transaction_token}/raised-walls",
+        json={"face": "top", "x": 60.0, "y": 22.5, "length": 30.0, "width": 8.0, "height": 12.0},
+    )
+    assert wall_response.status_code == 200
+    wall_features = [
+        feature
+        for feature in wall_response.json()["draft"]["feature_list"]
+        if feature["kind"] == "raised_wall"
+    ]
+    assert wall_features[0]["height"] == 12.0
+
     preview_response = client.post(f"/api/draft-transactions/{transaction_token}/preview")
     assert preview_response.status_code == 200
     preview_path = Path(preview_response.json()["preview_step_path"])
@@ -844,6 +856,7 @@ def test_viewer_backend_exposes_draft_transaction_workflow(tmp_path) -> None:
     status_payload = status_response.json()
     assert status_payload["status"] == "accepted"
     assert status_payload["generated_source_path"] == accepted["generated_source_path"]
+    assert "part = part + Box" in Path(accepted["generated_source_path"]).read_text(encoding="utf-8")
     assert "diff --git a/flow/parts/api_transaction_panel.py" in status_payload["source_patch_preview"]
     assert any("flow validate run panel-basic --draft-transaction" in cmd for cmd in status_payload["source_loop_commands"])
     assert any("--part api_transaction_panel" in cmd for cmd in status_payload["source_loop_commands"])

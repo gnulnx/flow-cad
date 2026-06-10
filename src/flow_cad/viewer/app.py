@@ -241,6 +241,313 @@ def _persist_agent_runtime_event(
     return None
 
 
+def _selected_part_id_from_prepared(prepared: dict[str, Any]) -> str | None:
+    snapshot = prepared.get("context_snapshot") if isinstance(prepared.get("context_snapshot"), dict) else {}
+    candidates = snapshot.get("selected_part_ids")
+    if not isinstance(candidates, list):
+        viewer_state = snapshot.get("viewer_state") if isinstance(snapshot.get("viewer_state"), dict) else {}
+        candidates = viewer_state.get("selected_part_ids")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    return None
+
+
+def _draft_transaction_token_from_prepared(prepared: dict[str, Any]) -> str | None:
+    snapshot = prepared.get("context_snapshot") if isinstance(prepared.get("context_snapshot"), dict) else {}
+    draft_transaction = snapshot.get("draft_transaction") if isinstance(snapshot.get("draft_transaction"), dict) else {}
+    for candidate in (
+        draft_transaction.get("transaction_token"),
+        draft_transaction.get("token"),
+        snapshot.get("draft_transaction_token"),
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+
+    viewer_state = snapshot.get("viewer_state") if isinstance(snapshot.get("viewer_state"), dict) else {}
+    draft_transaction = viewer_state.get("draft_transaction") if isinstance(viewer_state.get("draft_transaction"), dict) else {}
+    for candidate in (
+        viewer_state.get("draft_transaction_token"),
+        draft_transaction.get("transaction_token"),
+        draft_transaction.get("token"),
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def _annotations_from_prepared(prepared: dict[str, Any]) -> list[dict[str, Any]]:
+    snapshot = prepared.get("context_snapshot") if isinstance(prepared.get("context_snapshot"), dict) else {}
+    viewer_state = snapshot.get("viewer_state") if isinstance(snapshot.get("viewer_state"), dict) else {}
+    annotations = viewer_state.get("annotations")
+    if not isinstance(annotations, list):
+        nested_viewer_state = viewer_state.get("viewer_state")
+        if isinstance(nested_viewer_state, dict):
+            annotations = nested_viewer_state.get("annotations")
+    if not isinstance(annotations, list):
+        annotations = snapshot.get("annotations")
+    return [annotation for annotation in annotations if isinstance(annotation, dict)] if isinstance(annotations, list) else []
+
+
+def _dimension_summary(preview_model: dict[str, Any]) -> str:
+    dimensions = preview_model.get("dimensions") if isinstance(preview_model.get("dimensions"), dict) else {}
+    length = dimensions.get("length_mm")
+    width = dimensions.get("width_mm")
+    height = dimensions.get("height_mm")
+    if all(isinstance(value, (int, float)) for value in (length, width, height)):
+        return f"{length:g} x {width:g} x {height:g} mm"
+    draft = preview_model.get("draft") if isinstance(preview_model.get("draft"), dict) else {}
+    raw_dimensions = draft.get("dimensions") if isinstance(draft.get("dimensions"), dict) else {}
+    length = raw_dimensions.get("length")
+    width = raw_dimensions.get("width")
+    height = raw_dimensions.get("height")
+    if all(isinstance(value, (int, float)) for value in (length, width, height)):
+        return f"{length:g} x {width:g} x {height:g} mm"
+    return "draft dimensions"
+
+
+def _deterministic_draft_chat_turn(
+    design_threads: DesignThreadService,
+    viewer_service: ViewerService,
+    thread_id: str,
+    prepared: dict[str, Any],
+) -> dict[str, Any] | None:
+    command = str(prepared.get("message_text") or "")
+    selected_part_id = _selected_part_id_from_prepared(prepared)
+    draft_transaction_token = _draft_transaction_token_from_prepared(prepared)
+    annotations = _annotations_from_prepared(prepared)
+    metadata_base = {
+        "runtime": "flow_cad_deterministic_draft",
+        **(
+            {"context_snapshot_id": prepared["context_snapshot"]["snapshot_id"]}
+            if isinstance(prepared.get("context_snapshot"), dict)
+            else {}
+        ),
+    }
+    if draft_transaction_token and annotations:
+        try:
+            annotated_result = viewer_service.draft_transaction_from_annotated_walls(
+                {
+                    "command": command,
+                    "transaction_token": draft_transaction_token,
+                    "annotations": annotations,
+                }
+            )
+        except (DraftGeometryError, ViewerError, KeyError, ValueError) as exc:
+            annotated_result = {"ok": False, "error": str(exc)}
+        if annotated_result.get("ok"):
+            transaction_token = str(annotated_result["transaction_token"])
+            part_id = str(annotated_result["part_id"])
+            preview_model = (
+                annotated_result.get("preview_model")
+                if isinstance(annotated_result.get("preview_model"), dict)
+                else {}
+            )
+            applied_operations = (
+                annotated_result.get("applied_operations")
+                if isinstance(annotated_result.get("applied_operations"), list)
+                else []
+            )
+            source_loop_commands = (
+                annotated_result.get("source_loop_commands")
+                if isinstance(annotated_result.get("source_loop_commands"), list)
+                else []
+            )
+            messages: list[dict[str, Any]] = []
+            messages.append(
+                design_threads.append_draft_event(
+                    thread_id,
+                    {
+                        "content": {
+                            "action": "apply",
+                            "summary": "Applied annotated raised-wall draft operations",
+                            "draft_transaction_token": transaction_token,
+                            "part_id": part_id,
+                            "operations": applied_operations,
+                            "warnings": annotated_result.get("warnings", []),
+                            "assumptions": annotated_result.get("assumptions", []),
+                        },
+                        "metadata": metadata_base,
+                    },
+                )
+            )
+            messages.append(
+                design_threads.append_draft_event(
+                    thread_id,
+                    {
+                        "content": {
+                            "action": "preview",
+                            "summary": "Draft preview generated from annotated chat",
+                            "draft_transaction_token": transaction_token,
+                            "part_id": part_id,
+                            "preview_model": preview_model,
+                            "source_loop_commands": source_loop_commands,
+                        },
+                        "metadata": metadata_base,
+                    },
+                )
+            )
+            wall_count = len(
+                [operation for operation in applied_operations if operation.get("name") == "add_raised_wall"]
+            )
+            messages.append(
+                design_threads.append_message(
+                    thread_id,
+                    {
+                        "type": "assistant_message",
+                        "role": "assistant",
+                        "content": (
+                            f"Updated draft `{part_id}` with {wall_count} raised wall features from the saved "
+                            "annotations. The preview is ready in this thread; inspect it, then accept or discard "
+                            "the draft."
+                        ),
+                        "metadata": {
+                            **metadata_base,
+                            "status": "draft_preview_ready",
+                            "draft_transaction_token": transaction_token,
+                            "part_id": part_id,
+                            "source_loop_commands": source_loop_commands,
+                        },
+                    },
+                )
+            )
+            return {
+                "messages": messages,
+                "events": [],
+                "draft_result": annotated_result,
+                "draft_preview_model": preview_model,
+            }
+
+    try:
+        proposal = viewer_service.preview_command_proposal(
+            {
+                "command": command,
+                **({"part_id": selected_part_id} if selected_part_id else {}),
+                **({"transaction_token": draft_transaction_token} if draft_transaction_token else {}),
+            }
+        )
+    except ViewerError:
+        proposal = viewer_service.preview_command_proposal({"command": command})
+    if not proposal.get("ok"):
+        return None
+
+    try:
+        result = viewer_service.draft_transaction_from_panel_command(
+            {
+                "command": command,
+                **({"selected_part_id": selected_part_id} if selected_part_id else {}),
+                **({"transaction_token": draft_transaction_token} if draft_transaction_token else {}),
+            }
+        )
+    except (DraftGeometryError, ViewerError, KeyError, ValueError) as exc:
+        message = design_threads.append_message(
+            thread_id,
+            {
+                "type": "assistant_message",
+                "role": "assistant",
+                "content": (
+                    "I understood this as a supported draft request, but draft preview "
+                    f"creation failed: {exc}"
+                ),
+                "metadata": {
+                    **metadata_base,
+                    "status": "failed",
+                    "failed_step": "draft_preview",
+                    "proposal": proposal,
+                },
+            },
+        )
+        return {
+            "messages": [message],
+            "events": [],
+            "draft_result": {"ok": False, "error": str(exc), "proposal": proposal},
+        }
+
+    if not result.get("ok"):
+        return None
+
+    transaction_token = str(result["transaction_token"])
+    part_id = str(result["part_id"])
+    preview_model = result.get("preview_model") if isinstance(result.get("preview_model"), dict) else {}
+    applied_operations = result.get("applied_operations") if isinstance(result.get("applied_operations"), list) else []
+    source_loop_commands = result.get("source_loop_commands") if isinstance(result.get("source_loop_commands"), list) else []
+    messages: list[dict[str, Any]] = []
+    messages.append(
+        design_threads.append_draft_event(
+            thread_id,
+            {
+                "content": {
+                    "action": "propose",
+                    "summary": f"Proposed {len(applied_operations)} deterministic draft operations",
+                    "draft_transaction_token": transaction_token,
+                    "part_id": part_id,
+                    "proposal": result.get("proposal"),
+                    "warnings": result.get("warnings", []),
+                    "assumptions": result.get("assumptions", []),
+                },
+                "metadata": metadata_base,
+            },
+        )
+    )
+    messages.append(
+        design_threads.append_draft_event(
+            thread_id,
+            {
+                "content": {
+                    "action": "apply",
+                    "summary": "Applied deterministic draft operations",
+                    "draft_transaction_token": transaction_token,
+                    "part_id": part_id,
+                    "operations": applied_operations,
+                },
+                "metadata": metadata_base,
+            },
+        )
+    )
+    messages.append(
+        design_threads.append_draft_event(
+            thread_id,
+            {
+                "content": {
+                    "action": "preview",
+                    "summary": "Draft preview generated from chat",
+                    "draft_transaction_token": transaction_token,
+                    "part_id": part_id,
+                    "preview_model": preview_model,
+                    "source_loop_commands": source_loop_commands,
+                },
+                "metadata": metadata_base,
+            },
+        )
+    )
+    assistant_message = design_threads.append_message(
+        thread_id,
+        {
+            "type": "assistant_message",
+            "role": "assistant",
+            "content": (
+                f"Created draft `{part_id}` as {_dimension_summary(preview_model)}. "
+                "The preview is ready in this thread; inspect it, then accept or discard the draft."
+            ),
+            "metadata": {
+                **metadata_base,
+                "status": "draft_preview_ready",
+                "draft_transaction_token": transaction_token,
+                "part_id": part_id,
+                "source_loop_commands": source_loop_commands,
+            },
+        },
+    )
+    messages.append(assistant_message)
+    return {
+        "messages": messages,
+        "events": [],
+        "draft_result": result,
+        "draft_preview_model": preview_model,
+    }
+
+
 def _agent_runtime_health(agent_runtime: AgentRuntimeClient, profile: AgentProfile) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "class": agent_runtime.__class__.__name__,
@@ -358,6 +665,18 @@ def create_app(
     def post_design_thread_chat(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
         try:
             prepared = design_threads.begin_chat_turn(thread_id, payload)
+            deterministic = _deterministic_draft_chat_turn(design_threads, viewer_service, thread_id, prepared)
+            if deterministic is not None:
+                messages = [prepared["user_message"], *deterministic["messages"]]
+                return {
+                    "thread_id": thread_id,
+                    "messages": messages,
+                    "events": deterministic.get("events", []),
+                    "context_snapshot": prepared.get("context_snapshot"),
+                    "draft_result": deterministic.get("draft_result"),
+                    "draft_preview_model": deterministic.get("draft_preview_model"),
+                    "thread": design_threads.get_thread(thread_id),
+                }
             messages, context_packet, safe_tools, model_profile, metadata_base = _agent_turn_runtime_inputs(
                 design_threads,
                 thread_id,
@@ -427,6 +746,21 @@ def create_app(
 
             yield _sse({"message": prepared["user_message"]})
             try:
+                deterministic = _deterministic_draft_chat_turn(design_threads, viewer_service, thread_id, prepared)
+                if deterministic is not None:
+                    for message in deterministic["messages"]:
+                        yield _sse({"message": message})
+                    yield _sse(
+                        {
+                            "done": True,
+                            "draft_result": deterministic.get("draft_result"),
+                            "draft_preview_model": deterministic.get("draft_preview_model"),
+                            "thread": design_threads.get_thread(thread_id),
+                        }
+                    )
+                    yield "data: [DONE]\n\n"
+                    return
+
                 for event in agent_runtime.stream_chat(
                     thread_id,
                     messages,
@@ -666,6 +1000,14 @@ def create_app(
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
+    @app.post("/api/drafts/{draft_token}/raised-walls")
+    def draft_add_raised_wall(draft_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_add_raised_wall(draft_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
     @app.post("/api/drafts/{draft_token}/louver-patterns")
     def draft_add_louver_pattern(draft_token: str, payload: dict[str, object]) -> dict[str, object]:
         try:
@@ -746,6 +1088,14 @@ def create_app(
     def draft_transaction_add_slot(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
         try:
             return viewer_service.draft_transaction_add_slot(transaction_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/raised-walls")
+    def draft_transaction_add_raised_wall(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_add_raised_wall(transaction_token, payload)
         except (DraftGeometryError, KeyError) as exc:
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc

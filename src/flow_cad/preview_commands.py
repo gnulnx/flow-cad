@@ -18,9 +18,12 @@ _COUNT_WORDS: dict[str, int] = {
 }
 _COUNT_WORD_PATTERN = "|".join(_COUNT_WORDS)
 _NUMERIC_RE = r"\d+(?:\.\d+)?"
+_DIMENSION_SEPARATOR_RE = r"(?:[x×]|\band\b|\bby\b|\bbyu\b)"
 
 _DIMENSION_RE = re.compile(
-    rf"(?P<length>{_NUMERIC_RE})\s*[x×]\s*(?P<width>{_NUMERIC_RE})\s*[x×]\s*(?P<thickness>{_NUMERIC_RE})",
+    rf"(?P<length>{_NUMERIC_RE})\s*(?:mm)?\s*{_DIMENSION_SEPARATOR_RE}\s*"
+    rf"(?P<width>{_NUMERIC_RE})\s*(?:mm)?\s*{_DIMENSION_SEPARATOR_RE}\s*"
+    rf"(?P<thickness>{_NUMERIC_RE})\s*(?:mm)?(?:\s*(?:thick|thickness))?",
     re.IGNORECASE,
 )
 _HOLE_COUNT_RE = re.compile(
@@ -31,6 +34,10 @@ _HOLE_METRIC_RE = re.compile(rf"\bM(?P<diameter>{_NUMERIC_RE})\b", re.IGNORECASE
 _HOLE_MM_RE = re.compile(rf"\b(?P<diameter>{_NUMERIC_RE})\s*mm\s+clearance\s+holes?\b", re.IGNORECASE)
 _HOLE_OFFSET_RE = re.compile(
     rf"(?P<offset>{_NUMERIC_RE})\s*mm\s+from\s+(?:the\s+)?(?P<edge>front|back|left|right|top|bottom|outside|inside)\s+edge",
+    re.IGNORECASE,
+)
+_CORNER_OFFSET_RE = re.compile(
+    rf"(?P<offset>{_NUMERIC_RE})\s*mm\s+(?:away\s+)?from\s+(?:each|the)\s+(?:edge|side)s?",
     re.IGNORECASE,
 )
 _ANY_MM_RE = re.compile(rf"\b(?P<value>{_NUMERIC_RE})\s*mm\b", re.IGNORECASE)
@@ -207,6 +214,17 @@ def _mirrored_positions(axis_extent: float, count: int) -> list[float]:
     return [idx * step for idx in range(count)]
 
 
+def _corner_positions(u_extent: float, v_extent: float, offset: float) -> list[tuple[float, float]]:
+    x = _clamp(offset, 0.0, u_extent)
+    y = _clamp(offset, 0.0, v_extent)
+    return [
+        (x, y),
+        (_clamp(u_extent - offset, 0.0, u_extent), y),
+        (x, _clamp(v_extent - offset, 0.0, v_extent)),
+        (_clamp(u_extent - offset, 0.0, u_extent), _clamp(v_extent - offset, 0.0, v_extent)),
+    ]
+
+
 def _parse_dimensions(segment: str) -> tuple[float, float, float] | None:
     match = _DIMENSION_RE.search(segment)
     if not match:
@@ -229,6 +247,9 @@ def _parse_hole_segment(
     assumptions: list[str],
 ) -> tuple[list[PreviewOperation], bool]:
     count = _parse_count(_HOLE_COUNT_RE.search(segment).group("count")) if _HOLE_COUNT_RE.search(segment) else None
+    if count is None and "corner" in segment and "hole" in segment:
+        count = 4
+        assumptions.append("Interpreting holes in each corner as four holes.")
     if count is None:
         return [], False
     if count < 1:
@@ -251,6 +272,9 @@ def _parse_hole_segment(
     if diameter <= 0:
         warnings.append("Hole diameter must be positive.")
         return [], True
+    if "counter sunk" in segment or "countersunk" in segment or "counter-sunk" in segment:
+        warnings.append("Countersink geometry is not modeled by the deterministic draft adapter yet.")
+        assumptions.append("Creating M-size through holes only; add countersink geometry in a follow-up source edit.")
 
     edge_match = _HOLE_OFFSET_RE.search(segment)
     if edge_match:
@@ -271,17 +295,27 @@ def _parse_hole_segment(
         assumptions.append("Using default panel extents 120x120x3 mm.")
         u_extent, v_extent = _DEFAULT_LENGTH, _DEFAULT_WIDTH
 
-    axis = _edge_axis(face, edge)
-    if axis == 0:
-        x = _clamp(offset, 0.0, u_extent)
-        mirror_extent = v_extent
-        positions_on_y = _mirrored_positions(mirror_extent, count)
-        positions: list[tuple[float, float]] = [(x, _clamp(value, 0.0, v_extent)) for value in positions_on_y]
+    corner_offset_match = _CORNER_OFFSET_RE.search(segment)
+    if "corner" in segment and count == 4:
+        corner_offset = (
+            _to_float(corner_offset_match.group("offset"), "corner offset")
+            if corner_offset_match
+            else offset
+        )
+        positions = _corner_positions(u_extent, v_extent, corner_offset)
+        assumptions.append(f"Interpreting 'four holes in each corner' as four corner holes inset {corner_offset:g} mm.")
     else:
-        y = _clamp(offset, 0.0, v_extent)
-        mirror_extent = u_extent
-        positions_on_x = _mirrored_positions(mirror_extent, count)
-        positions = [(_clamp(value, 0.0, u_extent), y) for value in positions_on_x]
+        axis = _edge_axis(face, edge)
+        if axis == 0:
+            x = _clamp(offset, 0.0, u_extent)
+            mirror_extent = v_extent
+            positions_on_y = _mirrored_positions(mirror_extent, count)
+            positions = [(x, _clamp(value, 0.0, v_extent)) for value in positions_on_y]
+        else:
+            y = _clamp(offset, 0.0, v_extent)
+            mirror_extent = u_extent
+            positions_on_x = _mirrored_positions(mirror_extent, count)
+            positions = [(_clamp(value, 0.0, u_extent), y) for value in positions_on_x]
 
     if count == 2:
         assumptions.append(f"Interpreting 'two holes' as mirrored pair on face '{face}'.")
@@ -395,9 +429,19 @@ def parse_panel_command(
 
     length, width, thickness = _resolve_context_dimensions(context)
     saw_dimension = False
+    parsed_command_dims = _parse_dimensions(normalized)
+    if parsed_command_dims is not None:
+        length, width, thickness = parsed_command_dims
+        saw_dimension = True
+        operations.append(
+            PreviewOperation(
+                "create_box",
+                {"length": length, "width": width, "height": thickness},
+            )
+        )
 
     for segment in _segment_command(normalized):
-        parsed_dims = _parse_dimensions(segment)
+        parsed_dims = None if saw_dimension else _parse_dimensions(segment)
         if parsed_dims is not None:
             length, width, thickness = parsed_dims
             saw_dimension = True
@@ -435,6 +479,9 @@ def parse_panel_command(
         if louver_ops:
             operations.extend(louver_ops)
         if louver_parsed:
+            continue
+
+        if saw_dimension and "panel" in segment and "hole" not in segment and "louver" not in segment:
             continue
 
         if "hole" in segment or "louver" in segment or "panel" in segment:

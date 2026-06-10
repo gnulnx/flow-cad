@@ -187,6 +187,17 @@ function extractThreadVisualEvidenceRequestCount(thread: DesignThreadRecord | nu
   return extractThreadVisualEvidenceRequests(thread).length
 }
 
+function extractDraftPreviewModelPayload(event: DesignThreadEvent): DraftPreviewModelPayload | null {
+  const content = event.content
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return null
+  const record = content as Record<string, unknown>
+  const candidate = record.preview_model
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+  const payload = candidate as Partial<DraftPreviewModelPayload>
+  if (typeof payload.transaction_token !== 'string' || typeof payload.model_url !== 'string') return null
+  return payload as DraftPreviewModelPayload
+}
+
 type ModelStateWriter = (updater: (previous: ModelData[]) => ModelData[]) => void
 
 function parsePositiveFloat(value: string) {
@@ -625,6 +636,7 @@ export default function App() {
   const [visualEvidenceFollowMode, setVisualEvidenceFollowMode] = useState(false)
   const visualEvidenceFollowModeRef = useRef(false)
   const fulfillingVisualEvidenceRequestsRef = useRef<Set<string>>(new Set())
+  const activatedDraftPreviewTokensRef = useRef<Set<string>>(new Set())
   const [latestAttachmentId, setLatestAttachmentId] = useState<string | null>(null)
   const [chatStreamUnavailable, setChatStreamUnavailable] = useState(false)
   const [markupActive, setMarkupActive] = useState(false)
@@ -893,6 +905,23 @@ export default function App() {
       setThreadSummaries(nextThreads)
       if (autoSelect && !activeThreadId && nextThreads[0]) {
         await loadThread(nextThreads[0].thread_id)
+      } else if (autoSelect && !activeThreadId && !nextThreads.length) {
+        const createResponse = await fetch(apiUrl(apiBase, '/api/design-threads'), buildHeaders({
+          title: `Session ${Date.now().toString(36)}`,
+        }))
+        if (createResponse.ok) {
+          const created = await createResponse.json() as DesignThreadRecord
+          await loadThread(created.thread_id)
+          setThreadSummaries([{
+            thread_id: created.thread_id,
+            title: created.title,
+            status: created.status,
+            archived: created.archived,
+            created_at: created.created_at,
+            updated_at: created.updated_at,
+            message_count: created.message_count ?? created.messages?.length ?? 0,
+          }])
+        }
       }
     } catch (error) {
       console.error('Failed to load design threads:', error)
@@ -1287,6 +1316,58 @@ export default function App() {
     () => parts.map((part) => mergePartDraft(part, partMetadataDrafts[part.id])),
     [partMetadataDrafts, parts],
   )
+  const selectedPart = activeName ? viewerParts.find((part) => part.id === activeName) ?? null : null
+
+  const activateDraftPreviewPayload = useCallback(async (payload: DraftPreviewModelPayload) => {
+    const transactionToken = payload.transaction_token
+    if (!transactionToken || activatedDraftPreviewTokensRef.current.has(transactionToken)) return
+    activatedDraftPreviewTokensRef.current.add(transactionToken)
+
+    setDraftTransactionToken(transactionToken)
+    setPreviewModelPayload(payload)
+
+    try {
+      const modelResponse = await fetch(apiUrl(apiBase, payload.model_url))
+      if (!modelResponse.ok) {
+        throw new Error(await responseDetail(modelResponse))
+      }
+      const content = await modelResponse.arrayBuffer()
+      const occurrences = selectedPart?.occurrences.length ? selectedPart.occurrences : [IDENTITY_OCCURRENCE]
+      loadStlBuffer(
+        `preview:${transactionToken}`,
+        `draft:${transactionToken}`,
+        occurrences,
+        content,
+        [],
+        {
+          sourceKind: 'client_stl',
+          geometryAuthority: payload.geometry_authority,
+          qualityLabel: payload.quality_label,
+          capabilities: {
+            ...MESH_ONLY_CAPABILITIES,
+            exact_topology: payload.geometry_authority === 'step_kernel',
+            exact_measurement: payload.geometry_authority === 'step_kernel',
+            exact_editing: false,
+          },
+          warnings: Array.from(new Set([...PREVIEW_MODEL_WARNINGS, ...(payload.warnings ?? []), ...(selectedPart?.warnings ?? [])])),
+        },
+        setPreviewModels,
+      )
+      setStatusMessage('Draft preview loaded from chat.')
+    } catch (error) {
+      setStatusMessage(`Failed to load chat draft preview: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [activeName, apiBase, loadStlBuffer, selectedPart])
+
+  useEffect(() => {
+    if (!activeThread?.messages?.length) return
+    for (const message of activeThread.messages) {
+      const previewPayload = extractDraftPreviewModelPayload(message)
+      if (previewPayload) {
+        void activateDraftPreviewPayload(previewPayload)
+      }
+    }
+  }, [activeThread, activateDraftPreviewPayload])
 
   const clearDraftState = useCallback(() => {
     setDraftTransactionToken(null)
@@ -1297,6 +1378,7 @@ export default function App() {
     setPreviewModelPayload(null)
     setAcceptanceArtifacts(null)
     setPreviewModels([])
+    activatedDraftPreviewTokensRef.current.clear()
   }, [])
 
   const setBusy = useCallback((action: keyof typeof commandBusy, busy: boolean) => {
@@ -1627,8 +1709,6 @@ export default function App() {
   const handlePreviewCommandChange = useCallback((value: string) => {
     setPreviewCommand(value)
   }, [])
-
-  const selectedPart = activeName ? viewerParts.find((part) => part.id === activeName) ?? null : null
 
   const handlePropose = useCallback(async () => {
     setBusy('propose', true)

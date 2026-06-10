@@ -105,3 +105,63 @@ def test_parser_is_deterministic_without_side_effects() -> None:
 
     assert first == second
     assert first.to_payload()["operations"] == second.to_payload()["operations"]
+
+
+def test_parse_base_plate_dimensions_with_mm_units_on_each_axis() -> None:
+    result = parse_panel_command("Please create a base plate that is 100mm x 100mm x 10mm thick")
+
+    assert result.ok is True
+    assert len(result.operations) == 1
+    operation = result.operations[0]
+    assert operation.name == "create_box"
+    assert operation.parameters == {
+        "length": 100.0,
+        "width": 100.0,
+        "height": 10.0,
+    }
+
+
+def test_parse_panel_dimensions_with_and_before_thickness() -> None:
+    result = parse_panel_command("Please create a panel that is 100mm x 100mm and 10mm thick.")
+
+    assert result.ok is True
+    assert len(result.operations) == 1
+    operation = result.operations[0]
+    assert operation.name == "create_box"
+    assert operation.parameters == {
+        "length": 100.0,
+        "width": 100.0,
+        "height": 10.0,
+    }
+
+
+def test_parse_plate_dimensions_with_by_separator_and_common_typo() -> None:
+    result = parse_panel_command("create a plate that is 100mm byu 100mm by 10mm")
+
+    assert result.ok is True
+    assert len(result.operations) == 1
+    operation = result.operations[0]
+    assert operation.name == "create_box"
+    assert operation.parameters == {
+        "length": 100.0,
+        "width": 100.0,
+        "height": 10.0,
+    }
+
+
+def test_parse_m5_holes_in_each_corner_from_each_side() -> None:
+    result = parse_panel_command(
+        "Place m5 holes in each corner 10mm from each side",
+        context=PreviewCommandContext(part_id="draft_plate", length=100, width=120, thickness=10),
+    )
+
+    assert result.ok is True
+    hole_operations = [operation for operation in result.operations if operation.name == "add_hole"]
+    assert len(hole_operations) == 4
+    assert [operation.parameters["diameter"] for operation in hole_operations] == [5.0, 5.0, 5.0, 5.0]
+    assert {(operation.parameters["x"], operation.parameters["y"]) for operation in hole_operations} == {
+        (10.0, 10.0),
+        (90.0, 10.0),
+        (10.0, 110.0),
+        (90.0, 110.0),
+    }

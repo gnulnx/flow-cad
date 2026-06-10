@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from flow_cad.core.metadata import PartDefinition, definition_export_subdir
-from flow_cad.draft_geometry import DraftGeometryStore
+from flow_cad.draft_geometry import DraftGeometryError, DraftGeometryStore
 from flow_cad.preview_commands import PreviewCommandContext, parse_panel_command
 from flow_cad.project import FlowCadProject, load_project
 from flow_cad.viewer.geometry_authority import (
@@ -400,11 +400,149 @@ class ViewerService:
     def preview_command_proposal(self, payload: dict[str, Any]) -> dict[str, Any]:
         command = str(payload.get("command") or "")
         component_id = payload.get("part_id") or payload.get("component_id")
-        context = self._preview_command_context(component_id) if isinstance(component_id, str) and component_id else None
+        transaction_token = payload.get("transaction_token")
+        context = None
+        if isinstance(transaction_token, str) and transaction_token:
+            try:
+                context = self._preview_command_context_for_transaction(transaction_token)
+            except (DraftGeometryError, ViewerError, KeyError, ValueError):
+                context = None
+        if context is None and isinstance(component_id, str) and component_id:
+            context = self._preview_command_context(component_id)
         parsed = parse_panel_command(command, context=context)
         result = parsed.to_payload()
-        result["part_id"] = component_id
+        result["part_id"] = context.part_id if context and context.part_id else component_id
+        if isinstance(transaction_token, str) and transaction_token:
+            result["transaction_token"] = transaction_token
         return result
+
+    def draft_transaction_from_panel_command(self, payload: dict[str, Any]) -> dict[str, Any]:
+        command = str(payload.get("command") or "")
+        selected_part_id = payload.get("selected_part_id") or payload.get("component_id")
+        requested_transaction_token = payload.get("transaction_token")
+        transaction_token = requested_transaction_token if isinstance(requested_transaction_token, str) and requested_transaction_token else None
+        context = None
+        if transaction_token:
+            try:
+                context = self._preview_command_context_for_transaction(transaction_token)
+            except (DraftGeometryError, ViewerError, KeyError, ValueError):
+                context = None
+        if context is None and isinstance(selected_part_id, str) and selected_part_id:
+            try:
+                context = self._preview_command_context(selected_part_id)
+            except ViewerError:
+                context = None
+
+        parsed = parse_panel_command(command, context=context)
+        if not parsed.ok:
+            return {
+                "ok": False,
+                "command": command,
+                "proposal": parsed.to_payload(),
+                "errors": list(parsed.errors),
+                "warnings": list(parsed.warnings),
+                "assumptions": list(parsed.assumptions),
+            }
+
+        if transaction_token:
+            status = self.draft_transaction_status(transaction_token)
+            part_id = str(status.get("part_id") or context.part_id if context else self._draft_chat_part_id(payload, command))
+        else:
+            part_id = self._draft_chat_part_id(payload, command)
+            transaction = self.draft_begin_transaction({"part_id": part_id})
+            transaction_token = str(transaction["transaction_token"])
+        applied_operations: list[dict[str, Any]] = []
+        for operation in parsed.operations:
+            applied_operations.append(self._apply_preview_operation(transaction_token, operation, part_id))
+
+        preview_model = self.draft_transaction_preview_model(transaction_token)
+        return {
+            "ok": True,
+            "command": command,
+            "part_id": part_id,
+            "selected_part_id": selected_part_id if isinstance(selected_part_id, str) else None,
+            "transaction_token": transaction_token,
+            "proposal": parsed.to_payload(),
+            "applied_operations": applied_operations,
+            "preview_model": preview_model,
+            "warnings": list(parsed.warnings),
+            "assumptions": list(parsed.assumptions),
+            "source_loop_commands": preview_model.get("source_loop_commands", []),
+        }
+
+    def draft_transaction_from_annotated_walls(self, payload: dict[str, Any]) -> dict[str, Any]:
+        command = str(payload.get("command") or "")
+        lowered = command.lower()
+        if not any(term in lowered for term in ("raised wall", "wall", "raised pad", "pad", "raise up")):
+            return {"ok": False, "command": command, "errors": ["Command does not ask for raised wall geometry."]}
+
+        transaction_token = payload.get("transaction_token")
+        if not isinstance(transaction_token, str) or not transaction_token.strip():
+            return {"ok": False, "command": command, "errors": ["No active draft transaction was provided."]}
+        transaction_token = transaction_token.strip()
+
+        annotations = payload.get("annotations")
+        rectangles = self._annotation_rectangles(annotations if isinstance(annotations, list) else [])
+        if not rectangles:
+            return {"ok": False, "command": command, "errors": ["No usable annotation rectangles were provided."]}
+
+        heights = self._requested_wall_heights(command, len(rectangles))
+        if len(heights) != len(rectangles):
+            return {
+                "ok": False,
+                "command": command,
+                "errors": [
+                    f"Expected {len(rectangles)} wall heights, but found {len(heights)} usable numeric values."
+                ],
+            }
+
+        status = self.draft_transaction_status(transaction_token)
+        draft = status.get("draft") if isinstance(status.get("draft"), dict) else {}
+        dimensions = draft.get("dimensions") if isinstance(draft.get("dimensions"), dict) else {}
+        try:
+            length = float(dimensions["length"])
+            width = float(dimensions["width"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ViewerError(f"Active draft transaction has no measurable top face: {transaction_token}") from exc
+
+        applied_operations: list[dict[str, Any]] = []
+        for rectangle, height in zip(rectangles, heights, strict=True):
+            min_x, max_x, min_y, max_y = rectangle
+            parameters = {
+                "face": "top",
+                "x": ((min_x + max_x) / 2.0) * length,
+                "y": ((min_y + max_y) / 2.0) * width,
+                "length": max((max_x - min_x) * length, 1.0),
+                "width": max((max_y - min_y) * width, 1.0),
+                "height": height,
+            }
+            result = self.draft_transaction_add_raised_wall(transaction_token, parameters)
+            applied_operations.append(
+                {
+                    "name": "add_raised_wall",
+                    "endpoint": "raised-walls",
+                    "parameters": parameters,
+                    "result": result,
+                }
+            )
+
+        preview_model = self.draft_transaction_preview_model(transaction_token)
+        part_id = str(status.get("part_id") or preview_model.get("part_id") or "")
+        assumptions = [
+            "Mapped saved freehand annotation bounding boxes from normalized viewport coordinates onto the draft top face.",
+            "Applied requested wall heights in annotation order.",
+        ]
+        return {
+            "ok": True,
+            "command": command,
+            "part_id": part_id,
+            "transaction_token": transaction_token,
+            "applied_operations": applied_operations,
+            "preview_model": preview_model,
+            "warnings": [],
+            "assumptions": assumptions,
+            "source_loop_commands": preview_model.get("source_loop_commands", []),
+        }
 
     def draft_transaction_preview_model(self, transaction_token: str) -> dict[str, Any]:
         preview_payload, _, display_stl_path = self._prepare_draft_preview_model(transaction_token)
@@ -451,6 +589,119 @@ class ViewerService:
                 )
                 if key in preview_payload
             },
+        }
+
+    def _draft_chat_part_id(self, payload: dict[str, Any], command: str) -> str:
+        explicit = payload.get("part_id")
+        if isinstance(explicit, str) and explicit.strip():
+            return self._safe_part_id(explicit)
+
+        lowered = command.lower()
+        if "base plate" in lowered or "baseplate" in lowered:
+            return "base_plate"
+        if "plate" in lowered:
+            return "draft_plate"
+        if "panel" in lowered:
+            return "draft_panel"
+
+        selected = payload.get("selected_part_id") or payload.get("component_id")
+        if isinstance(selected, str) and selected.strip():
+            return self._safe_part_id(selected)
+        return "draft_panel"
+
+    @staticmethod
+    def _requested_wall_heights(command: str, count: int) -> list[float]:
+        values = [
+            float(match.group(0))
+            for match in re.finditer(r"(?<![A-Za-z])\b\d+(?:\.\d+)?", command)
+        ]
+        if len(values) < count:
+            return []
+        return values[-count:]
+
+    @staticmethod
+    def _annotation_rectangles(annotations: list[Any]) -> list[tuple[float, float, float, float]]:
+        rectangles: list[tuple[float, float, float, float]] = []
+        for annotation in annotations:
+            if not isinstance(annotation, dict):
+                continue
+            points = annotation.get("points")
+            if not isinstance(points, list) or len(points) < 3:
+                continue
+            xs: list[float] = []
+            ys: list[float] = []
+            for point in points:
+                if not isinstance(point, dict):
+                    continue
+                x = _maybe_float(point.get("x"))
+                y = _maybe_float(point.get("y"))
+                if x is None or y is None:
+                    continue
+                xs.append(min(max(x, 0.0), 1.0))
+                ys.append(min(max(y, 0.0), 1.0))
+            if len(xs) < 3 or len(ys) < 3:
+                continue
+            min_x = min(xs)
+            max_x = max(xs)
+            min_y = min(ys)
+            max_y = max(ys)
+            if max_x - min_x < 0.005 or max_y - min_y < 0.005:
+                continue
+            rectangles.append((min_x, max_x, min_y, max_y))
+        return rectangles
+
+    def _preview_command_context_for_transaction(self, transaction_token: str) -> PreviewCommandContext:
+        status = self.draft_transaction_status(transaction_token)
+        draft = status.get("draft") if isinstance(status.get("draft"), dict) else {}
+        dimensions = draft.get("dimensions") if isinstance(draft.get("dimensions"), dict) else {}
+        part_id = status.get("part_id")
+        return PreviewCommandContext(
+            part_id=str(part_id) if isinstance(part_id, str) and part_id else None,
+            length=_maybe_float(dimensions.get("length")),
+            width=_maybe_float(dimensions.get("width")),
+            thickness=_maybe_float(dimensions.get("height")),
+        )
+
+    @staticmethod
+    def _safe_part_id(value: str) -> str:
+        slug = re.sub(r"[^a-zA-Z0-9_]+", "_", value.strip().lower()).strip("_")
+        return slug or "draft_panel"
+
+    def _apply_preview_operation(self, transaction_token: str, operation: Any, part_id: str) -> dict[str, Any]:
+        payload = dict(operation.parameters)
+        if operation.name == "create_box":
+            payload.setdefault("part_id", part_id)
+            result = self.draft_transaction_create_box(transaction_token, payload)
+            endpoint = "box"
+        elif operation.name == "set_panel_thickness":
+            result = self.draft_transaction_set_panel_thickness(transaction_token, payload)
+            endpoint = "thickness"
+        elif operation.name == "add_hole":
+            result = self.draft_transaction_add_hole(transaction_token, payload)
+            endpoint = "holes"
+        elif operation.name == "add_counterbore":
+            result = self.draft_transaction_add_counterbore(transaction_token, payload)
+            endpoint = "counterbores"
+        elif operation.name == "add_slot":
+            result = self.draft_transaction_add_slot(transaction_token, payload)
+            endpoint = "slots"
+        elif operation.name == "add_raised_wall":
+            result = self.draft_transaction_add_raised_wall(transaction_token, payload)
+            endpoint = "raised-walls"
+        elif operation.name == "add_louver_pattern":
+            result = self.draft_transaction_add_louver_pattern(transaction_token, payload)
+            endpoint = "louver-patterns"
+        elif operation.name == "mirror_features":
+            result = self.draft_transaction_mirror_features(transaction_token, payload)
+            endpoint = "mirror-features"
+        else:
+            raise ViewerError(f"Unsupported preview operation: {operation.name}")
+
+        return {
+            "name": operation.name,
+            "endpoint": endpoint,
+            "parameters": payload,
+            "result": result,
         }
 
     def draft_transaction_model(self, transaction_token: str) -> Path:
@@ -534,6 +785,17 @@ class ViewerService:
             angle=payload.get("angle", 0.0),
         )
 
+    def draft_add_raised_wall(self, draft_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.add_raised_wall(
+            draft_token,
+            face=payload["face"],
+            x=payload["x"],
+            y=payload["y"],
+            length=payload["length"],
+            width=payload["width"],
+            height=payload["height"],
+        )
+
     def draft_add_louver_pattern(self, draft_token: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.drafts.add_louver_pattern(
             draft_token,
@@ -609,6 +871,17 @@ class ViewerService:
             length=payload["length"],
             width=payload["width"],
             angle=payload.get("angle", 0.0),
+        )
+
+    def draft_transaction_add_raised_wall(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.transaction_add_raised_wall(
+            transaction_token,
+            face=payload["face"],
+            x=payload["x"],
+            y=payload["y"],
+            length=payload["length"],
+            width=payload["width"],
+            height=payload["height"],
         )
 
     def draft_transaction_add_louver_pattern(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
