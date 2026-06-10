@@ -3,6 +3,7 @@ import type { MeshMetrics } from './meshMetrics'
 
 export type RotationMode = 'turntable' | 'arcball' | 'free_orbit'
 export type SnapFeatureKind = 'vertex' | 'line_edge' | 'edge_midpoint' | 'circle_center' | 'face_point' | 'free_point'
+export type VisualEvidenceViewPreset = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'iso'
 
 export interface ViewerOccurrence {
   name: string
@@ -191,7 +192,7 @@ export interface ViewportAttachmentRecord {
 export interface ThreadVisualEvidenceArtifact {
   artifact_id: string
   source: string
-  view: string
+  view: VisualEvidenceViewPreset | string
   content_type: string
   filename?: string
   path: string
@@ -210,11 +211,13 @@ export interface ThreadVisualEvidenceArtifact {
 
 export interface CreateThreadVisualEvidencePayload {
   source: string
-  view: string
+  view: VisualEvidenceViewPreset
   content_type: 'image/png'
   data_url: string
   width: number | null
   height: number | null
+  camera?: Record<string, unknown>
+  viewport?: Record<string, unknown>
   selected_ids?: string[]
   visible_ids?: string[]
   part_ids?: string[]

@@ -53,6 +53,7 @@ import type {
   DesignThreadEvent,
   ThreadVisualEvidenceArtifact,
   CreateThreadVisualEvidencePayload,
+  VisualEvidenceViewPreset,
   DraftThreadAction,
   ThreadViewportMeasurement,
   ThreadViewportAnnotation,
@@ -60,6 +61,7 @@ import type {
   ViewportAttachmentRecord,
   ViewportScreenshotPayload,
 } from './types'
+import { renderVisualEvidenceCapture } from './visualEvidenceRender'
 
 const IDENTITY_OCCURRENCE: ViewerOccurrence = {
   name: 'identity',
@@ -554,6 +556,7 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState('Loading viewer state...')
   const backendRevisionRef = useRef<number | null>(null)
   const visiblePartIdsRef = useRef<string[]>([])
+  const visibleModelsRef = useRef<ModelData[]>([])
   const [sourceCollapsed, setSourceCollapsed] = useState(false)
   const [partsCollapsed, setPartsCollapsed] = useState(false)
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
@@ -591,6 +594,7 @@ export default function App() {
   const [threadAttachmentIds, setThreadAttachmentIds] = useState<string[]>([])
   const [threadVisualEvidence, setThreadVisualEvidence] = useState<ThreadVisualEvidenceArtifact[]>([])
   const [threadVisualEvidenceCount, setThreadVisualEvidenceCount] = useState(0)
+  const [visualEvidenceView, setVisualEvidenceView] = useState<VisualEvidenceViewPreset>('iso')
   const [latestAttachmentId, setLatestAttachmentId] = useState<string | null>(null)
   const [chatStreamUnavailable, setChatStreamUnavailable] = useState(false)
   const [markupActive, setMarkupActive] = useState(false)
@@ -903,26 +907,29 @@ export default function App() {
   }, [apiBase, loadThread])
 
   const createVisualEvidence = useCallback(async (threadId: string) => {
-    const capture = captureViewportScreenshot([])
-    if (!capture.screenshot || typeof capture.screenshot.data_url !== 'string' || !capture.screenshot.data_url.trim()) {
-      throw new Error('Visual evidence capture is unavailable')
-    }
+    const capture = await renderVisualEvidenceCapture({
+      models: visibleModelsRef.current,
+      view: visualEvidenceView,
+    })
     const currentVisibleIds = visiblePartIdsRef.current.length ? visiblePartIdsRef.current : selectedIds
 
     const payload = {
       source: 'manual-agent-render',
-      view: 'iso',
+      view: visualEvidenceView,
       content_type: 'image/png',
-      data_url: capture.screenshot.data_url,
-      width: capture.viewportSize?.width ?? null,
-      height: capture.viewportSize?.height ?? null,
+      data_url: capture.dataUrl,
+      width: capture.width,
+      height: capture.height,
+      camera: capture.camera,
+      viewport: capture.viewport,
       selected_ids: selectedIds,
       visible_ids: currentVisibleIds,
       part_ids: currentVisibleIds,
       purpose: 'manual',
       metadata: {
         backend_revision: backendRevisionRef.current,
-        capture_source: 'current-viewport',
+        capture_source: 'separate-render-context',
+        render_context: capture.viewport.render_context,
       },
     } as CreateThreadVisualEvidencePayload
 
@@ -943,7 +950,7 @@ export default function App() {
     })
     setThreadVisualEvidenceCount((current) => (isNew ? current + 1 : current))
     return evidence
-  }, [apiBase, selectedIds])
+  }, [apiBase, selectedIds, visualEvidenceView])
 
   const sendThreadChatMessage = useCallback(async (threadId: string, payload: DesignThreadChatPayload) => {
     const contextSnapshot = payload.context_snapshot
@@ -1738,6 +1745,7 @@ export default function App() {
     [visibleModels],
   )
   visiblePartIdsRef.current = visiblePartIds
+  visibleModelsRef.current = visibleModels
   const viewportMeasurements = useMemo<ThreadViewportMeasurement[]>(
     () => previewModelPayload?.dimensions
       ? [
@@ -1843,6 +1851,8 @@ export default function App() {
           onSendChatMessage={sendThreadChatMessage}
           onCreateViewportAttachment={createViewportAttachment}
           onRequestVisualEvidence={createVisualEvidence}
+          visualEvidenceView={visualEvidenceView}
+          onVisualEvidenceViewChange={setVisualEvidenceView}
           threadVisualEvidence={threadVisualEvidence}
           threadVisualEvidenceCount={threadVisualEvidenceCount}
           onBuildViewerContext={buildViewerContextPayload}

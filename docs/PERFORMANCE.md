@@ -331,6 +331,8 @@ The early workbench slice covers:
 - screenshot capture and annotation attachments tied to thread context
 - durable visual evidence artifacts for agent/manual-render views, with the
   contract in `docs/VisualEvidence.md`
+- manual visual evidence uses a separate browser render context with named view
+  presets instead of reading from the user's active viewport canvas
 - draft preview, accept, discard, focused-validator, and profile events recorded
   into the thread history
 

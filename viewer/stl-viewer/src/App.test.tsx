@@ -5,12 +5,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
 const viewerRenderProps = vi.hoisted(() => [] as Array<{ clearMeasurementsRequest: number; models: Array<Record<string, unknown>> }>)
+const visualEvidenceRenderCalls = vi.hoisted(() => [] as Array<{ models: Array<Record<string, unknown>>; view: string }>)
 
 vi.mock('./components/Viewer', () => ({
   default: (props: { clearMeasurementsRequest: number; models: Array<Record<string, unknown>> }) => {
     viewerRenderProps.push(props)
     return <div data-testid="viewer">viewer</div>
   },
+}))
+
+vi.mock('./visualEvidenceRender', () => ({
+  renderVisualEvidenceCapture: vi.fn(async (options: { models: Array<Record<string, unknown>>; view: string }) => {
+    visualEvidenceRenderCalls.push(options)
+    return {
+      dataUrl: 'data:image/png;base64,T0ZGU0NSRUV4=',
+      width: 960,
+      height: 720,
+      camera: {
+        view: options.view,
+        position: [1, 2, 3],
+        target: [0, 0, 0],
+        up: [0, 0, 1],
+      },
+      viewport: {
+        width: 960,
+        height: 720,
+        render_context: 'offscreen-browser',
+      },
+    }
+  }),
 }))
 
 const STEP_CAPABILITIES = {
@@ -440,6 +463,7 @@ function findFetchCall(suffix: string) {
 describe('App source loading', () => {
   beforeEach(() => {
     viewerRenderProps.length = 0
+    visualEvidenceRenderCalls.length = 0
     partsRevision = 0
     healthRevision = 0
     activeParts = partsPayload.parts
@@ -526,7 +550,7 @@ describe('App source loading', () => {
           const evidence: MockVisualEvidencePayload = {
             artifact_id: artifactId,
             source: String(body.source ?? 'manual-agent-render'),
-            view: String(body.view ?? 'current-viewport'),
+            view: String(body.view ?? 'iso'),
             content_type: 'image/png',
             path: `visual-evidence/${artifactId}.png`,
             image_url: `/api/design-threads/${threadId}/visual-evidence/${artifactId}/image`,
@@ -1035,48 +1059,59 @@ describe('App source loading', () => {
 
   it('posts a manual visual evidence capture to the dedicated visual-evidence endpoint', async () => {
     const user = userEvent.setup()
-    const restoreCanvas = mockViewportCanvas({ dataUrl: viewportCaptureDataUrl() })
 
     render(<App />)
 
-    try {
-      await screen.findByText('wheel_box_test_body')
-      await user.click(screen.getByText('wheel_box_test_body'))
-      await openThreadDrawer(user)
-      await user.type(screen.getByLabelText('New thread title'), 'Render review')
-      await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByText('wheel_box_test_body'))
+    await openThreadDrawer(user)
+    await user.type(screen.getByLabelText('New thread title'), 'Render review')
+    await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
 
-      await screen.findByText('Render review')
-      await user.click(screen.getByRole('button', { name: 'Capture render' }))
+    await screen.findByText('Render review')
+    await user.selectOptions(screen.getByLabelText('Visual evidence view'), 'front')
+    await user.click(screen.getByRole('button', { name: 'Capture render' }))
 
-      const visualEvidenceCall = await waitFor(() => {
-        const value = findFetchCall('/visual-evidence')
-        expect(value).toBeDefined()
-        return value
-      })
-      const visualEvidenceBody = jsonBody(visualEvidenceCall![1] as RequestInit)
+    const visualEvidenceCall = await waitFor(() => {
+      const value = findFetchCall('/visual-evidence')
+      expect(value).toBeDefined()
+      return value
+    })
+    const visualEvidenceBody = jsonBody(visualEvidenceCall![1] as RequestInit)
 
-      expect(visualEvidenceBody).toMatchObject({
-        source: 'manual-agent-render',
-        view: 'iso',
-        content_type: 'image/png',
-        data_url: viewportCaptureDataUrl(),
-        selected_ids: ['wheel_box_test_body'],
-        visible_ids: ['wheel_box_test_body'],
-        part_ids: ['wheel_box_test_body'],
-        purpose: 'manual',
-        metadata: {
-          capture_source: 'current-viewport',
-        },
-      })
-      expect(visualEvidenceBody.width).toBe(640)
-      expect(visualEvidenceBody.height).toBe(480)
+    expect(visualEvidenceRenderCalls).toHaveLength(1)
+    expect(visualEvidenceRenderCalls[0].view).toBe('front')
+    expect(visualEvidenceRenderCalls[0].models).toHaveLength(1)
+    expect(visualEvidenceBody).toMatchObject({
+      source: 'manual-agent-render',
+      view: 'front',
+      content_type: 'image/png',
+      data_url: 'data:image/png;base64,T0ZGU0NSRUV4=',
+      selected_ids: ['wheel_box_test_body'],
+      visible_ids: ['wheel_box_test_body'],
+      part_ids: ['wheel_box_test_body'],
+      purpose: 'manual',
+      camera: {
+        view: 'front',
+        position: [1, 2, 3],
+        target: [0, 0, 0],
+        up: [0, 0, 1],
+      },
+      viewport: {
+        width: 960,
+        height: 720,
+        render_context: 'offscreen-browser',
+      },
+      metadata: {
+        capture_source: 'separate-render-context',
+        render_context: 'offscreen-browser',
+      },
+    })
+    expect(visualEvidenceBody.width).toBe(960)
+    expect(visualEvidenceBody.height).toBe(720)
 
-      expect(findFetchCall('/attachments/viewport-screenshot')).toBeUndefined()
-      await screen.findByText('id: ve-01')
-    } finally {
-      restoreCanvas()
-    }
+    expect(findFetchCall('/attachments/viewport-screenshot')).toBeUndefined()
+    await screen.findByText('id: ve-01')
   })
 
   it('recovers persisted design thread history on browser reload', async () => {

@@ -1252,6 +1252,18 @@ body {
   gap: 6px;
 }
 
+.visual-evidence-view-select {
+  min-width: 104px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 8px;
+}
+
 .visual-evidence-link {
   align-self: flex-start;
   width: fit-content;

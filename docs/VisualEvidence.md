@@ -44,8 +44,8 @@ Each visual-evidence sidecar should record:
 
 - `artifact_id`
 - `source`: `agent`, `manual-agent-render`, `test`, or a future provider name
-- `view`: `front`, `back`, `left`, `right`, `top`, `bottom`, `iso`, or
-  `custom`
+- `view`: initially `front`, `back`, `left`, `right`, `top`, `bottom`, or
+  `iso`; `custom` can follow once arbitrary camera payloads are supported
 - `content_type`: initially `image/png`
 - `width` and `height`
 - `selected_part_ids`, `visible_part_ids`, and `part_ids`
@@ -101,14 +101,13 @@ attachments. The UI should distinguish:
 - agent/manual render artifacts
 - generated standard view packs
 
-The first implementation can add a manual "Render evidence" action that captures
-the current canvas into the new visual-evidence endpoint. That is not the final
-agent-owned render context, but it proves the storage, thread reload, and UI
-contract without disturbing the existing attachment path.
+The manual "Render evidence" action should use a hidden/offscreen render context
+that loads the same model data as the main viewer and captures named views
+without mutating user camera or visibility state. It should post the resulting
+PNG and camera/viewport metadata to the visual-evidence endpoint.
 
-The second implementation should add a hidden or offscreen render context that
-loads the same model data as the main viewer and can capture named views without
-mutating user camera or visibility state.
+The current user-owned "Attach view" action remains separate and captures the
+active viewport plus markup into `attachments/`.
 
 Follow Mode should be added only after render events are durable. It must be
 off by default, visibly indicated when active, and reversible without stopping
@@ -129,6 +128,8 @@ Frontend tests:
 
 - loaded thread visual evidence renders in the Chat workspace
 - manual evidence capture posts to `/visual-evidence`
+- manual evidence capture uses the separate render context and includes
+  `camera`/`viewport` metadata
 - manual evidence capture does not use the existing
   `/attachments/viewport-screenshot` endpoint
 - reloading a thread restores evidence records
@@ -143,4 +144,3 @@ Runtime/manual tests:
 - create user viewport evidence with markup
 - create visual evidence
 - reload the thread and verify both evidence types survive
-

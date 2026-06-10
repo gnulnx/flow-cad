@@ -199,10 +199,11 @@ The product contract is documented in `docs/VisualEvidence.md`:
 - visual evidence records include camera, viewport, part ids, source, purpose,
   backend revision, and image dimensions
 
-The first implementation can use a manual browser capture to prove the storage,
-thread reload, and UI contract. The durable target is an agent-owned render
-context that can produce `front`, `back`, `left`, `right`, `top`, `bottom`, and
-`iso` images without interrupting normal viewer use.
+The first implementation uses a manual browser action backed by a separate
+render context to prove the storage, thread reload, and UI contract. The durable
+target is an agent-owned render context that can produce `front`, `back`,
+`left`, `right`, `top`, `bottom`, and `iso` images without interrupting normal
+viewer use.
 
 ### Chat Runtime And Model Provider Broker
 
@@ -875,7 +876,8 @@ Backend:
 Frontend:
 
 - render visual evidence separately from user screenshot attachments
-- add a manual render-evidence action that posts to the new endpoint
+- add a manual render-evidence action that captures named views through a
+  separate browser render context and posts to the new endpoint
 - keep the existing Attach view/markup flow unchanged
 
 Agent/runtime:
@@ -889,7 +891,8 @@ Agent/runtime:
 Tests:
 
 - backend storage, retrieval, invalid image, invalid preset, and path containment
-- frontend visual evidence rendering and manual capture path
+- frontend visual evidence rendering, named view selection, and separate render
+  capture path
 - MCP visual evidence tool registration and thread-local write boundary
 - integration smoke against `/home/gnulnx/b3_robot`
 

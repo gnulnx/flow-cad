@@ -7,6 +7,7 @@ import type {
   DesignThreadRecord,
   DesignThreadSummary,
   ThreadVisualEvidenceArtifact,
+  VisualEvidenceViewPreset,
   SourceContext,
   DesignThreadChatPayload,
   DesignThreadChatResponse,
@@ -62,6 +63,8 @@ interface DesignThreadDockProps {
   onSendChatMessage: (threadId: string, payload: DesignThreadChatPayload) => Promise<DesignThreadChatResponse>
   onCreateViewportAttachment: (threadId: string, payload: ViewportScreenshotPayload) => Promise<ViewportAttachmentRecord | null>
   onRequestVisualEvidence?: (threadId: string) => Promise<ThreadVisualEvidenceArtifact | null>
+  visualEvidenceView: VisualEvidenceViewPreset
+  onVisualEvidenceViewChange: (view: VisualEvidenceViewPreset) => void
   threadVisualEvidence: ThreadVisualEvidenceArtifact[]
   threadVisualEvidenceCount?: number
   onBuildViewerContext: (options?: { includeViewportScreenshot?: boolean }) => Record<string, unknown>
@@ -137,6 +140,8 @@ export default function DesignThreadDock({
   onSendChatMessage,
   onCreateViewportAttachment,
   onRequestVisualEvidence,
+  visualEvidenceView,
+  onVisualEvidenceViewChange,
   threadVisualEvidence,
   threadVisualEvidenceCount,
   onBuildViewerContext,
@@ -492,6 +497,21 @@ export default function DesignThreadDock({
               >
                 {visualEvidenceBusy ? 'Requesting...' : 'Capture render'}
               </button>
+              <select
+                className="visual-evidence-view-select"
+                aria-label="Visual evidence view"
+                value={visualEvidenceView}
+                onChange={(event) => onVisualEvidenceViewChange(event.target.value as VisualEvidenceViewPreset)}
+                disabled={visualEvidenceBusy || !activeThreadId || isThreadMuted}
+              >
+                <option value="iso">Iso</option>
+                <option value="front">Front</option>
+                <option value="back">Back</option>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+                <option value="top">Top</option>
+                <option value="bottom">Bottom</option>
+              </select>
               {visualEvidenceError ? <span className="thread-error">{visualEvidenceError}</span> : null}
               {threadVisualEvidence.length ? (
                 <ul className="visual-evidence-list" role="list">
