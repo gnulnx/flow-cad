@@ -315,6 +315,9 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/design-threads/{thread_id}/chat/stream" in route_paths
     assert "/api/design-threads/{thread_id}/context-snapshots" in route_paths
     assert "/api/design-threads/{thread_id}/attachments/viewport-screenshot" in route_paths
+    assert "/api/design-threads/{thread_id}/visual-evidence" in route_paths
+    assert "/api/design-threads/{thread_id}/visual-evidence/{artifact_id}" in route_paths
+    assert "/api/design-threads/{thread_id}/visual-evidence/{artifact_id}/image" in route_paths
     assert "/api/reload" in route_paths
 
 

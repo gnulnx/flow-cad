@@ -188,6 +188,40 @@ export interface ViewportAttachmentRecord {
   created_at: string
 }
 
+export interface ThreadVisualEvidenceArtifact {
+  artifact_id: string
+  source: string
+  view: string
+  content_type: string
+  filename?: string
+  path: string
+  metadata_path?: string
+  image_url?: string
+  image_endpoint?: string
+  width: number | null
+  height: number | null
+  selected_ids: string[]
+  visible_ids: string[]
+  part_ids: string[]
+  purpose?: string | null
+  created_at: string
+  metadata?: Record<string, unknown>
+}
+
+export interface CreateThreadVisualEvidencePayload {
+  source: string
+  view: string
+  content_type: 'image/png'
+  data_url: string
+  width: number | null
+  height: number | null
+  selected_ids?: string[]
+  visible_ids?: string[]
+  part_ids?: string[]
+  purpose?: string
+  metadata?: Record<string, unknown>
+}
+
 export interface ThreadContextSnapshot {
   schema_version?: number
   thread_id?: string
@@ -315,6 +349,8 @@ export interface DesignThreadRecord {
   message_count?: number
   snapshot_count?: number
   attachment_count?: number
+  visual_evidence_count?: number
+  visual_evidence?: ThreadVisualEvidenceArtifact[]
   messages: DesignThreadEvent[]
   context_snapshots?: ThreadContextSnapshot[]
   attachments?: ViewportAttachmentRecord[]

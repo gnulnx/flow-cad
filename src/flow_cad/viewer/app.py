@@ -20,6 +20,7 @@ from flow_cad.viewer.agent_runtime import (
 )
 from flow_cad.viewer.threads import (
     DesignThreadService,
+    VisualEvidenceNotFoundError,
     ThreadNotFoundError,
     ThreadStorageError,
 )
@@ -464,6 +465,35 @@ def create_app(
         try:
             return design_threads.add_viewport_screenshot_attachment(thread_id, payload)
         except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/visual-evidence")
+    def create_visual_evidence(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.add_visual_evidence(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/design-threads/{thread_id}/visual-evidence/{artifact_id}")
+    def get_visual_evidence(thread_id: str, artifact_id: str) -> dict[str, object]:
+        try:
+            return design_threads.get_visual_evidence(thread_id, artifact_id)
+        except (ThreadNotFoundError, VisualEvidenceNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/design-threads/{thread_id}/visual-evidence/{artifact_id}/image")
+    def get_visual_evidence_image(thread_id: str, artifact_id: str) -> FileResponse:
+        try:
+            path = design_threads.get_visual_evidence_image(thread_id, artifact_id)
+            return FileResponse(
+                path,
+                media_type="image/png",
+                filename=path.name,
+            )
+        except (ThreadNotFoundError, VisualEvidenceNotFoundError, ThreadStorageError) as exc:
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 

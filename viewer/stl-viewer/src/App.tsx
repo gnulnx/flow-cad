@@ -51,6 +51,8 @@ import type {
   DesignThreadDraftEventResponse,
   DesignThreadsPayload,
   DesignThreadEvent,
+  ThreadVisualEvidenceArtifact,
+  CreateThreadVisualEvidencePayload,
   DraftThreadAction,
   ThreadViewportMeasurement,
   ThreadViewportAnnotation,
@@ -136,6 +138,26 @@ function extractLatestAttachmentId(thread: DesignThreadRecord | null) {
   }
 
   return null
+}
+
+function extractThreadVisualEvidence(thread: DesignThreadRecord | null) {
+  if (!thread) return [] as ThreadVisualEvidenceArtifact[]
+  return (thread.visual_evidence ?? [])
+    .filter((evidence): evidence is ThreadVisualEvidenceArtifact => (
+      typeof evidence?.artifact_id === 'string' && evidence.artifact_id.trim().length > 0
+    ))
+    .map((evidence) => ({
+      ...evidence,
+      image_url: evidence.image_url
+        || evidence.image_endpoint
+        || `/api/design-threads/${thread.thread_id}/visual-evidence/${evidence.artifact_id}/image`,
+    }))
+}
+
+function extractThreadVisualEvidenceCount(thread: DesignThreadRecord | null) {
+  if (!thread) return 0
+  if (typeof thread.visual_evidence_count === 'number') return thread.visual_evidence_count
+  return extractThreadVisualEvidence(thread).length
 }
 
 type ModelStateWriter = (updater: (previous: ModelData[]) => ModelData[]) => void
@@ -531,6 +553,7 @@ export default function App() {
   const [sourceContext, setSourceContext] = useState<SourceContext | null>(null)
   const [statusMessage, setStatusMessage] = useState('Loading viewer state...')
   const backendRevisionRef = useRef<number | null>(null)
+  const visiblePartIdsRef = useRef<string[]>([])
   const [sourceCollapsed, setSourceCollapsed] = useState(false)
   const [partsCollapsed, setPartsCollapsed] = useState(false)
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
@@ -566,6 +589,8 @@ export default function App() {
   const [activeThread, setActiveThread] = useState<DesignThreadRecord | null>(null)
   const [threadBusy, setThreadBusy] = useState(false)
   const [threadAttachmentIds, setThreadAttachmentIds] = useState<string[]>([])
+  const [threadVisualEvidence, setThreadVisualEvidence] = useState<ThreadVisualEvidenceArtifact[]>([])
+  const [threadVisualEvidenceCount, setThreadVisualEvidenceCount] = useState(0)
   const [latestAttachmentId, setLatestAttachmentId] = useState<string | null>(null)
   const [chatStreamUnavailable, setChatStreamUnavailable] = useState(false)
   const [markupActive, setMarkupActive] = useState(false)
@@ -718,6 +743,8 @@ export default function App() {
     const attachmentIds = extractThreadAttachmentIds(payload)
     setThreadAttachmentIds(attachmentIds)
     setLatestAttachmentId(extractLatestAttachmentId(payload))
+    setThreadVisualEvidence(extractThreadVisualEvidence(payload))
+    setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload))
     return payload
   }, [apiBase])
 
@@ -726,6 +753,8 @@ export default function App() {
     setActiveThread(payload)
     setThreadAttachmentIds(extractThreadAttachmentIds(payload))
     setLatestAttachmentId(extractLatestAttachmentId(payload))
+    setThreadVisualEvidence(extractThreadVisualEvidence(payload))
+    setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload))
   }, [])
 
   const appendThreadEvents = useCallback((threadId: string, messages: DesignThreadEvent[]) => {
@@ -744,6 +773,8 @@ export default function App() {
       const threadAttachmentIds = extractThreadAttachmentIds(next)
       setThreadAttachmentIds(threadAttachmentIds)
       setLatestAttachmentId(extractLatestAttachmentId(next))
+      setThreadVisualEvidence(extractThreadVisualEvidence(next))
+      setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(next))
 
       return next
     })
@@ -846,6 +877,10 @@ export default function App() {
     const payload = await response.json() as DesignThreadRecord
     if (payload.thread_id === activeThreadId) {
       setActiveThread(payload)
+      setThreadAttachmentIds(extractThreadAttachmentIds(payload))
+      setLatestAttachmentId(extractLatestAttachmentId(payload))
+      setThreadVisualEvidence(extractThreadVisualEvidence(payload))
+      setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload))
     }
     await loadThreadSummaries()
     return payload
@@ -866,6 +901,49 @@ export default function App() {
     )
     return attachment
   }, [apiBase, loadThread])
+
+  const createVisualEvidence = useCallback(async (threadId: string) => {
+    const capture = captureViewportScreenshot([])
+    if (!capture.screenshot || typeof capture.screenshot.data_url !== 'string' || !capture.screenshot.data_url.trim()) {
+      throw new Error('Visual evidence capture is unavailable')
+    }
+    const currentVisibleIds = visiblePartIdsRef.current.length ? visiblePartIdsRef.current : selectedIds
+
+    const payload = {
+      source: 'manual-agent-render',
+      view: 'iso',
+      content_type: 'image/png',
+      data_url: capture.screenshot.data_url,
+      width: capture.viewportSize?.width ?? null,
+      height: capture.viewportSize?.height ?? null,
+      selected_ids: selectedIds,
+      visible_ids: currentVisibleIds,
+      part_ids: currentVisibleIds,
+      purpose: 'manual',
+      metadata: {
+        backend_revision: backendRevisionRef.current,
+        capture_source: 'current-viewport',
+      },
+    } as CreateThreadVisualEvidencePayload
+
+    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/visual-evidence`), {
+      ...buildHeaders(payload),
+    })
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const evidence = await response.json() as ThreadVisualEvidenceArtifact
+    let isNew = false
+    setThreadVisualEvidence((current) => {
+      if (current.some((candidate) => candidate.artifact_id === evidence.artifact_id)) {
+        return current
+      }
+      isNew = true
+      return [...current, evidence]
+    })
+    setThreadVisualEvidenceCount((current) => (isNew ? current + 1 : current))
+    return evidence
+  }, [apiBase, selectedIds])
 
   const sendThreadChatMessage = useCallback(async (threadId: string, payload: DesignThreadChatPayload) => {
     const contextSnapshot = payload.context_snapshot
@@ -1659,6 +1737,7 @@ export default function App() {
     () => _uniqueModelPartIds(visibleModels.map((model) => model.partId)),
     [visibleModels],
   )
+  visiblePartIdsRef.current = visiblePartIds
   const viewportMeasurements = useMemo<ThreadViewportMeasurement[]>(
     () => previewModelPayload?.dimensions
       ? [
@@ -1763,6 +1842,9 @@ export default function App() {
           onPatchThread={patchThread}
           onSendChatMessage={sendThreadChatMessage}
           onCreateViewportAttachment={createViewportAttachment}
+          onRequestVisualEvidence={createVisualEvidence}
+          threadVisualEvidence={threadVisualEvidence}
+          threadVisualEvidenceCount={threadVisualEvidenceCount}
           onBuildViewerContext={buildViewerContextPayload}
           threadAttachmentIds={threadAttachmentIds}
           markupActive={markupActive}

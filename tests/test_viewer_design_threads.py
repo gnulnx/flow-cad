@@ -464,6 +464,130 @@ def test_viewer_design_threads_viewport_screenshot_rejects_missing_image_data(tm
     assert unsupported.status_code == 400
 
 
+def test_viewer_design_threads_visual_evidence_create_list_and_retrieve(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Visual evidence thread"}).json()["thread_id"]
+
+    create_response = client.post(
+        f"/api/design-threads/{thread_id}/visual-evidence",
+        json={
+            "source": "browser",
+            "preset": "front",
+            "width": 320,
+            "height": 240,
+            "selected_ids": ["example_block"],
+            "visible_ids": ["example_block", "ghost-part"],
+            "part_ids": ["example_block", 22],
+            "purpose": "review",
+            "camera": {"position": [1.0, 2.0, 3.0], "target": [0.0, 0.0, 0.0]},
+            "viewport": {"width": 320, "height": 240},
+            "metadata": {"run": "snapshot"},
+            "data_url": _tiny_png_data_url(),
+        },
+    )
+    assert create_response.status_code == 200
+    payload = create_response.json()
+
+    assert payload["kind"] == "visual_evidence"
+    assert payload["source"] == "browser"
+    assert payload["view"] == "front"
+    assert payload["width"] == 320
+    assert payload["height"] == 240
+    assert payload["image_url"] == f"/api/design-threads/{thread_id}/visual-evidence/{payload['artifact_id']}/image"
+
+    threads_root = service.project.paths.local_state / "design-threads"
+    png_path = threads_root / payload["path"]
+    metadata_path = threads_root / payload["metadata_path"]
+    assert png_path.exists()
+    assert png_path.read_bytes().startswith(b"\x89PNG")
+    assert metadata_path.exists()
+    assert png_path.resolve().is_relative_to(threads_root.resolve())
+
+    thread_payload = client.get(f"/api/design-threads/{thread_id}").json()
+    assert thread_payload["visual_evidence_count"] == 1
+    assert thread_payload["visual_evidence"][0]["artifact_id"] == payload["artifact_id"]
+    assert thread_payload["visual_evidence"][0]["view"] == "front"
+
+    metadata_response = client.get(
+        f"/api/design-threads/{thread_id}/visual-evidence/{payload['artifact_id']}"
+    ).json()
+    assert metadata_response["artifact_id"] == payload["artifact_id"]
+    assert metadata_response["source"] == "browser"
+    assert metadata_response["purpose"] == "review"
+
+    image_response = client.get(
+        f"/api/design-threads/{thread_id}/visual-evidence/{payload['artifact_id']}/image"
+    )
+    assert image_response.status_code == 200
+    assert image_response.headers["content-type"] == "image/png"
+    assert image_response.content.startswith(b"\x89PNG")
+
+
+def test_viewer_design_threads_visual_evidence_rejects_bad_preset_and_image(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    missing_thread = client.post(
+        "/api/design-threads/missing-thread/visual-evidence",
+        json={"data_url": _tiny_png_data_url()},
+    )
+    assert missing_thread.status_code == 404
+
+    thread_id = client.post("/api/design-threads", json={"title": "Bad visual evidence input"}).json()["thread_id"]
+
+    bad_preset = client.post(
+        f"/api/design-threads/{thread_id}/visual-evidence",
+        json={
+            "preset": "diagonal",
+            "image_data": _tiny_png_data_url().removeprefix("data:image/png;base64,"),
+        },
+    )
+    assert bad_preset.status_code == 400
+
+    non_png = client.post(
+        f"/api/design-threads/{thread_id}/visual-evidence",
+        json={
+            "source": "agent",
+            "data_url": "data:text/plain;base64,SGVsbG8=",
+        },
+    )
+    assert non_png.status_code == 400
+
+    missing_evidence = client.get(f"/api/design-threads/{thread_id}/visual-evidence/missing-artifact")
+    assert missing_evidence.status_code == 404
+
+
+def test_viewer_design_threads_visual_evidence_id_sanitization_and_thread_containment(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Visual evidence id safety"}).json()["thread_id"]
+    threads_root = service.project.paths.local_state / "design-threads"
+
+    response = client.post(
+        f"/api/design-threads/{thread_id}/visual-evidence",
+        json={"artifact_id": "../../outside/path", "data_url": _tiny_png_data_url()},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    artifact_id = payload["artifact_id"]
+    assert "/" not in artifact_id and "\\" not in artifact_id
+    assert ".." not in artifact_id
+    stored_png = threads_root / payload["path"]
+    stored_meta = threads_root / payload["metadata_path"]
+    assert stored_png.resolve().is_relative_to(threads_root.resolve())
+    assert stored_meta.resolve().is_relative_to(threads_root.resolve())
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}/visual-evidence/{artifact_id}").json()
+    assert reloaded["artifact_id"] == artifact_id
+
+
 def test_viewer_design_threads_context_snapshot_can_reference_attachment_id(tmp_path) -> None:
     _write_example_step(tmp_path)
     service = ViewerService(tmp_path)

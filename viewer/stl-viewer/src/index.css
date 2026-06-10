@@ -1200,6 +1200,19 @@ body {
   flex-shrink: 0;
 }
 
+.chat-context-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.attachment-count {
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .attachment-tray-title {
   font-size: 11px;
   text-transform: uppercase;
@@ -1212,6 +1225,41 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.visual-evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.visual-evidence-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.visual-evidence-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.visual-evidence-link {
+  align-self: flex-start;
+  width: fit-content;
+  text-decoration: none;
+}
+
+.visual-evidence-link:hover {
+  text-decoration: underline;
 }
 
 .thread-annotation-form {

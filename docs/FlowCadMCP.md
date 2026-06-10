@@ -4,11 +4,12 @@ Flow CAD includes an MCP server for agent-facing workbench operations that need
 structured inputs and outputs. The server is a control-plane interface over
 shared Flow CAD services, not a second implementation of CAD logic.
 
-The current server exposes draft-only geometry tools, draft transactions, and
-focused-validator read/run tools for fast panel iteration. Draft tools write
-only project-local runtime state, preview artifacts, and review artifacts.
-Validator tools read project facts and write only profile files under
-`.flow/profiles/`.
+The current server exposes draft-only geometry tools, draft transactions,
+focused-validator read/run tools, and design-thread visual evidence storage for
+fast panel iteration. Draft tools write only project-local runtime state,
+preview artifacts, and review artifacts. Validator tools read project facts and
+write only profile files under `.flow/profiles/`. Visual evidence tools write
+only thread-local PNG/JSON artifacts under `.flow/design-threads/`.
 
 ## Server Entry Points
 
@@ -82,6 +83,12 @@ Focused validator/profile tools:
 - `validator_run`
 - `profile_last`
 
+Design-thread visual evidence tools:
+
+- `visual_evidence_list`
+- `visual_evidence_get`
+- `visual_evidence_create`
+
 These tools use `DraftGeometryStore` and return the same structured facts as the
 viewer backend draft endpoints:
 
@@ -103,11 +110,20 @@ Validator tools return:
   available
 - profile path and latest-profile summary
 
+Visual evidence tools return or persist:
+
+- artifact id
+- source, view preset, purpose, image dimensions, and part ids
+- relative PNG and metadata paths
+- browser API image URL for viewer-backed inspection
+- caller metadata such as provider, render context, or test source
+
 Draft artifacts are isolated under:
 
 ```text
 .flow/drafts/<draft-token>/
 .flow/draft-transactions/<transaction-token>/
+.flow/design-threads/<thread-id>/visual-evidence/
 ```
 
 They must not write `flow/`, `exports/`, `reports/`, handoff bundles, source
@@ -126,6 +142,8 @@ Use the MCP server for:
 - bounded workbench operations that return small JSON payloads
 - future read-only facts such as part metadata, bounding boxes, placements,
   features, last-build profiles, and focused validator results
+- agent/manual visual evidence persistence once a renderer or browser session
+  has produced PNG data
 
 The MCP server is especially useful when a caller needs to perform several
 small operations across turns, such as create a panel, add holes, measure edge
@@ -166,6 +184,7 @@ Do not add an MCP tool when the operation is:
   CAD source
 - realtime viewer interaction, camera control, pointer tracking, or streaming
   telemetry
+- direct control of the user's live viewport for agent visual inspection
 - a long-running gate command where the existing CLI is the better interface
 - a broad workflow that should be split into smaller read, draft, validate, and
   promote steps
@@ -199,6 +218,12 @@ serve different callers:
 
 Keep behavior in the shared service so the two interfaces do not drift. For the
 current draft API, both interfaces call `DraftGeometryStore`.
+
+For visual evidence, the viewer backend and MCP server call the design-thread
+service. MCP can create/list/read durable evidence artifacts when the caller
+already has PNG image data. A later `request_visual_evidence` tool should call a
+shared render service or agent-owned render context; it should not drive the
+user's live viewport directly.
 
 ## Readiness Checks
 

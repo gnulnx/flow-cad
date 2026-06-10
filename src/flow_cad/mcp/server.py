@@ -11,6 +11,8 @@ from flow_cad.draft_geometry import DraftGeometryStore
 from flow_cad.project import load_project
 from flow_cad.profiler import format_profile_summary, load_latest_build_profile
 from flow_cad.validation.runner import FocusedValidatorRunner
+from flow_cad.viewer.service import ViewerService
+from flow_cad.viewer.threads import DesignThreadService
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -96,6 +98,11 @@ def validation_runner(project_root: str | None = None) -> FocusedValidatorRunner
     root = enforce_project_root(project_root)
     project = load_project(root, fallback_to_bundled=False)
     return FocusedValidatorRunner(project)
+
+
+def design_thread_service(project_root: str | None = None) -> DesignThreadService:
+    root = enforce_project_root(project_root)
+    return DesignThreadService(ViewerService(root))
 
 
 def build_server() -> FastMCP:
@@ -499,6 +506,76 @@ def build_server() -> FastMCP:
             "summary": format_profile_summary(profile, limit=limit),
         }
 
+    @mcp.tool(name="visual_evidence_list", description="List visual evidence artifacts for a design thread.")
+    def visual_evidence_list_tool(
+        thread_id: str,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("visual_evidence_list called. project_root=%s thread_id=%s", project_root, thread_id)
+        thread = design_thread_service(project_root).get_thread(thread_id)
+        visual_evidence = thread.get("visual_evidence", [])
+        return {
+            "ok": True,
+            "thread_id": thread["thread_id"],
+            "count": len(visual_evidence) if isinstance(visual_evidence, list) else 0,
+            "visual_evidence": visual_evidence if isinstance(visual_evidence, list) else [],
+        }
+
+    @mcp.tool(name="visual_evidence_get", description="Read visual evidence metadata for a design thread artifact.")
+    def visual_evidence_get_tool(
+        thread_id: str,
+        artifact_id: str,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "visual_evidence_get called. project_root=%s thread_id=%s artifact_id=%s",
+            project_root,
+            thread_id,
+            artifact_id,
+        )
+        return design_thread_service(project_root).get_visual_evidence(thread_id, artifact_id)
+
+    @mcp.tool(name="visual_evidence_create", description="Store a PNG visual evidence artifact for a design thread.")
+    def visual_evidence_create_tool(
+        thread_id: str,
+        project_root: str | None = None,
+        data_url: str | None = None,
+        image_data: str | None = None,
+        source: str = "agent",
+        view: str = "iso",
+        width: int | None = None,
+        height: int | None = None,
+        purpose: str | None = None,
+        selected_ids: list[str] | None = None,
+        visible_ids: list[str] | None = None,
+        part_ids: list[str] | None = None,
+        metadata: dict[str, object] | None = None,
+        artifact_id: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "visual_evidence_create called. project_root=%s thread_id=%s source=%s view=%s",
+            project_root,
+            thread_id,
+            source,
+            view,
+        )
+        payload = {
+            "artifact_id": artifact_id,
+            "source": source,
+            "view": view,
+            "content_type": "image/png",
+            "data_url": data_url,
+            "image_data": image_data,
+            "width": width,
+            "height": height,
+            "purpose": purpose,
+            "selected_ids": selected_ids or [],
+            "visible_ids": visible_ids or [],
+            "part_ids": part_ids or [],
+            "metadata": metadata or {},
+        }
+        return design_thread_service(project_root).add_visual_evidence(thread_id, payload)
+
     LOGGER.info(
         "Registered MCP tools: draft_create_box, draft_set_panel_thickness, draft_add_hole, "
         "draft_add_counterbore, draft_add_slot, draft_add_louver_pattern, draft_mirror_features, "
@@ -506,7 +583,8 @@ def build_server() -> FastMCP:
         "draft_transaction_create_box, draft_transaction_set_panel_thickness, draft_transaction_add_hole, "
         "draft_transaction_add_counterbore, draft_transaction_add_slot, draft_transaction_add_louver_pattern, "
         "draft_transaction_mirror_features, draft_transaction_measure, draft_transaction_preview, "
-        "draft_transaction_accept, draft_transaction_discard, validator_list, validator_run, profile_last"
+        "draft_transaction_accept, draft_transaction_discard, validator_list, validator_run, profile_last, "
+        "visual_evidence_list, visual_evidence_get, visual_evidence_create"
     )
     return mcp
 

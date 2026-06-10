@@ -27,11 +27,18 @@ class ThreadValidationError(ThreadStorageError):
     status_code = 400
 
 
+class VisualEvidenceNotFoundError(ThreadStorageError):
+    status_code = 404
+
+
 DESIGN_THREADS_SCHEMA_VERSION = 1
 THREAD_SCHEMA_VERSION = 1
 THREAD_MESSAGE_SCHEMA_VERSION = 1
 THREAD_CONTEXT_SNAPSHOT_SCHEMA_VERSION = 1
 THREAD_DRAFT_EVENT_SCHEMA_VERSION = 1
+THREAD_VISUAL_EVIDENCE_PRESETS = {"front", "back", "left", "right", "top", "bottom", "iso"}
+THREAD_VISUAL_EVIDENCE_DEFAULT_PRESET = "iso"
+THREAD_VISUAL_EVIDENCE_DEFAULT_SOURCE = "agent"
 VALID_ANNOTATION_KINDS = {"note", "circle", "freehand"}
 
 
@@ -75,6 +82,37 @@ def _decode_base64_bytes(value: str) -> bytes:
         return base64.b64decode(payload, validate=True)
     except (ValueError, binascii.Error) as exc:
         raise ThreadValidationError("image_data is not valid base64") from exc
+
+
+def _is_png_data(payload: bytes) -> bool:
+    return payload.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def _normalize_view_preset(value: Any) -> str:
+    if value is None:
+        return THREAD_VISUAL_EVIDENCE_DEFAULT_PRESET
+    if not isinstance(value, str):
+        raise ThreadValidationError("visual evidence view/preset must be a string")
+
+    preset = value.strip().lower()
+    if not preset:
+        return THREAD_VISUAL_EVIDENCE_DEFAULT_PRESET
+    if preset not in THREAD_VISUAL_EVIDENCE_PRESETS:
+        raise ThreadValidationError(
+            f"visual evidence preset '{preset}' is invalid (expected one of: "
+            f"{', '.join(sorted(THREAD_VISUAL_EVIDENCE_PRESETS))})"
+        )
+    return preset
+
+
+def _normalize_visual_evidence_source(value: Any) -> str:
+    if value is None:
+        return THREAD_VISUAL_EVIDENCE_DEFAULT_SOURCE
+    if not isinstance(value, str):
+        raise ThreadValidationError("visual evidence source must be a string")
+
+    source = value.strip().lower()
+    return source or THREAD_VISUAL_EVIDENCE_DEFAULT_SOURCE
 
 
 def _normalize_viewport_screenshot_input(payload: Any) -> tuple[bytes, str]:
@@ -201,6 +239,77 @@ def _normalize_viewport_screenshot_for_snapshot(value: Any) -> dict[str, Any] | 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _normalize_positive_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        integer = int(value)
+    except (TypeError, ValueError):
+        return None
+    if integer <= 0:
+        return None
+    return integer
+
+
+def _normalize_visual_evidence_input(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ThreadValidationError("visual evidence payload must be an object")
+
+    data_url = payload.get("data_url")
+    image_data = payload.get("image_data")
+    content_type = payload.get("content_type")
+
+    if isinstance(data_url, str) and data_url.strip():
+        image_bytes, detected_content_type = _parse_data_url(data_url.strip())
+    elif isinstance(image_data, str) and image_data.strip():
+        image_bytes = _decode_base64_bytes(image_data.strip())
+        detected_content_type = str(content_type).strip().lower() if isinstance(content_type, str) else "image/png"
+    else:
+        raise ThreadValidationError("visual evidence requires data_url or image_data")
+
+    final_content_type = str(content_type).strip().lower() if isinstance(content_type, str) else detected_content_type
+    if not _is_png_payload(final_content_type):
+        raise ThreadValidationError("visual evidence content_type must be image/png")
+    if not image_bytes:
+        raise ThreadValidationError("visual evidence payload is empty")
+    if not _is_png_data(image_bytes):
+        raise ThreadValidationError("visual evidence content is not a valid PNG image")
+
+    preset = payload.get("preset")
+    if preset is None:
+        preset = payload.get("view")
+    preset = _normalize_view_preset(preset)
+    source = _normalize_visual_evidence_source(payload.get("source"))
+
+    selected_ids = _normalize_string_list(payload.get("selected_ids"))
+    visible_ids = _normalize_string_list(payload.get("visible_ids"))
+    part_ids = _normalize_string_list(payload.get("part_ids"))
+    purpose = str(payload.get("purpose") or "").strip()
+
+    width = _normalize_positive_int(payload.get("width"))
+    height = _normalize_positive_int(payload.get("height"))
+    camera = payload.get("camera") if isinstance(payload.get("camera"), dict) else None
+    viewport = payload.get("viewport") if isinstance(payload.get("viewport"), dict) else None
+    metadata = _as_mapping(payload.get("metadata"))
+
+    return {
+        "artifact_id": payload.get("artifact_id"),
+        "source": source,
+        "preset": preset,
+        "width": width,
+        "height": height,
+        "selected_ids": selected_ids,
+        "visible_ids": visible_ids,
+        "part_ids": part_ids,
+        "purpose": purpose if purpose else None,
+        "camera": camera,
+        "viewport": viewport,
+        "metadata": metadata,
+        "content_type": final_content_type,
+        "image_bytes": image_bytes,
+    }
 
 
 def _as_list(value: Any) -> list[str]:
@@ -372,6 +481,8 @@ def _default_thread_payload(thread_id: str, title: str | None, *, now: str) -> d
         "warnings": [],
         "message_count": 0,
         "snapshot_count": 0,
+        "visual_evidence": [],
+        "visual_evidence_count": 0,
     }
 
 
@@ -471,13 +582,72 @@ class DesignThreadService:
         messages = _read_jsonl(self._thread_messages_path(thread_id))
         snapshots = self._thread_snapshots(thread_id)
         attachments = self._thread_attachments(thread_id)
+        visual_evidence = self._thread_visual_evidence(thread_id)
         thread["messages"] = messages
         thread["context_snapshots"] = snapshots
         thread["attachments"] = attachments
+        thread["visual_evidence"] = visual_evidence
         thread["message_count"] = len(messages)
         thread["snapshot_count"] = len(snapshots)
         thread["attachment_count"] = len(attachments)
+        thread["visual_evidence_count"] = len(visual_evidence)
         return thread
+
+    def add_visual_evidence(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._require_thread(thread_id)
+        input_data = _normalize_visual_evidence_input(payload)
+
+        artifact_id = _safe_thread_id(str(input_data["artifact_id"] or f"ve_{uuid.uuid4().hex}"), fallback="evidence")
+        now = _utc_now()
+
+        self._thread_visual_evidence_dir(thread_id).mkdir(parents=True, exist_ok=True)
+        png_path = self._thread_visual_evidence_png_path(thread_id, artifact_id)
+        metadata_path = self._thread_visual_evidence_metadata_path(thread_id, artifact_id)
+        _write_bytes_atomic(png_path, input_data["image_bytes"])
+
+        metadata = {
+            "artifact_id": artifact_id,
+            "kind": "visual_evidence",
+            "source": input_data["source"],
+            "view": input_data["preset"],
+            "content_type": input_data["content_type"],
+            "filename": png_path.name,
+            "path": str(png_path.relative_to(self.threads_root)),
+            "image_url": f"/api/design-threads/{thread_id}/visual-evidence/{artifact_id}/image",
+            "metadata_path": str(metadata_path.relative_to(self.threads_root)),
+            "created_at": now,
+            "width": input_data["width"],
+            "height": input_data["height"],
+            "selected_ids": input_data["selected_ids"],
+            "visible_ids": input_data["visible_ids"],
+            "part_ids": input_data["part_ids"],
+            "purpose": input_data["purpose"],
+            "camera": input_data["camera"],
+            "viewport": input_data["viewport"],
+            "metadata": input_data["metadata"],
+        }
+        _write_json_atomic(metadata_path, metadata)
+
+        return metadata
+
+    def get_visual_evidence(self, thread_id: str, artifact_id: str) -> dict[str, Any]:
+        self._require_thread(thread_id)
+        safe_artifact_id = _safe_thread_id(artifact_id, fallback="evidence")
+        metadata_path = self._thread_visual_evidence_metadata_path(thread_id, safe_artifact_id)
+        metadata = _read_json(metadata_path)
+        if metadata is None:
+            raise VisualEvidenceNotFoundError(
+                f"Visual evidence not found: {safe_artifact_id} in thread {thread_id}"
+            )
+        return metadata
+
+    def get_visual_evidence_image(self, thread_id: str, artifact_id: str) -> Path:
+        self._require_thread(thread_id)
+        safe_artifact_id = _safe_thread_id(artifact_id, fallback="evidence")
+        png_path = self._thread_visual_evidence_png_path(thread_id, safe_artifact_id)
+        if not png_path.exists():
+            raise VisualEvidenceNotFoundError(f"Visual evidence image not found: {safe_artifact_id} in thread {thread_id}")
+        return png_path
 
     def patch_thread(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         thread = self._require_thread(thread_id)
@@ -1181,11 +1351,20 @@ class DesignThreadService:
     def _thread_attachments_dir(self, thread_id: str) -> Path:
         return self._thread_dir(thread_id) / "attachments"
 
+    def _thread_visual_evidence_dir(self, thread_id: str) -> Path:
+        return self._thread_dir(thread_id) / "visual-evidence"
+
     def _thread_attachment_png_path(self, thread_id: str, attachment_id: str) -> Path:
         return self._thread_attachments_dir(thread_id) / f"{_safe_thread_id(attachment_id, fallback='att')}.png"
 
     def _thread_attachment_metadata_path(self, thread_id: str, attachment_id: str) -> Path:
         return self._thread_attachment_png_path(thread_id, attachment_id).with_suffix(".json")
+
+    def _thread_visual_evidence_png_path(self, thread_id: str, artifact_id: str) -> Path:
+        return self._thread_visual_evidence_dir(thread_id) / f"{_safe_thread_id(artifact_id, fallback='evidence')}.png"
+
+    def _thread_visual_evidence_metadata_path(self, thread_id: str, artifact_id: str) -> Path:
+        return self._thread_visual_evidence_png_path(thread_id, artifact_id).with_suffix(".json")
 
     def _thread_snapshot_path(self, thread_id: str, snapshot_id: str) -> Path:
         safe_snapshot_id = _safe_thread_id(snapshot_id, fallback="snapshot")
@@ -1196,6 +1375,14 @@ class DesignThreadService:
         return [
             _read_json(path) or {"attachment_id": path.stem, "kind": "unknown"}
             for path in _ordered_json_files(attachments_dir)
+            if path.is_file()
+        ]
+
+    def _thread_visual_evidence(self, thread_id: str) -> list[dict[str, Any]]:
+        visual_evidence_dir = self._thread_visual_evidence_dir(thread_id)
+        return [
+            _read_json(path) or {"artifact_id": path.stem, "kind": "visual_evidence"}
+            for path in _ordered_json_files(visual_evidence_dir)
             if path.is_file()
         ]
 

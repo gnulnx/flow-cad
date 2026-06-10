@@ -86,6 +86,9 @@ Add a project-local thread store owned by the viewer backend:
     attachments/
       <attachment-id>.png
       <attachment-id>.json
+    visual-evidence/
+      <artifact-id>.png
+      <artifact-id>.json
 ```
 
 Use `.flow/` for the first implementation because chat history can include
@@ -179,6 +182,27 @@ the bitmap:
 For text-only local models, the screenshot still improves the human record, and
 the assistant can use the annotation metadata plus viewer facts. For a future
 multimodal runtime, the same attachment can be sent as an image input.
+
+### Agent Visual Evidence
+
+The screenshot path above is user-owned evidence: the user captures the active
+viewport and optional markup to explain intent. Agent visual inspection needs a
+separate evidence path so models can ask for named views without taking over the
+user's camera or visibility state.
+
+The product contract is documented in `docs/VisualEvidence.md`:
+
+- user-shared viewport screenshots and markup stay under `attachments/`
+- agent/manual render artifacts live under `visual-evidence/`
+- the user's live viewport is not mutated by default
+- Follow Mode is opt-in and mirrors the agent render context only when enabled
+- visual evidence records include camera, viewport, part ids, source, purpose,
+  backend revision, and image dimensions
+
+The first implementation can use a manual browser capture to prove the storage,
+thread reload, and UI contract. The durable target is an agent-owned render
+context that can produce `front`, `back`, `left`, `right`, `top`, `bottom`, and
+`iso` images without interrupting normal viewer use.
 
 ### Chat Runtime And Model Provider Broker
 
@@ -834,6 +858,43 @@ git diff --check
 
 Done means the runtime adapter, streaming API, persisted thread events,
 frontend incremental rendering, and production build are verified together.
+
+#### CVR-6G: Agent Visual Evidence API And Render Context
+
+Add durable visual evidence for agent/manual-render artifacts without replacing
+the existing user screenshot attachment flow.
+
+Backend:
+
+- add `visual-evidence/` storage under each design thread
+- add create, metadata, and image retrieval endpoints
+- validate PNG payloads, view presets, and artifact ids
+- include visual evidence records/counts on thread payloads
+- expose the same create/list/get artifact contract through MCP thin wrappers
+
+Frontend:
+
+- render visual evidence separately from user screenshot attachments
+- add a manual render-evidence action that posts to the new endpoint
+- keep the existing Attach view/markup flow unchanged
+
+Agent/runtime:
+
+- add a CAD-safe `request_visual_evidence` tool after the storage and frontend
+  contract is proved
+- send artifact metadata to text-only models and image references to
+  vision-capable providers
+- keep live viewport mirroring behind a later explicit Follow Mode toggle
+
+Tests:
+
+- backend storage, retrieval, invalid image, invalid preset, and path containment
+- frontend visual evidence rendering and manual capture path
+- MCP visual evidence tool registration and thread-local write boundary
+- integration smoke against `/home/gnulnx/b3_robot`
+
+Done means an agent or manual tester can create repeatable visual evidence tied
+to a design thread while the user's active viewport remains user-owned.
 
 ### CVR-7: Codex Bridge Then Hermes-Style Model Provider Setup
 

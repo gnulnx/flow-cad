@@ -329,6 +329,8 @@ The early workbench slice covers:
 - a left-dock `Source | Chat` tab set so source review remains available while
   Chat becomes the normal design-review workspace
 - screenshot capture and annotation attachments tied to thread context
+- durable visual evidence artifacts for agent/manual-render views, with the
+  contract in `docs/VisualEvidence.md`
 - draft preview, accept, discard, focused-validator, and profile events recorded
   into the thread history
 
@@ -348,8 +350,9 @@ The later assistant slice covers:
 
 Item 6A is complete only when the viewer has a real chat interface with durable
 history, can automatically attach full work context to a design turn, can retain
-visual review evidence through screenshots and annotations, and can show the
-draft/validator/source-loop evidence behind accepted changes after reload.
+visual review evidence through screenshots, annotations, and agent/manual render
+artifacts, and can show the draft/validator/source-loop evidence behind accepted
+changes after reload.
 
 ### 7. Add A Shared Orientation Cube
 
@@ -522,6 +525,8 @@ Add MCP tools that answer without changing source:
 - `get_part_placement`
 - `measure_between_parts`
 - `profile_last`
+- `visual_evidence_list`
+- `visual_evidence_get`
 
 This lets agents and local models inspect before editing.
 
@@ -536,9 +541,11 @@ Add draft-only tools:
 - `draft_measure`
 - `draft_export_step`
 - `draft_discard`
+- `visual_evidence_create` for storing thread-local PNG evidence that an
+  existing renderer or browser session already produced
 
-These tools should write only local runtime draft state and temporary preview
-artifacts.
+These tools should write only local runtime draft state, temporary preview
+artifacts, or thread-local visual evidence.
 
 ### Phase 3: Source Promotion
 

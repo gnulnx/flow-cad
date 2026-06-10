@@ -301,6 +301,8 @@ interface MockDesignThread {
   updated_at: string
   messages: MockDesignThreadMessage[]
   context_snapshots: Record<string, unknown>[]
+  visual_evidence?: MockVisualEvidencePayload[]
+  visual_evidence_count?: number
 }
 
 interface MockAttachmentPayload {
@@ -314,6 +316,24 @@ interface MockAttachmentPayload {
   metadata_path: string
   path: string
   filename: string
+}
+
+interface MockVisualEvidencePayload {
+  artifact_id: string
+  source: string
+  view: string
+  content_type: string
+  path: string
+  image_url: string
+  image_endpoint?: string
+  width: number | null
+  height: number | null
+  selected_ids: string[]
+  visible_ids: string[]
+  part_ids: string[]
+  purpose: string
+  created_at: string
+  metadata?: Record<string, unknown>
 }
 
 function viewportCaptureDataUrl() {
@@ -498,6 +518,33 @@ describe('App source loading', () => {
           })
 
           return jsonResponse(attachment)
+        }
+        if (route === 'visual-evidence' && method === 'POST') {
+          const body = jsonBody(init)
+          attachmentCounter += 1
+          const artifactId = `ve-${String(attachmentCounter).padStart(2, '0')}`
+          const evidence: MockVisualEvidencePayload = {
+            artifact_id: artifactId,
+            source: String(body.source ?? 'manual-agent-render'),
+            view: String(body.view ?? 'current-viewport'),
+            content_type: 'image/png',
+            path: `visual-evidence/${artifactId}.png`,
+            image_url: `/api/design-threads/${threadId}/visual-evidence/${artifactId}/image`,
+            width: typeof body.width === 'number' ? body.width : null,
+            height: typeof body.height === 'number' ? body.height : null,
+            selected_ids: Array.isArray(body.selected_ids) ? body.selected_ids : [],
+            visible_ids: Array.isArray(body.visible_ids) ? body.visible_ids : [],
+            part_ids: Array.isArray(body.part_ids) ? body.part_ids : [],
+            purpose: typeof body.purpose === 'string' ? body.purpose : 'manual',
+            created_at: '2026-06-09T12:00:45Z',
+            metadata: typeof body.metadata === 'object' && body.metadata !== null
+              ? body.metadata as Record<string, unknown>
+              : undefined,
+          }
+          thread.visual_evidence = thread.visual_evidence ?? []
+          thread.visual_evidence.push(evidence)
+          thread.visual_evidence_count = thread.visual_evidence.length
+          return jsonResponse(evidence)
         }
         if (route === 'chat/stream' && method === 'POST') {
           return Promise.resolve(new Response('Not found', { status: 404 }))
@@ -986,6 +1033,52 @@ describe('App source loading', () => {
     }
   })
 
+  it('posts a manual visual evidence capture to the dedicated visual-evidence endpoint', async () => {
+    const user = userEvent.setup()
+    const restoreCanvas = mockViewportCanvas({ dataUrl: viewportCaptureDataUrl() })
+
+    render(<App />)
+
+    try {
+      await screen.findByText('wheel_box_test_body')
+      await user.click(screen.getByText('wheel_box_test_body'))
+      await openThreadDrawer(user)
+      await user.type(screen.getByLabelText('New thread title'), 'Render review')
+      await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+
+      await screen.findByText('Render review')
+      await user.click(screen.getByRole('button', { name: 'Capture render' }))
+
+      const visualEvidenceCall = await waitFor(() => {
+        const value = findFetchCall('/visual-evidence')
+        expect(value).toBeDefined()
+        return value
+      })
+      const visualEvidenceBody = jsonBody(visualEvidenceCall![1] as RequestInit)
+
+      expect(visualEvidenceBody).toMatchObject({
+        source: 'manual-agent-render',
+        view: 'iso',
+        content_type: 'image/png',
+        data_url: viewportCaptureDataUrl(),
+        selected_ids: ['wheel_box_test_body'],
+        visible_ids: ['wheel_box_test_body'],
+        part_ids: ['wheel_box_test_body'],
+        purpose: 'manual',
+        metadata: {
+          capture_source: 'current-viewport',
+        },
+      })
+      expect(visualEvidenceBody.width).toBe(640)
+      expect(visualEvidenceBody.height).toBe(480)
+
+      expect(findFetchCall('/attachments/viewport-screenshot')).toBeUndefined()
+      await screen.findByText('id: ve-01')
+    } finally {
+      restoreCanvas()
+    }
+  })
+
   it('recovers persisted design thread history on browser reload', async () => {
     designThreads = [
       {
@@ -1023,6 +1116,27 @@ describe('App source loading', () => {
             },
           },
         ],
+        visual_evidence: [
+          {
+            artifact_id: 've-existing',
+            source: 'agent',
+            view: 'front',
+            content_type: 'image/png',
+            path: 'visual-evidence/ve-existing.png',
+            image_url: '/api/design-threads/thread-existing/visual-evidence/ve-existing/image',
+            width: 640,
+            height: 480,
+            selected_ids: ['wheel_box_test_body'],
+            visible_ids: ['wheel_box_test_body'],
+            part_ids: ['wheel_box_test_body'],
+            purpose: 'review',
+            created_at: '2026-06-09T12:00:45Z',
+            metadata: {
+              source: 'agent',
+            },
+          },
+        ],
+        visual_evidence_count: 1,
       },
     ]
 
@@ -1032,6 +1146,13 @@ describe('App source loading', () => {
     await screen.findByText('Persisted design note')
     await waitFor(() => {
       expect(screen.getByText('att-existing')).toBeInTheDocument()
+      expect(screen.getByText('source: agent')).toBeInTheDocument()
+      expect(screen.getByText('view: front')).toBeInTheDocument()
+      expect(screen.getByText('purpose: review')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Open image' })).toHaveAttribute(
+        'href',
+        '/api/design-threads/thread-existing/visual-evidence/ve-existing/image',
+      )
     })
 
     unmount()
@@ -1041,6 +1162,8 @@ describe('App source loading', () => {
     await screen.findByText('Persisted design note')
     await waitFor(() => {
       expect(screen.getByText('att-existing')).toBeInTheDocument()
+      expect(screen.getByText('source: agent')).toBeInTheDocument()
+      expect(screen.getByText('view: front')).toBeInTheDocument()
     })
   })
 

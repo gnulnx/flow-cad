@@ -10,6 +10,13 @@ from flow_cad.mcp import server as mcp_server
 from flow_cad.project import init_project
 
 
+def tiny_png_data_url() -> str:
+    return (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X9nSAAAAAASUVORK5CYII="
+    )
+
+
 class FakeFastMCP:
     def __init__(self, name: str, instructions: str):
         self.name = name
@@ -75,6 +82,9 @@ def test_build_server_registers_draft_geometry_tools(monkeypatch) -> None:
     assert "validator_list" in server.tools
     assert "validator_run" in server.tools
     assert "profile_last" in server.tools
+    assert "visual_evidence_list" in server.tools
+    assert "visual_evidence_get" in server.tools
+    assert "visual_evidence_create" in server.tools
 
 
 def test_mcp_draft_tools_write_only_project_local_draft_state(monkeypatch, tmp_path: Path) -> None:
@@ -198,4 +208,51 @@ def test_mcp_validator_tools_return_structured_reports(monkeypatch, tmp_path: Pa
     assert result["reports"][0]["metadata"]["id"] == "project"
     assert profile["ok"] is True
     assert "Flow CAD profile" in profile["summary"]
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
+
+
+def test_mcp_visual_evidence_tools_write_thread_local_artifacts(monkeypatch, tmp_path: Path) -> None:
+    install_fake_fastmcp(monkeypatch)
+    init_project(tmp_path)
+    monkeypatch.setenv("FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS", str(tmp_path))
+
+    service = mcp_server.design_thread_service(str(tmp_path))
+    thread = service.create_thread({"title": "MCP visual evidence"})
+
+    server = mcp_server.build_server()
+    created = server.tools["visual_evidence_create"](
+        thread["thread_id"],
+        project_root=str(tmp_path),
+        data_url=tiny_png_data_url(),
+        source="agent",
+        view="front",
+        width=320,
+        height=240,
+        purpose="mcp review",
+        selected_ids=["example_block"],
+        visible_ids=["example_block"],
+        part_ids=["example_block"],
+        metadata={"caller": "mcp-test"},
+    )
+    listed = server.tools["visual_evidence_list"](thread["thread_id"], project_root=str(tmp_path))
+    loaded = server.tools["visual_evidence_get"](
+        thread["thread_id"],
+        created["artifact_id"],
+        project_root=str(tmp_path),
+    )
+
+    evidence_root = tmp_path / ".flow" / "design-threads" / thread["thread_id"] / "visual-evidence"
+    png_path = tmp_path / ".flow" / "design-threads" / created["path"]
+
+    assert created["kind"] == "visual_evidence"
+    assert created["view"] == "front"
+    assert created["image_url"] == (
+        f"/api/design-threads/{thread['thread_id']}/visual-evidence/{created['artifact_id']}/image"
+    )
+    assert listed["ok"] is True
+    assert listed["count"] == 1
+    assert loaded["artifact_id"] == created["artifact_id"]
+    assert loaded["metadata"]["caller"] == "mcp-test"
+    assert png_path.exists()
+    assert png_path.is_relative_to(evidence_root)
     assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))

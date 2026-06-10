@@ -6,6 +6,7 @@ import type {
   DesignThreadEvent,
   DesignThreadRecord,
   DesignThreadSummary,
+  ThreadVisualEvidenceArtifact,
   SourceContext,
   DesignThreadChatPayload,
   DesignThreadChatResponse,
@@ -60,6 +61,9 @@ interface DesignThreadDockProps {
   onPatchThread: (threadId: string, patch: Record<string, unknown>) => Promise<unknown>
   onSendChatMessage: (threadId: string, payload: DesignThreadChatPayload) => Promise<DesignThreadChatResponse>
   onCreateViewportAttachment: (threadId: string, payload: ViewportScreenshotPayload) => Promise<ViewportAttachmentRecord | null>
+  onRequestVisualEvidence?: (threadId: string) => Promise<ThreadVisualEvidenceArtifact | null>
+  threadVisualEvidence: ThreadVisualEvidenceArtifact[]
+  threadVisualEvidenceCount?: number
   onBuildViewerContext: (options?: { includeViewportScreenshot?: boolean }) => Record<string, unknown>
   threadAttachmentIds: string[]
   markupActive: boolean
@@ -131,8 +135,11 @@ export default function DesignThreadDock({
   onActivateThread,
   onPatchThread,
   onSendChatMessage,
-  onBuildViewerContext,
   onCreateViewportAttachment,
+  onRequestVisualEvidence,
+  threadVisualEvidence,
+  threadVisualEvidenceCount,
+  onBuildViewerContext,
   threadAttachmentIds,
   markupActive,
   markupTool,
@@ -148,6 +155,8 @@ export default function DesignThreadDock({
   const [createTitle, setCreateTitle] = useState('')
   const [snapshotError, setSnapshotError] = useState<string | null>(null)
   const [snapshotBusy, setSnapshotBusy] = useState(false)
+  const [visualEvidenceBusy, setVisualEvidenceBusy] = useState(false)
+  const [visualEvidenceError, setVisualEvidenceError] = useState<string | null>(null)
   const [chatBusy, setChatBusy] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
   const [threadsOpen, setThreadsOpen] = useState(false)
@@ -237,6 +246,19 @@ export default function DesignThreadDock({
       setSnapshotError(error instanceof Error ? error.message : 'Failed to capture context')
     } finally {
       setSnapshotBusy(false)
+    }
+  }
+
+  const requestVisualEvidence = async () => {
+    if (!activeThreadId || !onRequestVisualEvidence) return
+    setVisualEvidenceBusy(true)
+    setVisualEvidenceError(null)
+    try {
+      await onRequestVisualEvidence(activeThreadId)
+    } catch (error) {
+      setVisualEvidenceError(error instanceof Error ? error.message : 'Failed to capture visual evidence')
+    } finally {
+      setVisualEvidenceBusy(false)
     }
   }
 
@@ -441,7 +463,7 @@ export default function DesignThreadDock({
             </div>
 
             <div className="chat-context-actions" aria-label="Attachment tray">
-              <div className="attachment-tray-title">Visual evidence</div>
+              <div className="attachment-tray-title">User attachments</div>
               {threadAttachmentIds.length ? (
                 <div className="attachment-tray-list" role="list">
                   {threadAttachmentIds.map((attachmentId) => (
@@ -452,6 +474,51 @@ export default function DesignThreadDock({
                 </div>
               ) : (
                 <span className="thread-error">No attachments yet.</span>
+              )}
+            </div>
+
+            <div className="chat-context-actions" aria-label="Visual evidence tray">
+              <div className="chat-context-header">
+                <div className="attachment-tray-title">Visual evidence</div>
+                {typeof threadVisualEvidenceCount === 'number' ? (
+                  <span className="attachment-count">({threadVisualEvidenceCount})</span>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="btn-tool"
+                onClick={() => void requestVisualEvidence()}
+                disabled={visualEvidenceBusy || !activeThreadId || isThreadMuted || !onRequestVisualEvidence}
+              >
+                {visualEvidenceBusy ? 'Requesting...' : 'Capture render'}
+              </button>
+              {visualEvidenceError ? <span className="thread-error">{visualEvidenceError}</span> : null}
+              {threadVisualEvidence.length ? (
+                <ul className="visual-evidence-list" role="list">
+                  {threadVisualEvidence.map((artifact) => {
+                    const imageHref = artifact.image_url || artifact.image_endpoint || artifact.path
+                    return (
+                      <li key={artifact.artifact_id} className="visual-evidence-item" role="listitem">
+                        <div className="visual-evidence-chips" aria-label={`Evidence ${artifact.artifact_id}`}>
+                          <span className="context-pill">source: {artifact.source}</span>
+                          <span className="context-pill">view: {artifact.view}</span>
+                          {artifact.purpose ? <span className="context-pill">purpose: {artifact.purpose}</span> : null}
+                          {artifact.width != null && artifact.height != null ? (
+                            <span className="context-pill">size: {artifact.width}x{artifact.height}</span>
+                          ) : null}
+                        </div>
+                        {imageHref ? (
+                          <a className="btn-tool visual-evidence-link" href={imageHref} target="_blank" rel="noreferrer">
+                            Open image
+                          </a>
+                        ) : null}
+                        <span className="context-pill">id: {artifact.artifact_id}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <span className="thread-error">No visual evidence yet.</span>
               )}
             </div>
 
