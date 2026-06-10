@@ -11,8 +11,6 @@ import type {
   SourceContext,
   DesignThreadChatPayload,
   DesignThreadChatResponse,
-  ThreadViewportAnnotation,
-  ViewportMarkupTool,
   ViewportAttachmentRecord,
   ViewportScreenshotPayload,
   ThreadVisualEvidenceRequest,
@@ -74,15 +72,6 @@ interface DesignThreadDockProps {
   threadVisualEvidenceRequestCount?: number
   onBuildViewerContext: (options?: { includeViewportScreenshot?: boolean }) => Record<string, unknown>
   threadAttachmentIds: string[]
-  markupActive: boolean
-  markupTool: ViewportMarkupTool
-  markupNoteText: string
-  markupAnnotations: ThreadViewportAnnotation[]
-  onMarkupActiveChange: (active: boolean) => void
-  onMarkupToolChange: (tool: ViewportMarkupTool) => void
-  onMarkupNoteTextChange: (value: string) => void
-  onClearMarkup: () => void
-  onUndoMarkup: () => void
 }
 
 function eventContentText(event: DesignThreadEvent) {
@@ -155,15 +144,6 @@ export default function DesignThreadDock({
   threadVisualEvidenceRequestCount,
   onBuildViewerContext,
   threadAttachmentIds,
-  markupActive,
-  markupTool,
-  markupNoteText,
-  markupAnnotations,
-  onMarkupActiveChange,
-  onMarkupToolChange,
-  onMarkupNoteTextChange,
-  onClearMarkup,
-  onUndoMarkup,
 }: DesignThreadDockProps) {
   const [composerText, setComposerText] = useState('')
   const [createTitle, setCreateTitle] = useState('')
@@ -247,7 +227,7 @@ export default function DesignThreadDock({
         content_type: 'image/png',
         selected_part_ids: payload.selected_part_ids as string[],
         visible_part_ids: payload.visible_part_ids as string[],
-        annotations: markupAnnotations,
+        annotations: Array.isArray(payload.annotations) ? payload.annotations : [],
         backend_revision: payload.active_project_revision,
       } as ViewportScreenshotPayload
 
@@ -604,72 +584,6 @@ export default function DesignThreadDock({
               ) : (
                 <span className="thread-error">No visual evidence yet.</span>
               )}
-            </div>
-
-            <div className="chat-context-actions">
-              <div className="markup-controls" aria-label="Markup controls">
-                <button
-                  type="button"
-                  className={`btn-tool ${markupActive ? 'active' : ''}`}
-                  aria-pressed={markupActive}
-                  onClick={() => onMarkupActiveChange(!markupActive)}
-                  disabled={!activeThreadId || isThreadMuted}
-                >
-                  Markup view
-                </button>
-                {(['pen', 'circle', 'note'] as ViewportMarkupTool[]).map((tool) => (
-                  <button
-                    key={tool}
-                    type="button"
-                    className={`btn-tool ${markupTool === tool ? 'active' : ''}`}
-                    aria-pressed={markupTool === tool}
-                    onClick={() => onMarkupToolChange(tool)}
-                    disabled={!markupActive || commandBusyState}
-                  >
-                    {tool === 'pen' ? 'Pen' : tool === 'circle' ? 'Circle' : 'Text'}
-                  </button>
-                ))}
-                <input
-                  type="text"
-                  className="markup-note-input"
-                  aria-label="Markup text"
-                  placeholder="Text label"
-                  value={markupNoteText}
-                  onChange={(event) => onMarkupNoteTextChange(event.target.value)}
-                  disabled={!markupActive || commandBusyState}
-                />
-                <button
-                  type="button"
-                  className="btn-tool"
-                  onClick={onUndoMarkup}
-                  disabled={!markupAnnotations.length || commandBusyState}
-                >
-                  Undo
-                </button>
-                <button
-                  type="button"
-                  className="btn-tool"
-                  onClick={onClearMarkup}
-                  disabled={!markupAnnotations.length || commandBusyState}
-                >
-                  Clear
-                </button>
-                <span className="context-pill">{markupAnnotations.length} markups</span>
-              </div>
-
-              {markupAnnotations.length ? (
-                <ul className="thread-message-attachments" aria-label="Markup list">
-                  {markupAnnotations.map((annotation, index) => (
-                    <li key={`${annotation.kind}-${index}`}>
-                      {annotation.kind === 'freehand'
-                        ? `pen stroke: ${annotation.points.length} points`
-                        : annotation.kind === 'note'
-                          ? `text: ${annotation.text}`
-                          : `circle: (${annotation.x.toFixed(2)}, ${annotation.y.toFixed(2)}), r=${annotation.radius.toFixed(2)}`}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
             </div>
 
             <div className="chat-message-list" aria-label="Message history">

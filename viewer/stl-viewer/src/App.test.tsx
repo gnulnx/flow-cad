@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BufferGeometry, Float32BufferAttribute } from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -482,6 +482,15 @@ async function openThreadDrawer(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: 'Threads' }))
 }
 
+async function openEditMenu(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Edit' }))
+}
+
+async function openAnnotateMode(user: ReturnType<typeof userEvent.setup>) {
+  await openEditMenu(user)
+  await user.click(screen.getByRole('menuitem', { name: 'Annotate' }))
+}
+
 function findFetchCall(suffix: string) {
   const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls as Array<[RequestInfo | URL, RequestInit]>
   return calls.find(([url]) => String(url).endsWith(suffix))
@@ -815,6 +824,22 @@ describe('App source loading', () => {
       if (url.endsWith('/api/preview-commands/panel')) {
         return jsonResponse(proposalPayload)
       }
+      if (url.endsWith('/api/imports/model') && method === 'POST') {
+        return jsonResponse({
+          import_id: 'import-step-01',
+          part_id: 'file:loose.step',
+          name: 'loose.step',
+          filename: 'loose.step',
+          source_format: 'step',
+          source_kind: 'step',
+          geometry_authority: 'step_kernel',
+          quality_label: 'exact',
+          capabilities: STEP_CAPABILITIES,
+          warnings: [],
+          model_url: '/api/imports/import-step-01/model',
+          snap_features: snapFeaturesPayload.features,
+        })
+      }
       if (url.endsWith('/api/draft-transactions')) {
         if ((init.method ?? 'GET') === 'DELETE') {
           return jsonResponse({})
@@ -884,6 +909,36 @@ describe('App source loading', () => {
     await user.upload(input, new File(['solid loose\nendsolid loose\n'], 'loose.stl', { type: 'model/stl' }))
 
     await screen.findByText(/STL-only mesh/)
+  })
+
+  it('imports local STEP files through the viewer backend with exact geometry metadata', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    const input = container.querySelector('#file-input') as HTMLInputElement
+    await user.upload(input, new File(['ISO-10303-21;\nEND-ISO-10303-21;\n'], 'loose.step', { type: 'model/step' }))
+
+    await waitFor(() => {
+      const model = viewerRenderProps.at(-1)?.models.find((candidate) => candidate.partId === 'file:loose.step')
+      expect(model).toMatchObject({
+        sourceKind: 'step',
+        geometryAuthority: 'step_kernel',
+        qualityLabel: 'exact',
+        capabilities: STEP_CAPABILITIES,
+        snapFeatures: snapFeaturesPayload.features,
+      })
+    })
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/imports/model',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/octet-stream',
+          'X-Flow-CAD-Filename': 'loose.step',
+        }),
+      }),
+    )
   })
 
   it('clears measurements when health polling observes a backend revision change', async () => {
@@ -1043,8 +1098,11 @@ describe('App source loading', () => {
       await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
 
       await screen.findByText('Panel review')
-      await user.click(screen.getByRole('button', { name: 'Markup view' }))
+      await openAnnotateMode(user)
+      const toolbar = screen.getByRole('toolbar', { name: 'Annotation toolbar' })
       const markupSurface = await screen.findByLabelText('Viewport markup surface')
+      await screen.findByText('Pen')
+      await screen.findByRole('button', { name: 'Pen' })
       vi.spyOn(markupSurface, 'getBoundingClientRect').mockReturnValue({
         left: 0,
         top: 0,
@@ -1056,17 +1114,18 @@ describe('App source loading', () => {
         y: 0,
         toJSON: () => ({}),
       } as DOMRect)
+      expect(toolbar).toBeInTheDocument()
 
       fireEvent.pointerDown(markupSurface, { clientX: 64, clientY: 96, pointerId: 1 })
       fireEvent.pointerMove(markupSurface, { clientX: 128, clientY: 132, pointerId: 1 })
       fireEvent.pointerMove(markupSurface, { clientX: 220, clientY: 160, pointerId: 1 })
       fireEvent.pointerUp(markupSurface, { clientX: 220, clientY: 160, pointerId: 1 })
-      await screen.findByText('pen stroke: 3 points')
+      await screen.findByText('1 markups')
 
       await user.click(screen.getByRole('button', { name: 'Text' }))
-      await user.type(screen.getByLabelText('Markup text'), 'Check this edge alignment')
+      await user.type(screen.getByLabelText('Annotation text'), 'Check this edge alignment')
       fireEvent.pointerDown(markupSurface, { clientX: 320, clientY: 240, pointerId: 2 })
-      await screen.findByText('text: Check this edge alignment')
+      await screen.findByText('2 markups')
 
       await user.click(screen.getByRole('button', { name: 'Attach view' }))
       const attachmentCall = await waitFor(() => {
@@ -1164,6 +1223,70 @@ describe('App source loading', () => {
     } finally {
       restoreCanvas()
     }
+  })
+
+  it('moves annotation controls out of Chat and exposes them in the dedicated toolbar', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByText('wheel_box_test_body'))
+    await openThreadDrawer(user)
+    await user.type(screen.getByLabelText('New thread title'), 'Annotation workspace')
+    await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+
+    const chat = await screen.findByRole('region', { name: 'Design thread dock' })
+    expect(within(chat).queryByRole('button', { name: 'Pen' })).not.toBeInTheDocument()
+    expect(within(chat).queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+    expect(within(chat).queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument()
+
+    await openAnnotateMode(user)
+    expect(screen.getByRole('toolbar', { name: 'Annotation toolbar' })).toBeInTheDocument()
+    expect(within(chat).queryByRole('toolbar')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Close annotation toolbar' }))
+    expect(screen.queryByRole('toolbar', { name: 'Annotation toolbar' })).not.toBeInTheDocument()
+  })
+
+  it('toggles annotation mode with Ctrl+A outside text inputs', async () => {
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    fireEvent.keyDown(window, { key: 'a', ctrlKey: true })
+    expect(screen.getByRole('toolbar', { name: 'Annotation toolbar' })).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'a', ctrlKey: true })
+    expect(screen.queryByRole('toolbar', { name: 'Annotation toolbar' })).not.toBeInTheDocument()
+  })
+
+  it('does not steal Ctrl+A from text entry fields', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await openAnnotateMode(user)
+    const annotationInput = screen.getByLabelText('Annotation text')
+    await user.click(annotationInput)
+
+    fireEvent.keyDown(annotationInput, { key: 'a', ctrlKey: true })
+
+    expect(screen.getByRole('toolbar', { name: 'Annotation toolbar' })).toBeInTheDocument()
+  })
+
+  it('opens the local CAD picker through File > Open', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    const fileInput = container.querySelector('#file-input') as HTMLInputElement
+    expect(fileInput).toBeInstanceOf(HTMLInputElement)
+    expect(fileInput.accept).toBe('.stl,.step,.stp')
+
+    const clickSpy = vi.spyOn(fileInput, 'click')
+    await user.click(screen.getByRole('button', { name: 'File' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Open' }))
+
+    expect(clickSpy).toHaveBeenCalledTimes(1)
   })
 
   it('posts a manual visual evidence capture to the dedicated visual-evidence endpoint', async () => {

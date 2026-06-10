@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -562,6 +562,28 @@ def create_app(
     @app.get("/api/parts")
     def parts() -> dict[str, object]:
         return viewer_service.list_parts()
+
+    @app.post("/api/imports/model")
+    async def import_model(request: Request) -> dict[str, object]:
+        filename = request.headers.get("X-Flow-CAD-Filename", "import.step")
+        content = await request.body()
+        try:
+            return viewer_service.import_step_file(filename, content)
+        except ViewerError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/imports/{import_id}/model")
+    def imported_model(import_id: str) -> FileResponse:
+        try:
+            path = viewer_service.imported_model_path(import_id)
+        except ViewerError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        return FileResponse(
+            path,
+            media_type="model/stl",
+            filename=path.name,
+            headers={"X-Flow-CAD-Source-Format": "step"},
+        )
 
     @app.get("/api/parts/{component_id}/model")
     def model(component_id: str) -> FileResponse:

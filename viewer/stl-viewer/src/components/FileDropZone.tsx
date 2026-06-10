@@ -27,7 +27,7 @@ export default function FileDropZone({ children, onDrop, onDragOver, onDragLeave
     >
       <input
         type="file"
-        accept=".stl"
+        accept=".stl,.step,.stp"
         multiple
         onChange={onFileSelect}
         style={{ display: 'none' }}
@@ -38,9 +38,9 @@ export default function FileDropZone({ children, onDrop, onDragOver, onDragLeave
       <div className={`drag-overlay ${isDragOver ? 'active' : ''}`}>
         <div className="drag-overlay-box">
           <div className="drag-overlay-icon">📁</div>
-          <div className="drag-overlay-title">Drop STL Mesh File</div>
+          <div className="drag-overlay-title">Drop CAD Model File</div>
           <div className="drag-overlay-text">
-            Drop your generated STL files here to instantly load and inspect them in 3D space.
+            Drop STL mesh files or STEP models here to load and inspect them in 3D space.
           </div>
         </div>
       </div>

@@ -12,10 +12,12 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import Viewer from './components/Viewer'
 import FileDropZone from './components/FileDropZone'
 import ModelList from './components/ModelList'
+import AnnotationToolbar from './components/AnnotationToolbar'
 import Toolbar from './components/Toolbar'
 import DesignThreadDock from './components/DesignThreadDock'
 import ViewportMarkupOverlay from './components/ViewportMarkupOverlay'
 import { calculateMeshMetrics } from './meshMetrics'
+import { VIEWER_SHORTCUTS, isTextEntryTarget, matchesViewerShortcut } from './shortcuts'
 import {
   MODEL_WIREFRAME_COLOR,
   WORKBENCH_PART_COLOR,
@@ -38,6 +40,7 @@ import type {
   RotationMode,
   SnapFeature,
   SnapFeaturePayload,
+  ImportedModelPayload,
   SourceContext,
   ViewerOccurrence,
   ViewerPart,
@@ -628,6 +631,19 @@ export default function App() {
   const [markupTool, setMarkupTool] = useState<ViewportMarkupTool>('pen')
   const [markupNoteText, setMarkupNoteText] = useState('')
   const [viewportAnnotations, setViewportAnnotations] = useState<ThreadViewportAnnotation[]>([])
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (isTextEntryTarget(event.target)) return
+      if (matchesViewerShortcut(event, VIEWER_SHORTCUTS.toggleAnnotations)) {
+        event.preventDefault()
+        setMarkupActive((value) => !value)
+      }
+    }
+
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [])
 
   // Resizing state hooks
   const [sourceWidth, setSourceWidth] = useState(380)
@@ -1386,6 +1402,52 @@ export default function App() {
     reader.readAsArrayBuffer(file)
   }, [loadStlBuffer])
 
+  const loadStepFile = useCallback(async (file: File) => {
+    setStatusMessage(`Importing ${file.name}...`)
+    try {
+      const content = await file.arrayBuffer()
+      const importResponse = await fetch(apiUrl(apiBase, '/api/imports/model'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Flow-CAD-Filename': file.name,
+        },
+        body: content,
+      })
+      if (!importResponse.ok) {
+        throw new Error(await responseDetail(importResponse))
+      }
+      const payload = await importResponse.json() as ImportedModelPayload
+      const modelResponse = await fetch(apiUrl(apiBase, payload.model_url))
+      if (!modelResponse.ok) {
+        throw new Error(await responseDetail(modelResponse))
+      }
+      const modelContent = await modelResponse.arrayBuffer()
+      loadStlBuffer(
+        payload.name,
+        payload.part_id,
+        [IDENTITY_OCCURRENCE],
+        modelContent,
+        payload.snap_features,
+        {
+          sourceKind: payload.source_kind,
+          geometryAuthority: payload.geometry_authority,
+          qualityLabel: payload.quality_label,
+          capabilities: payload.capabilities,
+          warnings: payload.warnings,
+        },
+      )
+      setSelectedIds((prev) => [...prev.filter((id) => id !== payload.part_id), payload.part_id])
+      setActiveName(payload.part_id)
+      setFitRequest((value) => value + 1)
+      setStatusMessage(`${payload.name} imported`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`Failed to import ${file.name}:`, err)
+      setStatusMessage(`STEP import failed: ${message}`)
+    }
+  }, [apiBase, loadStlBuffer])
+
   useEffect(() => {
     const requestedStl = new URLSearchParams(window.location.search).get('stl')
     if (!requestedStl) return
@@ -1504,19 +1566,34 @@ export default function App() {
   }, [activeName, apiBase, viewerParts])
 
   const handleFiles = useCallback((files: FileList) => {
-    const stlFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.stl'))
-    if (stlFiles.length === 0) {
-      console.log('No STL files in:', Array.from(files).map(f => f.name))
+    const supportedFiles = Array.from(files).filter((file) => {
+      const name = file.name.toLowerCase()
+      return name.endsWith('.stl') || name.endsWith('.step') || name.endsWith('.stp')
+    })
+    if (supportedFiles.length === 0) {
+      console.log('No supported CAD files in:', Array.from(files).map(f => f.name))
       return
     }
 
     setIsDragOver(false)
 
-    stlFiles.forEach(file => {
+    supportedFiles.forEach(file => {
       console.log('Loading:', file.name, 'type:', file.type, 'size:', file.size)
+      const lowerName = file.name.toLowerCase()
+      if (lowerName.endsWith('.step') || lowerName.endsWith('.stp')) {
+        void loadStepFile(file)
+        return
+      }
       loadStlFile(file)
     })
-  }, [loadStlFile])
+  }, [loadStepFile, loadStlFile])
+
+  const handleOpenFileMenu = useCallback(() => {
+    const input = document.getElementById('file-input')
+    if (input instanceof HTMLInputElement) {
+      input.click()
+    }
+  }, [])
 
   const handleDrop = useCallback((e: ReactDragEvent) => {
     e.preventDefault()
@@ -1982,6 +2059,7 @@ export default function App() {
       <Toolbar
         onFitToView={handleFitToView}
         onFrameSelected={handleFrameSelected}
+        onOpen={handleOpenFileMenu}
         onReload={() => {
           reloadViewer().catch((err) => {
             console.error('Reload failed:', err)
@@ -1994,6 +2072,10 @@ export default function App() {
         tapeMode={tapeMode}
         onTapeModeChange={handleTapeModeChange}
         onClearMeasurements={handleClearMeasurements}
+        markupMode={markupActive}
+        onMarkupModeToggle={() => {
+          setMarkupActive((value) => !value)
+        }}
         projectName={projectName}
       />
       <div className="workspace-container">
@@ -2049,15 +2131,6 @@ export default function App() {
           threadVisualEvidenceRequestCount={threadVisualEvidenceRequestCount}
           onBuildViewerContext={buildViewerContextPayload}
           threadAttachmentIds={threadAttachmentIds}
-          markupActive={markupActive}
-          markupTool={markupTool}
-          markupNoteText={markupNoteText}
-          markupAnnotations={viewportAnnotations}
-          onMarkupActiveChange={setMarkupActive}
-          onMarkupToolChange={setMarkupTool}
-          onMarkupNoteTextChange={setMarkupNoteText}
-          onClearMarkup={() => setViewportAnnotations([])}
-          onUndoMarkup={() => setViewportAnnotations((current) => current.slice(0, -1))}
         />
         {sourceCollapsed ? null : (
           <div 
@@ -2107,6 +2180,17 @@ export default function App() {
               noteText={markupNoteText}
               annotations={viewportAnnotations}
               onChange={setViewportAnnotations}
+            />
+            <AnnotationToolbar
+              active={markupActive}
+              tool={markupTool}
+              noteText={markupNoteText}
+              annotationCount={viewportAnnotations.length}
+              onToolChange={setMarkupTool}
+              onNoteTextChange={setMarkupNoteText}
+              onUndo={() => setViewportAnnotations((current) => current.slice(0, -1))}
+              onClear={() => setViewportAnnotations([])}
+              onClose={() => setMarkupActive(false)}
             />
           </FileDropZone>
         </div>

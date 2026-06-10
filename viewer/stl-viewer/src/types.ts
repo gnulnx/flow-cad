@@ -92,6 +92,21 @@ export interface SnapFeaturePayload {
   warnings: string[]
 }
 
+export interface ImportedModelPayload {
+  import_id: string
+  part_id: string
+  name: string
+  filename: string
+  source_format: 'step'
+  source_kind: 'step'
+  geometry_authority: 'step_kernel'
+  quality_label: 'exact'
+  capabilities: GeometryCapabilities
+  warnings: string[]
+  model_url: string
+  snap_features: SnapFeature[]
+}
+
 export interface SourceContext {
   component_id: string
   symbol: string

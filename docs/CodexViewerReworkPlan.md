@@ -565,22 +565,43 @@ Tests:
 Done means visual markup is structured data that future multimodal or text-only
 assistant adapters can consume.
 
-#### CVR-4D: React Attachment Tray And Annotation Controls
+#### CVR-4D: React Attachment Tray And Annotation Workflow
 
-Add a compact visual-evidence area in the Chat workspace:
+Add viewport annotation as a workbench-level tool instead of embedding drawing
+controls in the Chat workspace:
 
-- an `Attach view` action that posts a viewport screenshot attachment
-- a live 2D markup mode over the rendered 3D viewport
-- pen, text, and circle tools that place annotations directly on the viewport
-- an attachment tray showing captured attachment ids and annotation summaries
+- an `Attach view` action in Chat that posts a viewport screenshot attachment
+- a top menu path under `Edit > Annotate` that toggles live 2D markup mode over
+  the rendered 3D viewport
+- a dedicated annotation toolbar with pen, text, circle, undo, clear, and markup
+  count controls
+- an attachment tray in Chat showing captured attachment ids and annotation
+  summaries
 
-The UI should keep threads collapsible and preserve the advanced command tools
-as a secondary section.
+Chat should reference and attach visual evidence, but it should not own the
+annotation drawing toolbar. The UI should keep threads collapsible and preserve
+the advanced command tools as a secondary section.
+
+#### CVR-4E: Standard Viewer Menus
+
+Move growing workbench commands into a normal application menu structure:
+
+- `File > Open` opens loose local CAD files, including STEP/STP files imported
+  into the viewer cache for display and STEP-backed metadata
+- `Edit > Annotate` toggles viewport annotation mode
+- `View` owns navigation mode, fit-to-view, reload, and frame-selected commands
+- menu items sit immediately after the project/title identity on the left side
+  of the top bar
+
+Done means new viewer functions have a stable top-level home instead of being
+added ad hoc to the Chat dock or as loose toolbar buttons.
 
 Tests:
 
+- `Edit > Annotate` opens the annotation toolbar
 - drawing on the markup overlay creates structured freehand/text/circle
   annotations
+- annotation controls are absent from the Chat dock
 - `Attach view` posts selected ids, visible ids, assembly/revision, viewport
   metadata, marked-up screenshot data, and annotation JSON
 - the returned attachment id appears in the chat workspace

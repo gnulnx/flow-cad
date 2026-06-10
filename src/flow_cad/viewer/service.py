@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import inspect
 import json
+import hashlib
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +38,10 @@ class ArtifactNotFoundError(ViewerError):
 
 class ConversionUnavailableError(ViewerError):
     status_code = 503
+
+
+class InvalidViewerImportError(ViewerError):
+    status_code = 400
 
 
 @dataclass(frozen=True)
@@ -244,6 +250,80 @@ class ViewerService:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
         return payload
+
+    def import_step_file(self, filename: str, content: bytes) -> dict[str, Any]:
+        source_filename = _safe_import_filename(filename)
+        if source_filename.suffix.lower() not in {".step", ".stp"}:
+            raise InvalidViewerImportError("Flow CAD viewer imports currently accept .step and .stp files.")
+        if not content:
+            raise InvalidViewerImportError("Imported STEP file is empty.")
+
+        import_id = hashlib.sha256(source_filename.name.encode("utf-8") + b"\0" + content).hexdigest()[:16]
+        import_dir = self.viewer_cache_dir / "imports" / import_id
+        source_path = import_dir / source_filename.name
+        display_stl_path = import_dir / f"{source_filename.stem}.stl"
+        metadata_path = import_dir / "import.json"
+
+        import_dir.mkdir(parents=True, exist_ok=True)
+        source_path.write_bytes(content)
+        converted = self.converter(source_path, display_stl_path)
+
+        geometry = geometry_for_artifact("step").to_payload()
+        geometry["source_kind"] = "step"
+        warnings = list(geometry.get("warnings", []))
+        snap_features: list[dict[str, Any]] = []
+        try:
+            snap_payload = extract_step_snap_features(source_path)
+            features = snap_payload.get("features")
+            if isinstance(features, list):
+                snap_features = features
+            snap_warnings = snap_payload.get("warnings")
+            if isinstance(snap_warnings, list):
+                warnings.extend(str(warning) for warning in snap_warnings)
+        except GeometryAuthorityError as exc:
+            warnings.append(f"STEP snap features unavailable: {exc}")
+
+        metadata = {
+            "import_id": import_id,
+            "filename": source_filename.name,
+            "source_path": str(source_path),
+            "display_stl_path": str(converted),
+            "source_format": "step",
+            "created_at": datetime.now(UTC).isoformat(),
+            "geometry": geometry,
+            "warnings": warnings,
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True))
+
+        return {
+            "import_id": import_id,
+            "part_id": f"file:{source_filename.name}",
+            "name": source_filename.name,
+            "filename": source_filename.name,
+            "source_format": "step",
+            "model_url": f"/api/imports/{import_id}/model",
+            "snap_features": snap_features,
+            **geometry,
+            "warnings": warnings,
+        }
+
+    def imported_model_path(self, import_id: str) -> Path:
+        if not re.fullmatch(r"[0-9a-f]{16}", import_id):
+            raise ArtifactNotFoundError(f"Imported model not found: {import_id}")
+        metadata_path = self.viewer_cache_dir / "imports" / import_id / "import.json"
+        if not metadata_path.exists():
+            raise ArtifactNotFoundError(f"Imported model not found: {import_id}")
+        metadata = json.loads(metadata_path.read_text())
+        display_stl_path = metadata.get("display_stl_path")
+        if not isinstance(display_stl_path, str):
+            raise ArtifactNotFoundError(f"Imported model has no display mesh: {import_id}")
+        path = Path(display_stl_path).resolve()
+        import_dir = (self.viewer_cache_dir / "imports" / import_id).resolve()
+        if import_dir not in path.parents:
+            raise ArtifactNotFoundError(f"Imported model display mesh not found: {import_id}")
+        if not path.exists():
+            raise ArtifactNotFoundError(f"Imported model display mesh not found: {import_id}")
+        return path
 
     def source_context(self, component_id: str, *, context_lines: int = 16) -> dict[str, Any]:
         definition = self._definition(component_id)
@@ -961,3 +1041,13 @@ class ViewerService:
             "location": [0.0, 0.0, 0.0],
             "rotation": [0.0, 0.0, 0.0],
         }
+
+
+def _safe_import_filename(filename: str) -> Path:
+    name = Path(filename or "import.step").name.strip()
+    if not name:
+        name = "import.step"
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+    if name in {".", ".."}:
+        name = "import.step"
+    return Path(name)

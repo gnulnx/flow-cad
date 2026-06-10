@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { VIEWER_SHORTCUTS } from '../shortcuts'
 import type { RotationMode } from '../types'
 
 interface ToolbarProps {
@@ -7,9 +9,12 @@ interface ToolbarProps {
   statusMessage: string
   rotationMode: RotationMode
   onRotationModeChange: (mode: RotationMode) => void
-  tapeMode: boolean
   onTapeModeChange: (enabled: boolean) => void
+  tapeMode: boolean
   onClearMeasurements: () => void
+  onOpen: () => void
+  markupMode: boolean
+  onMarkupModeToggle: () => void
   projectName?: string | null
 }
 
@@ -19,6 +24,8 @@ const ROTATION_MODE_LABELS: Record<RotationMode, string> = {
   free_orbit: 'Free Orbit',
 }
 
+type OpenMenu = 'file' | 'edit' | 'view' | null
+
 export default function Toolbar({
   onFitToView,
   onFrameSelected,
@@ -26,48 +33,158 @@ export default function Toolbar({
   statusMessage,
   rotationMode,
   onRotationModeChange,
-  tapeMode,
   onTapeModeChange,
+  tapeMode,
   onClearMeasurements,
+  onOpen,
+  markupMode,
+  onMarkupModeToggle,
   projectName,
 }: ToolbarProps) {
+  const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
+  const menuRef = useRef<HTMLElement>(null)
+
+  const allModes = useMemo(() => {
+    return Object.keys(ROTATION_MODE_LABELS) as RotationMode[]
+  }, [])
+
+  useEffect(() => {
+    const closeMenu = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setOpenMenu(null)
+      }
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenMenu(null)
+      }
+    }
+
+    window.addEventListener('pointerdown', closeMenu)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('pointerdown', closeMenu)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [])
+
+  const handleMenuOpen = (menu: OpenMenu) => {
+    setOpenMenu((current) => (current === menu ? null : menu))
+  }
+
   return (
-    <div className="viewer-toolbar">
+    <header className="viewer-toolbar" ref={menuRef}>
       <h1 className="viewer-toolbar-title">
         <span>{projectName || 'FlowCAD'}</span> — 3D Viewer
       </h1>
-      <div className="toolbar-status">{statusMessage}</div>
-      <div className="viewer-toolbar-menu">
-        <label className="toolbar-field">
-          <span>Navigation</span>
-          <select
-            value={rotationMode}
-            onChange={(event) => onRotationModeChange(event.target.value as RotationMode)}
+      <nav className="viewer-menu" aria-label="Viewer top menu">
+        <div className="menu-group">
+          <button
+            type="button"
+            className="menu-button"
+            onClick={() => handleMenuOpen('file')}
+            aria-expanded={openMenu === 'file'}
           >
-            {(Object.keys(ROTATION_MODE_LABELS) as RotationMode[]).map((mode) => (
-              <option key={mode} value={mode}>{ROTATION_MODE_LABELS[mode]}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <div className="viewer-toolbar-actions">
-        <button onClick={onReload} className="btn-tool">Reload</button>
-        <button onClick={onFitToView} className="btn-tool">Fit to View</button>
-        <button onClick={onFrameSelected} className="btn-tool">Frame Selected</button>
-        <button
-          aria-pressed={tapeMode}
-          title="Tape Tool"
-          onClick={() => onTapeModeChange(!tapeMode)}
-          className={`btn-tool ${tapeMode ? 'active' : ''}`}
-        >
-          Tape
-        </button>
-        <button onClick={onClearMeasurements} className="btn-tool">Clear Measurements</button>
-        <button className="btn-tool" onClick={() => {
-          const input = document.getElementById('file-input') as HTMLInputElement
-          input.click()
-        }}>Open File</button>
-      </div>
-    </div>
+            File
+          </button>
+          {openMenu === 'file' ? (
+            <div className="menu-panel" role="menu" aria-label="File menu">
+              <button
+                type="button"
+                role="menuitem"
+                className="btn-tool"
+                onClick={() => {
+                  onOpen()
+                  setOpenMenu(null)
+                }}
+              >
+                Open
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="menu-group">
+          <button
+            type="button"
+            className="menu-button"
+            onClick={() => handleMenuOpen('edit')}
+            aria-expanded={openMenu === 'edit'}
+          >
+            Edit
+          </button>
+          {openMenu === 'edit' ? (
+            <div className="menu-panel" role="menu" aria-label="Edit menu">
+              <button
+                type="button"
+                role="menuitem"
+                aria-label="Annotate"
+                aria-pressed={markupMode}
+                className={`btn-tool menu-item-with-shortcut ${markupMode ? 'active' : ''}`}
+                onClick={() => {
+                  onMarkupModeToggle()
+                  setOpenMenu(null)
+                }}
+              >
+                <span>Annotate</span>
+                <span className="menu-shortcut">{VIEWER_SHORTCUTS.toggleAnnotations.label}</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="menu-group">
+          <button
+            type="button"
+            className="menu-button"
+            onClick={() => handleMenuOpen('view')}
+            aria-expanded={openMenu === 'view'}
+          >
+            View
+          </button>
+          {openMenu === 'view' ? (
+            <div className="menu-panel" role="menu" aria-label="View menu">
+              <label className="toolbar-field" aria-label="Navigation mode">
+                <span>Navigation mode</span>
+                <select
+                  value={rotationMode}
+                  onChange={(event) => onRotationModeChange(event.target.value as RotationMode)}
+                  aria-label="Navigation mode"
+                >
+                  {allModes.map((mode) => (
+                    <option key={mode} value={mode}>{ROTATION_MODE_LABELS[mode]}</option>
+                  ))}
+                </select>
+              </label>
+              <button onClick={() => { onFitToView(); setOpenMenu(null) }} className="btn-tool" type="button">Fit to View</button>
+              <button onClick={() => { onReload(); setOpenMenu(null) }} className="btn-tool" type="button">Reload</button>
+              <button onClick={() => { onFrameSelected(); setOpenMenu(null) }} className="btn-tool" type="button">Frame Selected</button>
+              <button
+                type="button"
+                className={`btn-tool ${tapeMode ? 'active' : ''}`}
+                onClick={() => {
+                  onTapeModeChange(!tapeMode)
+                  setOpenMenu(null)
+                }}
+              >
+                Tape
+              </button>
+              <button
+                type="button"
+                className="btn-tool"
+                onClick={() => {
+                  onClearMeasurements()
+                  setOpenMenu(null)
+                }}
+              >
+                Clear Measurements
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </nav>
+      <div className="toolbar-status">{statusMessage}</div>
+    </header>
   )
 }

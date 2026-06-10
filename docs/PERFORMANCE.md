@@ -328,7 +328,9 @@ The early workbench slice covers:
   backend facts
 - a left-dock `Source | Chat` tab set so source review remains available while
   Chat becomes the normal design-review workspace
-- screenshot capture and annotation attachments tied to thread context
+- screenshot capture and annotation attachments tied to thread context, with
+  Chat owning attachment/reference history and `Edit > Annotate` owning the
+  viewport drawing tools
 - durable visual evidence artifacts for agent/manual-render views, with the
   contract in `docs/VisualEvidence.md`
 - manual visual evidence uses a separate browser render context with named view

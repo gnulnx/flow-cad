@@ -263,6 +263,49 @@ def test_viewer_service_converts_step_to_cached_stl(tmp_path) -> None:
     assert calls == [(step_path, model_path), (step_path, model_path)]
 
 
+def test_viewer_service_imports_loose_step_to_viewer_cache(tmp_path, monkeypatch) -> None:
+    calls: list[tuple[Path, Path]] = []
+
+    def converter(source: Path, dest: Path) -> Path:
+        calls.append((source, dest))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("solid imported\nendsolid imported\n")
+        return dest
+
+    def snap_features(source: Path) -> dict[str, object]:
+        return {
+            "features": [
+                {
+                    "id": "vertex:0",
+                    "kind": "vertex",
+                    "label": "Vertex",
+                    "point": [0, 0, 0],
+                    "quality": "exact",
+                    "quality_label": "Exact",
+                }
+            ],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr("flow_cad.viewer.service.extract_step_snap_features", snap_features)
+    service = ViewerService(tmp_path, converter=converter)
+
+    payload = service.import_step_file("../loose part.step", b"ISO-10303-21;\nEND-ISO-10303-21;\n")
+
+    assert payload["filename"] == "loose_part.step"
+    assert payload["part_id"] == "file:loose_part.step"
+    assert payload["source_kind"] == "step"
+    assert payload["geometry_authority"] == "step_kernel"
+    assert payload["quality_label"] == "exact"
+    assert payload["capabilities"]["exact_snap"] is True
+    assert payload["snap_features"][0]["id"] == "vertex:0"
+    imported_model = service.imported_model_path(payload["import_id"])
+    assert imported_model.read_text() == "solid imported\nendsolid imported\n"
+    assert calls == [(calls[0][0], imported_model)]
+    assert calls[0][0].name == "loose_part.step"
+    assert service.viewer_cache_dir in imported_model.parents
+
+
 def test_viewer_service_returns_source_context() -> None:
     context = ViewerService().source_context("example_block")
 
@@ -285,6 +328,8 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
 
     assert "/api/health" in route_paths
     assert "/api/parts" in route_paths
+    assert "/api/imports/model" in route_paths
+    assert "/api/imports/{import_id}/model" in route_paths
     assert "/api/parts/{component_id}/model" in route_paths
     assert "/api/parts/{component_id}/source" in route_paths
     assert "/api/parts/{component_id}/preview-context" in route_paths
@@ -323,6 +368,37 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/design-threads/{thread_id}/visual-evidence/{artifact_id}" in route_paths
     assert "/api/design-threads/{thread_id}/visual-evidence/{artifact_id}/image" in route_paths
     assert "/api/reload" in route_paths
+
+
+def test_viewer_app_imports_step_and_serves_display_model(tmp_path, monkeypatch) -> None:
+    def converter(source: Path, dest: Path) -> Path:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("solid imported\nendsolid imported\n")
+        return dest
+
+    monkeypatch.setattr(
+        "flow_cad.viewer.service.extract_step_snap_features",
+        lambda _source: {"features": [], "warnings": []},
+    )
+    service = ViewerService(tmp_path, converter=converter)
+    client = TestClient(create_app(service=service))
+
+    response = client.post(
+        "/api/imports/model",
+        content=b"ISO-10303-21;\nEND-ISO-10303-21;\n",
+        headers={"X-Flow-CAD-Filename": "loose.step"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filename"] == "loose.step"
+    assert payload["source_kind"] == "step"
+    assert payload["model_url"] == f"/api/imports/{payload['import_id']}/model"
+
+    model_response = client.get(payload["model_url"])
+    assert model_response.status_code == 200
+    assert model_response.headers["x-flow-cad-source-format"] == "step"
+    assert model_response.text == "solid imported\nendsolid imported\n"
 
 
 def test_viewer_app_selects_codex_runtime_from_env(tmp_path, monkeypatch) -> None:
