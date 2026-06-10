@@ -59,12 +59,14 @@ def test_build_server_registers_default_agent_toolset(monkeypatch) -> None:
     assert server.name == "Flow CAD MCP"
     assert "draft-only CAD geometry operations" in server.instructions
     assert set(server.tools) == mcp_server.DEFAULT_TOOL_NAMES
-    assert len(server.tools) == 19
+    assert len(server.tools) == 21
     assert "draft_create_box" not in server.tools
     assert "visual_evidence_create" not in server.tools
     assert "draft_begin_transaction" in server.tools
     assert "draft_transaction_create_box" in server.tools
     assert "request_visual_evidence" in server.tools
+    assert mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME in server.tools
+    assert "draft_transaction_add_raised_wall" in server.tools
 
 
 def test_build_server_registers_advanced_toolset(monkeypatch) -> None:
@@ -74,9 +76,12 @@ def test_build_server_registers_advanced_toolset(monkeypatch) -> None:
     server = mcp_server.build_server()
 
     assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["advanced"]
-    assert len(server.tools) == 30
+    assert len(server.tools) == 33
     assert "draft_create_box" in server.tools
+    assert "draft_add_raised_wall" in server.tools
+    assert "draft_transaction_add_raised_wall" in server.tools
     assert "visual_evidence_create" in server.tools
+    assert mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME in server.tools
 
 
 def test_build_server_registers_visual_toolset(monkeypatch) -> None:
@@ -88,6 +93,7 @@ def test_build_server_registers_visual_toolset(monkeypatch) -> None:
     assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["visual"]
     assert set(server.tools) == mcp_server.ADVANCED_VISUAL_TOOL_NAMES
     assert "draft_begin_transaction" not in server.tools
+    assert mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME not in server.tools
 
 
 def test_build_server_registers_transactions_toolset(monkeypatch) -> None:
@@ -97,10 +103,13 @@ def test_build_server_registers_transactions_toolset(monkeypatch) -> None:
     server = mcp_server.build_server()
 
     assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["transactions"]
+    assert len(server.tools) == 17
     assert "draft_begin_transaction" in server.tools
+    assert "draft_transaction_add_raised_wall" in server.tools
     assert "validator_run" in server.tools
     assert "request_visual_evidence" not in server.tools
     assert "draft_create_box" not in server.tools
+    assert mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME in server.tools
 
 
 def test_build_server_unknown_toolset_falls_back_to_default(monkeypatch) -> None:
@@ -110,6 +119,32 @@ def test_build_server_unknown_toolset_falls_back_to_default(monkeypatch) -> None
     server = mcp_server.build_server()
 
     assert set(server.tools) == mcp_server.DEFAULT_TOOL_NAMES
+
+
+def test_draft_operation_registry_tool_returns_add_raised_wall_metadata(monkeypatch) -> None:
+    install_fake_fastmcp(monkeypatch)
+
+    server = mcp_server.build_server()
+    registry = server.tools[mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME]()
+
+    assert registry["ok"] is True
+    operations = registry["operations"]
+    assert isinstance(operations, list)
+    raised_wall_operation = next(
+        (
+            op
+            for op in operations
+            if isinstance(op, dict) and (op.get("id") == "add_raised_wall" or op.get("name") == "add_raised_wall")
+        ),
+        None,
+    )
+    assert raised_wall_operation is not None
+    assert isinstance(raised_wall_operation, dict)
+    assert raised_wall_operation["title"] == "Add raised wall"
+    assert raised_wall_operation["endpoint_slug"] == "raised-walls"
+    assert raised_wall_operation["direct_tool_name"] == "draft_add_raised_wall"
+    assert raised_wall_operation["transaction_tool_name"] == "draft_transaction_add_raised_wall"
+    assert raised_wall_operation["supports_preview"] is True
 
 
 def test_mcp_draft_tools_write_only_project_local_draft_state(monkeypatch, tmp_path: Path) -> None:

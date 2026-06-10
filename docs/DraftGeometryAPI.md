@@ -13,6 +13,7 @@ The current draft API supports:
 - add through holes
 - add basic face counterbores
 - add rounded slots
+- add raised wall/pad features
 - add simple louver patterns as repeated rounded slots
 - mirror features to an opposing parallel face
 - measure draft parts
@@ -20,10 +21,15 @@ The current draft API supports:
 - discard draft runtime state
 - group draft operations into local runtime transactions
 - accept a transaction into reviewable source-patch and validator-stub artifacts
+- inspect registered draft operation metadata for planner, UI, and MCP use
 
 The API does not yet implement hidden source promotion, viewer UI editing, or
 neighboring-part preview. Transaction acceptance writes review artifacts under
 local runtime state; it does not apply patches or modify project source.
+
+The draft operation registry is documented in `docs/REGISTRY.md`. The staged
+work plan for moving from metadata introspection to registry-backed dispatch is
+tracked in `docs/REGISTRY_TICKETS.md`.
 
 ## Isolation Contract
 
@@ -130,6 +136,7 @@ POST   /api/drafts/{draft_token}/thickness
 POST   /api/drafts/{draft_token}/holes
 POST   /api/drafts/{draft_token}/counterbores
 POST   /api/drafts/{draft_token}/slots
+POST   /api/drafts/{draft_token}/raised-walls
 POST   /api/drafts/{draft_token}/louver-patterns
 POST   /api/drafts/{draft_token}/mirror-features
 GET    /api/drafts/{draft_token}/measure
@@ -141,13 +148,19 @@ POST   /api/draft-transactions/{transaction_token}/thickness
 POST   /api/draft-transactions/{transaction_token}/holes
 POST   /api/draft-transactions/{transaction_token}/counterbores
 POST   /api/draft-transactions/{transaction_token}/slots
+POST   /api/draft-transactions/{transaction_token}/raised-walls
 POST   /api/draft-transactions/{transaction_token}/louver-patterns
 POST   /api/draft-transactions/{transaction_token}/mirror-features
 GET    /api/draft-transactions/{transaction_token}/measure
 POST   /api/draft-transactions/{transaction_token}/preview
 POST   /api/draft-transactions/{transaction_token}/accept
 DELETE /api/draft-transactions/{transaction_token}
+GET    /api/draft-operation-registry
 ```
+
+`GET /api/draft-operation-registry` is read-only. It returns JSON-safe
+operation descriptors and does not create draft state, export preview geometry,
+or mutate project source.
 
 ## MCP Tools
 
@@ -170,12 +183,14 @@ flow-cad-mcp
 
 Default tools:
 
+- `draft_operation_registry`
 - `draft_begin_transaction`
 - `draft_transaction_create_box`
 - `draft_transaction_set_panel_thickness`
 - `draft_transaction_add_hole`
 - `draft_transaction_add_counterbore`
 - `draft_transaction_add_slot`
+- `draft_transaction_add_raised_wall`
 - `draft_transaction_add_louver_pattern`
 - `draft_transaction_mirror_features`
 - `draft_transaction_measure`
@@ -191,6 +206,7 @@ debugging and tests:
 - `draft_add_hole`
 - `draft_add_counterbore`
 - `draft_add_slot`
+- `draft_add_raised_wall`
 - `draft_add_louver_pattern`
 - `draft_mirror_features`
 - `draft_measure`

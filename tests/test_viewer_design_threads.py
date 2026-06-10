@@ -277,15 +277,21 @@ def test_viewer_design_threads_chat_fallback_persists_runtime_assistant_and_view
     assert payload["messages"][0]["type"] == "user_message"
     assert payload["messages"][0]["metadata"]["context_snapshot_id"] == payload["context_snapshot"]["snapshot_id"]
     assert payload["messages"][0]["metadata"]["viewport_screenshot"] is True
-    assert payload["messages"][1]["type"] == "assistant_message"
-    assert payload["messages"][1]["role"] == "assistant"
-    assert payload["messages"][1]["metadata"]["runtime"] == "FakeAgentRuntimeClient"
-    assert payload["messages"][1]["content"] == "Runtime-backed fallback response."
+    assert payload["messages"][1]["type"] == "design_plan"
+    assert payload["messages"][1]["content"]["plan_type"] == "concept_plan"
+    assert payload["messages"][2]["type"] == "assistant_message"
+    assert payload["messages"][2]["role"] == "assistant"
+    assert payload["messages"][2]["metadata"]["runtime"] == "FakeAgentRuntimeClient"
+    assert payload["messages"][2]["content"] == "Runtime-backed fallback response."
     assert payload["events"][-1]["type"] == "done"
-    assert payload["thread"]["message_count"] == 2
+    assert payload["thread"]["message_count"] == 3
 
     reloaded = client.get(f"/api/design-threads/{thread_id}").json()
-    assert [message["type"] for message in reloaded["messages"]] == ["user_message", "assistant_message"]
+    assert [message["type"] for message in reloaded["messages"]] == [
+        "user_message",
+        "design_plan",
+        "assistant_message",
+    ]
     assert reloaded["context_snapshots"][0]["viewer_state"]["viewport_screenshot"]["data_url"].startswith("data:image/png")
 
 
@@ -330,7 +336,16 @@ def test_viewer_design_threads_chat_creates_deterministic_base_plate_draft(tmp_p
     assert payload["draft_preview_model"]["dimensions"]["height_mm"] == 10.0
 
     message_types = [message["type"] for message in payload["messages"]]
-    assert message_types == ["user_message", "draft_event", "draft_event", "draft_event", "assistant_message"]
+    assert message_types == [
+        "user_message",
+        "design_plan",
+        "draft_event",
+        "draft_event",
+        "draft_event",
+        "assistant_message",
+    ]
+    assert payload["messages"][1]["content"]["plan_type"] == "draft_plan"
+    assert payload["messages"][1]["content"]["steps"][0]["operation_id"] == "create_box"
     draft_events = [message for message in payload["messages"] if message["type"] == "draft_event"]
     assert [event["content"]["action"] for event in draft_events] == ["propose", "apply", "preview"]
     transaction_token = payload["draft_result"]["transaction_token"]
@@ -343,6 +358,185 @@ def test_viewer_design_threads_chat_creates_deterministic_base_plate_draft(tmp_p
     assert reloaded["linked_draft_transaction_tokens"] == [transaction_token]
     assert [message["type"] for message in reloaded["messages"]] == message_types
     assert (service.project.paths.local_state / "draft-transactions" / transaction_token / "transaction.json").exists()
+
+
+def test_viewer_design_threads_chat_broad_prompt_persists_question_plan_without_runtime(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "This should not be used."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Planner questions"}).json()["thread_id"]
+    response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": "Make a robot head",
+            "context_snapshot": {
+                "visible_part_ids": [],
+                "selected_part_ids": [],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [message["type"] for message in payload["messages"]] == [
+        "user_message",
+        "design_plan",
+        "assistant_message",
+    ]
+    design_plan = payload["messages"][1]
+    assert design_plan["content"]["plan_type"] == "questions"
+    assert design_plan["content"]["status"] == "needs_user_input"
+    assert design_plan["content"]["brief"]["goal"] == "Make a robot head"
+    assert "size envelope" in design_plan["content"]["missing_decisions"]
+    assert "mount" in payload["messages"][2]["content"].lower()
+    assert "This should not be used." not in payload["messages"][2]["content"]
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert [message["type"] for message in reloaded["messages"]] == [
+        "user_message",
+        "design_plan",
+        "assistant_message",
+    ]
+
+
+def test_viewer_design_threads_chat_annotated_draft_plan_requests_visual_evidence_without_runtime(tmp_path) -> None:
+    _write_example_step(tmp_path)
+
+    def fake_converter(step_path: Path, stl_path: Path) -> Path:
+        assert step_path.exists()
+        stl_path.parent.mkdir(parents=True, exist_ok=True)
+        stl_path.write_text("solid preview\nendsolid preview\n", encoding="utf-8")
+        return stl_path
+
+    service = ViewerService(tmp_path, converter=fake_converter)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "This should not be used."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Annotated plate"}).json()["thread_id"]
+    response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": (
+                "I'd like to create a 10mm thick plate in the xy plane shaped similar to this "
+                "with counter bore m4 holes."
+            ),
+            "context_snapshot": {
+                "visible_part_ids": ["example_block"],
+                "selected_part_ids": ["example_block"],
+                "annotations": [
+                    {"kind": "circle", "x": 0.25, "y": 0.25, "radius": 0.04},
+                    {"kind": "freehand", "points": [{"x": 0.1, "y": 0.2}, {"x": 0.8, "y": 0.75}]},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [message["type"] for message in payload["messages"]] == [
+        "user_message",
+        "design_plan",
+        "assistant_message",
+    ]
+    assert payload["messages"][1]["content"]["plan_type"] == "draft_plan"
+    assert payload["visual_evidence_request"]["status"] == "pending"
+    assert payload["visual_evidence_request"]["view"] == "top"
+    assert payload["visual_evidence_request"]["part_ids"] == ["example_block"]
+    assert "visual-evidence request" in payload["messages"][2]["content"]
+    assert "This should not be used." not in payload["messages"][2]["content"]
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert reloaded["visual_evidence_request_count"] == 1
+    assert reloaded["visual_evidence_requests"][0]["status"] == "pending"
+
+    completed = client.post(
+        f"/api/design-threads/{thread_id}/visual-evidence-requests/{payload['visual_evidence_request']['request_id']}/complete",
+        json={
+            "source": "agent",
+            "view": "top",
+            "content_type": "image/png",
+            "data_url": _tiny_png_data_url(),
+            "width": 640,
+            "height": 480,
+            "metadata": {
+                **payload["visual_evidence_request"]["metadata"],
+                "render_context": "viewport-canvas",
+            },
+        },
+    )
+
+    assert completed.status_code == 200
+    completed_payload = completed.json()
+    assert completed_payload["request"]["status"] == "fulfilled"
+    assert completed_payload["continuation"]["draft_result"]["ok"] is True
+    assert completed_payload["continuation"]["draft_result"]["part_id"] == "sketch_plate"
+    operations = completed_payload["continuation"]["draft_result"]["applied_operations"]
+    assert operations[0]["name"] == "create_box"
+    assert operations[0]["parameters"]["height"] == 10.0
+    assert any(operation["name"] == "add_counterbore" for operation in operations)
+    assert completed_payload["continuation"]["draft_preview_model"]["part_id"] == "sketch_plate"
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    message_types = [message["type"] for message in reloaded["messages"]]
+    assert message_types[-3:] == ["draft_event", "draft_event", "assistant_message"]
+    assert reloaded["messages"][-1]["metadata"]["status"] == "draft_preview_ready"
+
+
+def test_viewer_design_threads_chat_request_visual_evidence_tool_creates_request(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {
+                "type": "tool_call",
+                "tool": "request_visual_evidence",
+                "arguments": {
+                    "thread_id": "ignored-by-server",
+                    "view": "top",
+                    "purpose": "inspect annotated top view",
+                    "part_ids": ["example_block"],
+                },
+            },
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Tool evidence"}).json()["thread_id"]
+    response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": "Review this preview.",
+            "context_snapshot": {
+                "visible_part_ids": ["example_block"],
+                "selected_part_ids": ["example_block"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    message_types = [message["type"] for message in payload["messages"]]
+    assert message_types == ["user_message", "design_plan", "tool_call", "tool_result"]
+    assert payload["messages"][3]["content"]["tool"] == "request_visual_evidence"
+    assert payload["messages"][3]["content"]["status"] == "pending"
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert reloaded["visual_evidence_request_count"] == 1
+    assert reloaded["visual_evidence_requests"][0]["view"] == "top"
+    assert reloaded["visual_evidence_requests"][0]["part_ids"] == ["example_block"]
 
 
 def test_viewer_design_threads_chat_creates_deterministic_panel_draft_with_selected_part_context(tmp_path) -> None:
@@ -386,6 +580,7 @@ def test_viewer_design_threads_chat_creates_deterministic_panel_draft_with_selec
     assert payload["draft_preview_model"]["dimensions"]["height_mm"] == 10.0
     assert [message["type"] for message in payload["messages"]] == [
         "user_message",
+        "design_plan",
         "draft_event",
         "draft_event",
         "draft_event",
@@ -435,6 +630,7 @@ def test_viewer_design_threads_chat_creates_deterministic_plate_draft_with_by_ty
     assert payload["draft_preview_model"]["dimensions"]["height_mm"] == 10.0
     assert [message["type"] for message in payload["messages"]] == [
         "user_message",
+        "design_plan",
         "draft_event",
         "draft_event",
         "draft_event",
@@ -643,6 +839,7 @@ def test_viewer_design_threads_stream_chat_persists_runtime_events(tmp_path) -> 
         payloads = _sse_payloads("".join(response.iter_text()))
 
     assert any(payload.get("message", {}).get("type") == "user_message" for payload in payloads)
+    assert any(payload.get("message", {}).get("type") == "design_plan" for payload in payloads)
     assert any(payload.get("event", {}).get("type") == "assistant_delta" for payload in payloads)
     assert any(payload.get("message", {}).get("type") == "tool_call" for payload in payloads)
     assert any(payload.get("message", {}).get("type") == "tool_result" for payload in payloads)
@@ -652,12 +849,13 @@ def test_viewer_design_threads_stream_chat_persists_runtime_events(tmp_path) -> 
     reloaded = client.get(f"/api/design-threads/{thread_id}").json()
     assert [message["type"] for message in reloaded["messages"]] == [
         "user_message",
+        "design_plan",
         "tool_call",
         "tool_result",
         "assistant_message",
     ]
     assert reloaded["messages"][-1]["content"] == "Draft response ready."
-    assert reloaded["messages"][2]["metadata"]["report_ids"] == ["val-001"]
+    assert reloaded["messages"][3]["metadata"]["report_ids"] == ["val-001"]
     assert reloaded["messages"][0]["metadata"]["viewport_attachment_id"] == "att-1"
 
 
@@ -1183,6 +1381,51 @@ def test_viewer_design_threads_draft_events_accept_frontend_nested_content_shape
 
     reloaded = client.get(f"/api/design-threads/{thread_id}").json()
     assert reloaded["linked_draft_transaction_tokens"] == ["txn-ui"]
+
+
+def test_viewer_design_threads_design_plans_persist_and_reload(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    thread_id = client.post("/api/design-threads", json={"title": "Plan thread"}).json()["thread_id"]
+    response = client.post(
+        f"/api/design-threads/{thread_id}/design-plans",
+        json={
+            "plan": {
+                "plan_id": "plan-test-1",
+                "plan_type": "questions",
+                "status": "needs_user_input",
+                "brief": {
+                    "brief_id": "brief-test-1",
+                    "goal": "Make a robot head",
+                    "known_facts": [],
+                    "missing_decisions": ["mounting interface"],
+                },
+                "steps": [
+                    {
+                        "step_id": "q-purpose",
+                        "kind": "question",
+                        "question": "What is the intended purpose?",
+                    }
+                ],
+            },
+            "metadata": {"runtime": "flow_cad_design_planner"},
+        },
+    )
+
+    assert response.status_code == 200
+    message = response.json()
+    assert message["type"] == "design_plan"
+    assert message["content"]["plan_id"] == "plan-test-1"
+    assert message["content"]["plan_type"] == "questions"
+    assert message["metadata"]["plan_id"] == "plan-test-1"
+    assert message["metadata"]["plan_type"] == "questions"
+    assert message["metadata"]["brief_id"] == "brief-test-1"
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert reloaded["messages"][-1]["type"] == "design_plan"
+    assert reloaded["messages"][-1]["content"]["steps"][0]["kind"] == "question"
 
 
 def test_viewer_design_threads_validator_and_profile_events_preserve_evidence(tmp_path) -> None:

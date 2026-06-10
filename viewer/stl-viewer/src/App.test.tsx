@@ -475,7 +475,7 @@ function commandTextarea() {
 }
 
 async function openAdvancedTools(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByText('Advanced draft tools'))
+  await user.click(screen.getByText(/^Advanced$/))
 }
 
 async function openThreadDrawer(user: ReturnType<typeof userEvent.setup>) {
@@ -830,9 +830,9 @@ describe('App source loading', () => {
             })
           }
           const assistantMessage: MockDesignThreadMessage = {
-            message_id: `msg-${thread.messages.length + 2}`,
+            message_id: `msg-${thread.messages.length + 3}`,
             thread_id: thread.thread_id,
-            created_at: '2026-06-09T12:01:01Z',
+            created_at: '2026-06-09T12:01:02Z',
             type: 'assistant_message',
             role: 'assistant',
             content: 'Stub assistant response with view context.',
@@ -843,10 +843,34 @@ describe('App source loading', () => {
               ...(attachmentId ? { viewport_screenshot: true } : {}),
             },
           }
-          thread.messages.push(userMessage, assistantMessage)
+          const designPlanMessage: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 2}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:01:01Z',
+            type: 'design_plan',
+            role: 'system',
+            content: {
+              plan_id: 'plan-mock-1',
+              plan_type: 'concept_plan',
+              status: 'proposed',
+              steps: [
+                {
+                  step_id: 'synthesize-brief',
+                  step_type: 'analysis',
+                  summary: 'Synthesize the request into a concept direction.',
+                },
+              ],
+            },
+            attachments: [],
+            metadata: {
+              runtime: 'flow_cad_design_planner',
+              context_snapshot_id: snapshot.snapshot_id,
+            },
+          }
+          thread.messages.push(userMessage, designPlanMessage, assistantMessage)
           return jsonResponse({
             thread_id: thread.thread_id,
-            messages: [userMessage, assistantMessage],
+            messages: [userMessage, designPlanMessage, assistantMessage],
             context_snapshot: snapshot,
             thread,
           })
@@ -1197,6 +1221,9 @@ describe('App source loading', () => {
     expect(threadMessage).toBeEnabled()
     await user.type(threadMessage, 'Can type immediately')
     expect(threadMessage).toHaveValue('Can type immediately')
+    const advancedTools = screen.getByText(/^Advanced$/).closest('details')
+    expect(advancedTools).toBeInTheDocument()
+    expect(advancedTools).not.toHaveAttribute('open')
 
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls as Array<[RequestInfo | URL, RequestInit | undefined]>
     const createCall = calls.find(([url, init]) => String(url).endsWith('/api/design-threads') && (init?.method ?? 'GET') === 'POST')
@@ -1308,10 +1335,13 @@ describe('App source loading', () => {
 
       await waitFor(() => expect(screen.getAllByText('att-01').length).toBeGreaterThan(0))
 
-      await user.type(screen.getByLabelText('Thread message composer'), 'Move the holes to the front face')
+      const composer = screen.getByLabelText('Thread message composer')
+      await user.type(composer, 'Move the holes to the front face')
       await user.click(screen.getByRole('button', { name: 'Send' }))
+      expect(composer).toHaveValue('')
 
       await screen.findByText('Move the holes to the front face')
+      await screen.findByText('concept_plan: Synthesize the request into a concept direction.')
       await screen.findByText('Stub assistant response with view context.')
       await waitFor(() => {
         const panelThread = requireDesignThread('Panel review')
@@ -1352,6 +1382,18 @@ describe('App source loading', () => {
         },
       })
       expect(panelThread.messages[1]).toMatchObject({
+        type: 'design_plan',
+        role: 'system',
+        content: {
+          plan_type: 'concept_plan',
+          status: 'proposed',
+        },
+        metadata: {
+          runtime: 'flow_cad_design_planner',
+          context_snapshot_id: 'snap-1',
+        },
+      })
+      expect(panelThread.messages[2]).toMatchObject({
         type: 'assistant_message',
         role: 'assistant',
         content: 'Stub assistant response with view context.',
@@ -1443,6 +1485,7 @@ describe('App source loading', () => {
     await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
 
     await screen.findByText('Render review')
+    await openAdvancedTools(user)
     await user.selectOptions(screen.getByLabelText('Visual evidence view'), 'front')
     await user.click(screen.getByRole('button', { name: 'Capture render' }))
 
@@ -1500,6 +1543,7 @@ describe('App source loading', () => {
     await user.type(screen.getByLabelText('New thread title'), 'Agent visual request')
     await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
     await screen.findByText('Agent visual request')
+    await openAdvancedTools(user)
     await user.click(screen.getByRole('button', { name: 'Follow mode' }))
     expect(screen.getByRole('button', { name: 'Follow mode' })).toHaveAttribute('aria-pressed', 'true')
 
@@ -1563,6 +1607,75 @@ describe('App source loading', () => {
     await waitFor(() => expect(screen.getByLabelText('Visual evidence view')).toHaveValue('top'))
   })
 
+  it('fulfills sketch-only visual evidence requests from the viewport canvas when no model is visible', async () => {
+    const user = userEvent.setup()
+    const restoreCanvas = mockViewportCanvas({ dataUrl: viewportCaptureDataUrl() })
+
+    try {
+      render(<App />)
+
+      await screen.findByText('wheel_box_test_body')
+      await openThreadDrawer(user)
+      await user.type(screen.getByLabelText('New thread title'), 'Sketch evidence request')
+      await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+      await screen.findByText('Sketch evidence request')
+
+      const sketchThread = requireDesignThread('Sketch evidence request')
+      sketchThread.visual_evidence_requests = [
+        {
+          request_id: 'ver-sketch',
+          thread_id: sketchThread.thread_id,
+          status: 'pending',
+          source: 'agent',
+          view: 'top',
+          selected_ids: ['example_block'],
+          visible_ids: [],
+          part_ids: ['example_block'],
+          purpose: 'capture top-view evidence for annotated draft planning',
+          created_at: '2026-06-09T12:02:00Z',
+          updated_at: '2026-06-09T12:02:00Z',
+          artifact_id: null,
+          error: null,
+          metadata: { created_by: 'design_thread_chat' },
+        },
+      ]
+      sketchThread.visual_evidence_request_count = 1
+
+      const completeCall = await waitFor(() => {
+        const value = findFetchCall('/visual-evidence-requests/ver-sketch/complete')
+        expect(value).toBeDefined()
+        return value
+      }, { timeout: 3500 })
+      const completeBody = jsonBody(completeCall![1] as RequestInit)
+
+      expect(visualEvidenceRenderCalls).toHaveLength(0)
+      expect(completeBody).toMatchObject({
+        source: 'agent',
+        view: 'top',
+        request_id: 'ver-sketch',
+        data_url: viewportCaptureDataUrl(),
+        selected_ids: ['example_block'],
+        visible_ids: ['wheel_box_test_body'],
+        part_ids: ['example_block'],
+        purpose: 'capture top-view evidence for annotated draft planning',
+        metadata: {
+          created_by: 'design_thread_chat',
+          capture_source: 'viewport-canvas',
+          fulfillment_source: 'viewer-request-worker',
+          render_context: 'viewport-canvas',
+          visual_evidence_request_id: 'ver-sketch',
+        },
+      })
+      expect(completeBody.width).toBe(640)
+      expect(completeBody.height).toBe(480)
+      await openAdvancedTools(user)
+      await screen.findByText('status: fulfilled')
+      await screen.findByText('artifact: ve-01')
+    } finally {
+      restoreCanvas()
+    }
+  })
+
   it('records failed visual evidence requests without using user attachments', async () => {
     const user = userEvent.setup()
     vi.mocked(renderVisualEvidenceCapture).mockRejectedValueOnce(new Error('render unavailable'))
@@ -1605,6 +1718,7 @@ describe('App source loading', () => {
 
     expect(failBody.error).toBe('render unavailable')
     expect(findFetchCall('/attachments/viewport-screenshot')).toBeUndefined()
+    await openAdvancedTools(user)
     await screen.findByText('status: failed')
     await screen.findByText('render unavailable')
   })
@@ -1674,6 +1788,7 @@ describe('App source loading', () => {
 
     await screen.findByText('Recovered thread')
     await screen.findByText('Persisted design note')
+    await openAdvancedTools(userEvent.setup())
     await waitFor(() => {
       expect(screen.getByText('att-existing')).toBeInTheDocument()
       expect(screen.getByText('source: agent')).toBeInTheDocument()
@@ -1681,7 +1796,7 @@ describe('App source loading', () => {
       expect(screen.getByText('purpose: review')).toBeInTheDocument()
       expect(screen.getByRole('link', { name: 'Open image' })).toHaveAttribute(
         'href',
-        '/api/design-threads/thread-existing/visual-evidence/ve-existing/image',
+        'http://127.0.0.1:8000/api/design-threads/thread-existing/visual-evidence/ve-existing/image',
       )
     })
 
@@ -1690,6 +1805,7 @@ describe('App source loading', () => {
 
     await screen.findByText('Recovered thread')
     await screen.findByText('Persisted design note')
+    await openAdvancedTools(userEvent.setup())
     await waitFor(() => {
       expect(screen.getByText('att-existing')).toBeInTheDocument()
       expect(screen.getByText('source: agent')).toBeInTheDocument()
@@ -1710,6 +1826,7 @@ describe('App source loading', () => {
       await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
 
       await waitFor(() => expect(screen.getByText('No canvas thread')).toBeInTheDocument())
+      await openAdvancedTools(user)
       await user.click(screen.getByRole('button', { name: 'Attach view' }))
 
       await screen.findByText('Viewport screenshot is unavailable')
@@ -1763,6 +1880,7 @@ describe('App source loading', () => {
     render(<App />)
 
     await screen.findByText('Alpha thread')
+    await openAdvancedTools(user)
     await waitFor(() => {
       expect(screen.getByText('att-alpha')).toBeInTheDocument()
     })

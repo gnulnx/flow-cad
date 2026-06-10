@@ -26,6 +26,9 @@ iteration flow, not implementation convenience.
 - Annotated raised-wall requests now have a deterministic draft path that maps
   saved freehand annotation bounding boxes onto the draft top face and applies
   requested heights in annotation order.
+- Broad prompts are now documented in `docs/DesignPlanner.md` as `questions`
+  plans so unresolved intent should persist in-thread instead of producing
+  canceled draft chatter.
 
 ## P0: Chat Composer Requires Manual Thread Creation
 
@@ -268,6 +271,34 @@ Acceptance criteria:
 - Tool calls show running/success/error state.
 - Failures leave a visible error block in the thread.
 - Reloading the thread shows the final assistant/tool evidence.
+
+## P1: Broad Prompts Should Yield Question Plans
+
+Status: Implemented for Planner V1 broad-prompt routing on 2026-06-10.
+
+Observation:
+
+- Broad prompts previously appeared as failed or canceled tool chatter when the
+  intent was under-specified.
+
+Why it matters:
+
+- Design Planner V1 defines this as a first-class `questions` plan.
+- Chat should preserve missing constraints as visible follow-up asks instead of losing
+  work in non-retryable failure text.
+
+Proposed fix:
+
+- Route prompts with insufficient constraints to `questions` instead of attempting
+  mutation adapters.
+- Persist the resulting question set in thread evidence (`plan` + `design_brief`).
+- Continue with `draft_plan` only after required fields are supplied.
+
+Acceptance criteria:
+
+- `make a robot head` produces a visible `questions` plan.
+- The thread records the follow-up questions and required assumptions.
+- No draft transaction is started until constraints are clarified.
 
 ## P1: Reasoning And Tool Events Are Too Coarse
 

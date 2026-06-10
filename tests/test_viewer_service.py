@@ -860,3 +860,24 @@ def test_viewer_backend_exposes_draft_transaction_workflow(tmp_path) -> None:
     assert "diff --git a/flow/parts/api_transaction_panel.py" in status_payload["source_patch_preview"]
     assert any("flow validate run panel-basic --draft-transaction" in cmd for cmd in status_payload["source_loop_commands"])
     assert any("--part api_transaction_panel" in cmd for cmd in status_payload["source_loop_commands"])
+
+
+def test_viewer_backend_exposes_draft_operation_registry(tmp_path) -> None:
+    init_project(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    payload = service.draft_operation_registry()
+    response = client.get("/api/draft-operation-registry")
+
+    assert response.status_code == 200
+    api_payload = response.json()
+    assert api_payload == payload
+    operations = {operation["id"]: operation for operation in api_payload["operations"]}
+    assert api_payload["source"] == "flow_cad.draft_operations"
+    assert operations["add_hole"]["endpoint_slug"] == "holes"
+    assert operations["add_counterbore"]["transaction_tool_name"] == "draft_transaction_add_counterbore"
+    assert operations["add_raised_wall"]["feature_kind"] == "raised_wall"
+    assert operations["add_raised_wall"]["supports_preview"] is True
+    assert operations["add_raised_wall"]["supports_source_emission"] is True
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))

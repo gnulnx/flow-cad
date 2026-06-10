@@ -96,6 +96,10 @@ function normalizeVisualEvidenceView(value: string | null | undefined): VisualEv
     : 'iso'
 }
 
+function visualEvidenceCaptureSource(renderContext: unknown) {
+  return renderContext === 'offscreen-browser' ? 'separate-render-context' : String(renderContext || 'viewport-canvas')
+}
+
 function extractThreadAttachmentIds(thread: DesignThreadRecord | null) {
   if (!thread) return [] as string[]
   const ids = new Set<string>()
@@ -153,7 +157,12 @@ function extractLatestAttachmentId(thread: DesignThreadRecord | null) {
   return null
 }
 
-function extractThreadVisualEvidence(thread: DesignThreadRecord | null) {
+function resolveBackendImageUrl(baseUrl: string, path: string | null | undefined) {
+  if (!path || !path.trim()) return null
+  return apiUrl(baseUrl, path)
+}
+
+function extractThreadVisualEvidence(thread: DesignThreadRecord | null, apiBase: string) {
   if (!thread) return [] as ThreadVisualEvidenceArtifact[]
   return (thread.visual_evidence ?? [])
     .filter((evidence): evidence is ThreadVisualEvidenceArtifact => (
@@ -161,16 +170,19 @@ function extractThreadVisualEvidence(thread: DesignThreadRecord | null) {
     ))
     .map((evidence) => ({
       ...evidence,
-      image_url: evidence.image_url
-        || evidence.image_endpoint
-        || `/api/design-threads/${thread.thread_id}/visual-evidence/${evidence.artifact_id}/image`,
+      image_url: resolveBackendImageUrl(
+        apiBase,
+        evidence.image_url
+          || evidence.image_endpoint
+          || `/api/design-threads/${thread.thread_id}/visual-evidence/${evidence.artifact_id}/image`,
+      ) || undefined,
     }))
 }
 
-function extractThreadVisualEvidenceCount(thread: DesignThreadRecord | null) {
+function extractThreadVisualEvidenceCount(thread: DesignThreadRecord | null, apiBase: string) {
   if (!thread) return 0
   if (typeof thread.visual_evidence_count === 'number') return thread.visual_evidence_count
-  return extractThreadVisualEvidence(thread).length
+  return extractThreadVisualEvidence(thread, apiBase).length
 }
 
 function extractThreadVisualEvidenceRequests(thread: DesignThreadRecord | null) {
@@ -573,6 +585,28 @@ function captureViewportScreenshot(annotations: ThreadViewportAnnotation[] = [])
   }
 }
 
+function captureViewportVisualEvidence(annotations: ThreadViewportAnnotation[], view: VisualEvidenceViewPreset) {
+  const { viewportSize, screenshot } = captureViewportScreenshot(annotations)
+  if (!screenshot?.data_url) {
+    throw new Error('No visible models or viewport canvas available for visual evidence capture')
+  }
+  const width = viewportSize?.width ?? null
+  const height = viewportSize?.height ?? null
+  return {
+    dataUrl: screenshot.data_url,
+    width,
+    height,
+    camera: {
+      view,
+      source: 'viewport-canvas',
+    },
+    viewport: {
+      ...(viewportSize ?? {}),
+      render_context: 'viewport-canvas',
+    },
+  }
+}
+
 async function responseDetail(response: Response) {
   try {
     const payload = await response.json()
@@ -802,8 +836,8 @@ export default function App() {
     const attachmentIds = extractThreadAttachmentIds(payload)
     setThreadAttachmentIds(attachmentIds)
     setLatestAttachmentId(extractLatestAttachmentId(payload))
-    setThreadVisualEvidence(extractThreadVisualEvidence(payload))
-    setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload))
+    setThreadVisualEvidence(extractThreadVisualEvidence(payload, apiBase))
+    setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload, apiBase))
     setThreadVisualEvidenceRequests(extractThreadVisualEvidenceRequests(payload))
     setThreadVisualEvidenceRequestCount(extractThreadVisualEvidenceRequestCount(payload))
     return payload
@@ -814,11 +848,11 @@ export default function App() {
     setActiveThread(payload)
     setThreadAttachmentIds(extractThreadAttachmentIds(payload))
     setLatestAttachmentId(extractLatestAttachmentId(payload))
-    setThreadVisualEvidence(extractThreadVisualEvidence(payload))
-    setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload))
+    setThreadVisualEvidence(extractThreadVisualEvidence(payload, apiBase))
+    setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload, apiBase))
     setThreadVisualEvidenceRequests(extractThreadVisualEvidenceRequests(payload))
     setThreadVisualEvidenceRequestCount(extractThreadVisualEvidenceRequestCount(payload))
-  }, [])
+  }, [apiBase])
 
   const appendThreadEvents = useCallback((threadId: string, messages: DesignThreadEvent[]) => {
     if (!messages.length) return
@@ -836,14 +870,14 @@ export default function App() {
       const threadAttachmentIds = extractThreadAttachmentIds(next)
       setThreadAttachmentIds(threadAttachmentIds)
       setLatestAttachmentId(extractLatestAttachmentId(next))
-      setThreadVisualEvidence(extractThreadVisualEvidence(next))
-      setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(next))
+      setThreadVisualEvidence(extractThreadVisualEvidence(next, apiBase))
+      setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(next, apiBase))
       setThreadVisualEvidenceRequests(extractThreadVisualEvidenceRequests(next))
       setThreadVisualEvidenceRequestCount(extractThreadVisualEvidenceRequestCount(next))
 
       return next
     })
-  }, [])
+  }, [apiBase])
 
   const appendDraftThreadEvent = useCallback(async (
     threadId: string,
@@ -961,8 +995,8 @@ export default function App() {
       setActiveThread(payload)
       setThreadAttachmentIds(extractThreadAttachmentIds(payload))
       setLatestAttachmentId(extractLatestAttachmentId(payload))
-      setThreadVisualEvidence(extractThreadVisualEvidence(payload))
-      setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload))
+      setThreadVisualEvidence(extractThreadVisualEvidence(payload, apiBase))
+      setThreadVisualEvidenceCount(extractThreadVisualEvidenceCount(payload, apiBase))
       setThreadVisualEvidenceRequests(extractThreadVisualEvidenceRequests(payload))
       setThreadVisualEvidenceRequestCount(extractThreadVisualEvidenceRequestCount(payload))
     }
@@ -987,10 +1021,13 @@ export default function App() {
   }, [apiBase, loadThread])
 
   const createVisualEvidence = useCallback(async (threadId: string) => {
-    const capture = await renderVisualEvidenceCapture({
-      models: visibleModelsRef.current,
-      view: visualEvidenceView,
-    })
+    const renderModels = visibleModelsRef.current
+    const capture = renderModels.length
+      ? await renderVisualEvidenceCapture({
+        models: renderModels,
+        view: visualEvidenceView,
+      })
+      : captureViewportVisualEvidence(viewportAnnotations, visualEvidenceView)
     const currentVisibleIds = visiblePartIdsRef.current.length ? visiblePartIdsRef.current : selectedIds
 
     const payload = {
@@ -1008,7 +1045,7 @@ export default function App() {
       purpose: 'manual',
       metadata: {
         backend_revision: backendRevisionRef.current,
-        capture_source: 'separate-render-context',
+        capture_source: visualEvidenceCaptureSource(capture.viewport.render_context),
         render_context: capture.viewport.render_context,
       },
     } as CreateThreadVisualEvidencePayload
@@ -1030,7 +1067,7 @@ export default function App() {
     })
     setThreadVisualEvidenceCount((current) => (isNew ? current + 1 : current))
     return evidence
-  }, [apiBase, selectedIds, visualEvidenceView])
+  }, [apiBase, selectedIds, visualEvidenceView, viewportAnnotations])
 
   const upsertVisualEvidenceRequest = useCallback((request: ThreadVisualEvidenceRequest) => {
     setThreadVisualEvidenceRequests((current) => {
@@ -1052,12 +1089,14 @@ export default function App() {
       ? visibleModelsRef.current.filter((model) => requestedPartIds.includes(model.partId))
       : visibleModelsRef.current
     try {
-      const capture = await renderVisualEvidenceCapture({
-        models: renderModels,
-        view,
-        width: typeof request.width === 'number' ? request.width : undefined,
-        height: typeof request.height === 'number' ? request.height : undefined,
-      })
+      const capture = renderModels.length
+        ? await renderVisualEvidenceCapture({
+          models: renderModels,
+          view,
+          width: typeof request.width === 'number' ? request.width : undefined,
+          height: typeof request.height === 'number' ? request.height : undefined,
+        })
+        : captureViewportVisualEvidence(viewportAnnotations, view)
       const requestVisibleIds = request.visible_ids?.length ? request.visible_ids : []
       const currentVisibleIds = requestVisibleIds.length
         ? requestVisibleIds
@@ -1081,7 +1120,7 @@ export default function App() {
         metadata: {
           ...(request.metadata ?? {}),
           backend_revision: backendRevisionRef.current,
-          capture_source: 'separate-render-context',
+          capture_source: visualEvidenceCaptureSource(capture.viewport.render_context),
           fulfillment_source: 'viewer-request-worker',
           render_context: capture.viewport.render_context,
           visual_evidence_request_id: request.request_id,
@@ -1105,9 +1144,12 @@ export default function App() {
       if (completed.visual_evidence) {
         const evidence = {
           ...completed.visual_evidence,
-          image_url: completed.visual_evidence.image_url
-            || completed.visual_evidence.image_endpoint
-            || `/api/design-threads/${threadId}/visual-evidence/${completed.visual_evidence.artifact_id}/image`,
+          image_url: resolveBackendImageUrl(
+            apiBase,
+            completed.visual_evidence.image_url
+              || completed.visual_evidence.image_endpoint
+              || `/api/design-threads/${threadId}/visual-evidence/${completed.visual_evidence.artifact_id}/image`,
+          ) || undefined,
         }
         let isNew = false
         setThreadVisualEvidence((current) => {
@@ -1140,7 +1182,7 @@ export default function App() {
     } finally {
       fulfillingVisualEvidenceRequestsRef.current.delete(request.request_id)
     }
-  }, [apiBase, loadThread, selectedIds, upsertVisualEvidenceRequest])
+  }, [apiBase, loadThread, selectedIds, upsertVisualEvidenceRequest, viewportAnnotations])
 
   useEffect(() => {
     visualEvidenceFollowModeRef.current = visualEvidenceFollowMode
@@ -1165,7 +1207,6 @@ export default function App() {
 
   useEffect(() => {
     if (!activeThreadId) return
-    if (!visibleModelsRef.current.length) return
     const pendingRequests = threadVisualEvidenceRequests.filter((request) => (
       request.status === 'pending'
       && typeof request.request_id === 'string'

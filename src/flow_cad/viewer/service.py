@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from flow_cad.core.metadata import PartDefinition, definition_export_subdir
 from flow_cad.draft_geometry import DraftGeometryError, DraftGeometryStore
+from flow_cad.draft_operations import draft_operation_payloads
 from flow_cad.preview_commands import PreviewCommandContext, parse_panel_command
 from flow_cad.project import FlowCadProject, load_project
 from flow_cad.viewer.geometry_authority import (
@@ -415,6 +416,15 @@ class ViewerService:
         if isinstance(transaction_token, str) and transaction_token:
             result["transaction_token"] = transaction_token
         return result
+
+    def draft_operation_registry(self) -> dict[str, Any]:
+        operations = draft_operation_payloads()
+        return {
+            "ok": True,
+            "operations": operations,
+            "count": len(operations),
+            "source": "flow_cad.draft_operations",
+        }
 
     def draft_transaction_from_panel_command(self, payload: dict[str, Any]) -> dict[str, Any]:
         command = str(payload.get("command") or "")

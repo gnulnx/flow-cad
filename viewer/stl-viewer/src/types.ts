@@ -302,6 +302,7 @@ export type DesignThreadEventType =
   | 'tool_result'
   | 'context_snapshot'
   | 'draft_event'
+  | 'design_plan'
   | 'review_event'
   | 'status'
   | 'system'

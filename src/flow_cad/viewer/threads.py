@@ -40,6 +40,7 @@ THREAD_SCHEMA_VERSION = 1
 THREAD_MESSAGE_SCHEMA_VERSION = 1
 THREAD_CONTEXT_SNAPSHOT_SCHEMA_VERSION = 1
 THREAD_DRAFT_EVENT_SCHEMA_VERSION = 1
+THREAD_DESIGN_PLAN_SCHEMA_VERSION = 1
 THREAD_VISUAL_EVIDENCE_REQUEST_SCHEMA_VERSION = 1
 THREAD_VISUAL_EVIDENCE_PRESETS = {"front", "back", "left", "right", "top", "bottom", "iso"}
 THREAD_VISUAL_EVIDENCE_DEFAULT_PRESET = "iso"
@@ -944,6 +945,47 @@ class DesignThreadService:
                 "type": "draft_event",
                 "role": "system",
                 "content": content,
+                "attachments": _as_list(payload.get("attachments")),
+                "metadata": metadata,
+            },
+        )
+
+    def append_design_plan(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        thread = self._require_thread(thread_id)
+        content = _as_mapping(payload.get("content"))
+        if not content:
+            content = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"metadata", "type", "role", "attachments"}
+            }
+        plan = _as_mapping(content.get("plan"))
+        if not plan:
+            plan = content
+        plan_id = str(plan.get("plan_id") or payload.get("plan_id") or f"plan_{uuid.uuid4().hex[:12]}").strip()
+        if not plan_id:
+            raise ThreadValidationError("design plan id is required")
+        plan_type = str(plan.get("plan_type") or payload.get("plan_type") or "").strip()
+        if plan_type not in {"questions", "draft_plan", "concept_plan"}:
+            raise ThreadValidationError("design plan type must be one of: questions, draft_plan, concept_plan")
+        plan["plan_id"] = plan_id
+        plan["plan_type"] = plan_type
+        plan.setdefault("status", str(payload.get("status") or "proposed"))
+
+        metadata = _as_mapping(payload.get("metadata"))
+        metadata["plan_id"] = plan_id
+        metadata["plan_type"] = plan_type
+        metadata["thread_version"] = thread["thread_id"]
+        if isinstance(plan.get("brief"), dict):
+            metadata["brief_id"] = str(plan["brief"].get("brief_id") or "")
+
+        return self._append_event_message(
+            thread,
+            {
+                "schema_version": THREAD_DESIGN_PLAN_SCHEMA_VERSION,
+                "type": "design_plan",
+                "role": "system",
+                "content": plan,
                 "attachments": _as_list(payload.get("attachments")),
                 "metadata": metadata,
             },

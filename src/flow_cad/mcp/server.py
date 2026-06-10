@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from flow_cad.draft_operations import draft_operation_payloads
 from flow_cad.draft_geometry import DraftGeometryStore
 from flow_cad.project import load_project
 from flow_cad.profiler import format_profile_summary, load_latest_build_profile
@@ -27,12 +28,16 @@ TOOLSET_ENV = "FLOW_CAD_MCP_TOOLSET"
 
 _DRAFT_STORES: dict[Path, DraftGeometryStore] = {}
 
+DRAFT_OPERATION_REGISTRY_TOOL_NAME = "draft_operation_registry"
+DRAFT_OPERATION_REGISTRY_TOOL_NAMES = {DRAFT_OPERATION_REGISTRY_TOOL_NAME}
+
 DIRECT_DRAFT_TOOL_NAMES = {
     "draft_create_box",
     "draft_set_panel_thickness",
     "draft_add_hole",
     "draft_add_counterbore",
     "draft_add_slot",
+    "draft_add_raised_wall",
     "draft_add_louver_pattern",
     "draft_mirror_features",
     "draft_measure",
@@ -46,6 +51,7 @@ TRANSACTION_TOOL_NAMES = {
     "draft_transaction_add_hole",
     "draft_transaction_add_counterbore",
     "draft_transaction_add_slot",
+    "draft_transaction_add_raised_wall",
     "draft_transaction_add_louver_pattern",
     "draft_transaction_mirror_features",
     "draft_transaction_measure",
@@ -65,12 +71,18 @@ DEFAULT_VISUAL_TOOL_NAMES = {
     "visual_evidence_requests_list",
 }
 ADVANCED_VISUAL_TOOL_NAMES = DEFAULT_VISUAL_TOOL_NAMES | {"visual_evidence_create"}
-DEFAULT_TOOL_NAMES = TRANSACTION_TOOL_NAMES | VALIDATOR_PROFILE_TOOL_NAMES | DEFAULT_VISUAL_TOOL_NAMES
+DEFAULT_TOOL_NAMES = (
+    TRANSACTION_TOOL_NAMES | VALIDATOR_PROFILE_TOOL_NAMES | DEFAULT_VISUAL_TOOL_NAMES | DRAFT_OPERATION_REGISTRY_TOOL_NAMES
+)
 TOOLSET_TOOL_NAMES = {
     "default": DEFAULT_TOOL_NAMES,
-    "advanced": DIRECT_DRAFT_TOOL_NAMES | TRANSACTION_TOOL_NAMES | VALIDATOR_PROFILE_TOOL_NAMES | ADVANCED_VISUAL_TOOL_NAMES,
+    "advanced": DIRECT_DRAFT_TOOL_NAMES
+    | TRANSACTION_TOOL_NAMES
+    | VALIDATOR_PROFILE_TOOL_NAMES
+    | ADVANCED_VISUAL_TOOL_NAMES
+    | DRAFT_OPERATION_REGISTRY_TOOL_NAMES,
     "visual": ADVANCED_VISUAL_TOOL_NAMES,
-    "transactions": TRANSACTION_TOOL_NAMES | VALIDATOR_PROFILE_TOOL_NAMES,
+    "transactions": TRANSACTION_TOOL_NAMES | VALIDATOR_PROFILE_TOOL_NAMES | DRAFT_OPERATION_REGISTRY_TOOL_NAMES,
 }
 
 
@@ -287,6 +299,33 @@ def build_server() -> FastMCP:
             angle=angle,
         )
 
+    @tool(name="draft_add_raised_wall", description="Add a raised wall feature to a selected draft face.")
+    def draft_add_raised_wall_tool(
+        draft_token: str,
+        face: str,
+        x: float,
+        y: float,
+        length: float,
+        width: float,
+        height: float,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "draft_add_raised_wall called. project_root=%s draft_token=%s face=%s",
+            project_root,
+            draft_token,
+            face,
+        )
+        return draft_store(project_root).add_raised_wall(
+            draft_token,
+            face=face,
+            x=x,
+            y=y,
+            length=length,
+            width=width,
+            height=height,
+        )
+
     @tool(name="draft_add_louver_pattern", description="Add a draft louver pattern as repeated rounded slots.")
     def draft_add_louver_pattern_tool(
         draft_token: str,
@@ -353,6 +392,16 @@ def build_server() -> FastMCP:
     def draft_discard_tool(draft_token: str, project_root: str | None = None) -> dict[str, object]:
         LOGGER.info("draft_discard called. project_root=%s draft_token=%s", project_root, draft_token)
         return draft_store(project_root).discard(draft_token)
+
+    @tool(name=DRAFT_OPERATION_REGISTRY_TOOL_NAME, description="Return registered draft operations for tool discovery.")
+    def draft_operation_registry_tool() -> dict[str, object]:
+        operations = draft_operation_payloads()
+        return {
+            "ok": True,
+            "operations": operations,
+            "count": len(operations),
+            "source": "flow_cad.draft_operations",
+        }
 
     @tool(name="draft_begin_transaction", description="Begin a draft geometry transaction.")
     def draft_begin_transaction_tool(
@@ -453,6 +502,33 @@ def build_server() -> FastMCP:
             length=length,
             width=width,
             angle=angle,
+        )
+
+    @tool(name="draft_transaction_add_raised_wall", description="Add a raised wall feature inside a draft transaction.")
+    def draft_transaction_add_raised_wall_tool(
+        transaction_token: str,
+        face: str,
+        x: float,
+        y: float,
+        length: float,
+        width: float,
+        height: float,
+        project_root: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "draft_transaction_add_raised_wall called. project_root=%s transaction=%s face=%s",
+            project_root,
+            transaction_token,
+            face,
+        )
+        return draft_store(project_root).transaction_add_raised_wall(
+            transaction_token,
+            face=face,
+            x=x,
+            y=y,
+            length=length,
+            width=width,
+            height=height,
         )
 
     @tool(name="draft_transaction_add_louver_pattern", description="Add a louver pattern inside a draft transaction.")

@@ -6,10 +6,12 @@ shared Flow CAD services, not a second implementation of CAD logic.
 
 The current server exposes draft-only geometry tools, draft transactions,
 focused-validator read/run tools, and design-thread visual evidence storage for
-fast panel iteration. Draft tools write only project-local runtime state,
-preview artifacts, and review artifacts. Validator tools read project facts and
-write only profile files under `.flow/profiles/`. Visual evidence tools write
-only thread-local PNG/JSON artifacts under `.flow/design-threads/`.
+fast panel iteration. It also exposes a read-only draft-operation registry tool
+for operation discovery. Draft tools write only project-local runtime state,
+preview artifacts, and review artifacts.
+Validator tools read project facts and write only profile files under
+`.flow/profiles/`. Visual evidence tools write only thread-local PNG/JSON
+artifacts under `.flow/design-threads/`.
 
 ## Server Entry Points
 
@@ -60,12 +62,13 @@ pushes normal agents toward reviewable transaction workflows.
 Available toolsets:
 
 - `default`: transaction draft tools, validators/profile, and agent visual
-  evidence request/read tools. This is the recommended agent-facing surface.
+  evidence request/read tools, plus read-only operation registry introspection.
 - `advanced`: every Flow CAD MCP tool, including direct draft primitives and
-  raw visual evidence upload. Use for debugging, tests, and power users.
+  raw visual evidence upload, plus operation registry introspection.
 - `visual`: only visual evidence tools, including raw upload.
-- `transactions`: transaction draft tools plus validators/profile; no visual
-  evidence tools and no direct draft primitives.
+- `transactions`: transaction draft tools, validators/profile, and operation
+  registry introspection; no visual evidence tools and no direct draft
+  primitives.
 
 Example:
 
@@ -94,7 +97,7 @@ hermes mcp add flow-cad \
 
 ## Default Tools
 
-The default toolset exposes 19 tools:
+The default toolset exposes 21 tools.
 
 Draft transaction tools:
 
@@ -104,6 +107,7 @@ Draft transaction tools:
 - `draft_transaction_add_hole`
 - `draft_transaction_add_counterbore`
 - `draft_transaction_add_slot`
+- `draft_transaction_add_raised_wall`
 - `draft_transaction_add_louver_pattern`
 - `draft_transaction_mirror_features`
 - `draft_transaction_measure`
@@ -124,6 +128,10 @@ Design-thread visual evidence tools:
 - `request_visual_evidence`
 - `visual_evidence_requests_list`
 
+Read-only operation registry tool:
+
+- `draft_operation_registry`
+
 ## Advanced Tools
 
 The advanced toolset includes all default tools plus direct draft primitives and
@@ -136,6 +144,7 @@ Draft geometry tools:
 - `draft_add_hole`
 - `draft_add_counterbore`
 - `draft_add_slot`
+- `draft_add_raised_wall`
 - `draft_add_louver_pattern`
 - `draft_mirror_features`
 - `draft_measure`
@@ -145,6 +154,10 @@ Draft geometry tools:
 Advanced visual evidence tool:
 
 - `visual_evidence_create`
+
+Read-only operation registry tool:
+
+- `draft_operation_registry`
 
 These tools use `DraftGeometryStore` and return the same structured facts as the
 viewer backend draft endpoints:
@@ -186,6 +199,10 @@ Draft artifacts are isolated under:
 They must not write `flow/`, `exports/`, `reports/`, handoff bundles, source
 files, or registry cache rows. Accepted transactions may write reviewable source
 patches and validator stubs only under `.flow/draft-transactions/`.
+
+`draft_operation_registry` is a read-only tool. It returns registered draft
+operation descriptors for discovery and planning and does not mutate project
+state.
 
 ## Suggested Use Cases
 

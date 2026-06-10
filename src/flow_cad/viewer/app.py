@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from flow_cad.config import AgentProfile, FlowCadConfig, load_flow_config
+from flow_cad.design_planner import plan_design_turn
 from flow_cad.draft_geometry import DraftGeometryError
 from flow_cad.viewer.agent_runtime import (
     AgentRuntimeClient,
@@ -548,6 +550,441 @@ def _deterministic_draft_chat_turn(
     }
 
 
+def _planner_metadata(prepared: dict[str, Any]) -> dict[str, Any]:
+    metadata = {"runtime": "flow_cad_design_planner"}
+    context_snapshot = prepared.get("context_snapshot")
+    if isinstance(context_snapshot, dict):
+        snapshot_id = context_snapshot.get("snapshot_id")
+        if isinstance(snapshot_id, str) and snapshot_id.strip():
+            metadata["context_snapshot_id"] = snapshot_id.strip()
+    return metadata
+
+
+def _append_design_plan_for_turn(
+    design_threads: DesignThreadService,
+    thread_id: str,
+    prepared: dict[str, Any],
+) -> dict[str, Any]:
+    plan_payload = plan_design_turn(
+        str(prepared.get("message_text") or ""),
+        prepared.get("context_snapshot") if isinstance(prepared.get("context_snapshot"), dict) else None,
+    )
+    return design_threads.append_design_plan(
+        thread_id,
+        {
+            "plan": plan_payload,
+            "metadata": _planner_metadata(prepared),
+        },
+    )
+
+
+def _design_plan_type(message: dict[str, Any]) -> str:
+    content = message.get("content")
+    if not isinstance(content, dict):
+        return ""
+    return str(content.get("plan_type") or "")
+
+
+def _question_plan_response_content(plan_message: dict[str, Any]) -> str:
+    content = plan_message.get("content")
+    plan = content if isinstance(content, dict) else {}
+    steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
+    questions = [
+        str(step.get("summary") or "").strip()
+        for step in steps
+        if isinstance(step, dict) and str(step.get("step_type") or step.get("kind") or "") == "question"
+    ]
+    questions = [question for question in questions if question]
+    if not questions:
+        questions = ["What constraints should I use before drafting?"]
+    rendered = "\n".join(f"- {question}" for question in questions[:5])
+    return f"Before I draft this, I need a few decisions:\n\n{rendered}"
+
+
+def _normalized_context_ids(prepared: dict[str, Any], key: str) -> list[str]:
+    snapshot = prepared.get("context_snapshot")
+    if not isinstance(snapshot, dict):
+        return []
+    values = snapshot.get(key)
+    if not isinstance(values, list):
+        return []
+    return [str(value) for value in values if str(value).strip()]
+
+
+def _context_has_annotations(prepared: dict[str, Any]) -> bool:
+    snapshot = prepared.get("context_snapshot")
+    if not isinstance(snapshot, dict):
+        return False
+    annotations = snapshot.get("annotations")
+    if isinstance(annotations, list) and annotations:
+        return True
+    viewer_state = snapshot.get("viewer_state")
+    if isinstance(viewer_state, dict):
+        viewer_annotations = viewer_state.get("annotations")
+        return isinstance(viewer_annotations, list) and bool(viewer_annotations)
+    return False
+
+
+def _visual_evidence_request_payload(
+    prepared: dict[str, Any],
+    *,
+    source: str,
+    arguments: dict[str, Any] | None = None,
+    purpose: str | None = None,
+) -> dict[str, Any]:
+    args = arguments if isinstance(arguments, dict) else {}
+    selected_ids = _normalized_context_ids(prepared, "selected_part_ids")
+    visible_ids = _normalized_context_ids(prepared, "visible_part_ids")
+    requested_part_ids = args.get("part_ids")
+    part_ids = [str(value) for value in requested_part_ids if str(value).strip()] if isinstance(requested_part_ids, list) else []
+    view = str(args.get("view") or args.get("preset") or ("top" if _context_has_annotations(prepared) else "iso"))
+    snapshot = prepared.get("context_snapshot") if isinstance(prepared.get("context_snapshot"), dict) else {}
+    return {
+        "source": source,
+        "view": view,
+        "selected_ids": selected_ids,
+        "visible_ids": visible_ids,
+        "part_ids": part_ids or visible_ids or selected_ids,
+        "purpose": str(args.get("purpose") or purpose or "capture visual context for the current design request"),
+        "metadata": {
+            "created_by": "design_thread_chat",
+            **({"context_snapshot_id": snapshot.get("snapshot_id")} if isinstance(snapshot.get("snapshot_id"), str) else {}),
+        },
+    }
+
+
+def _design_plan_needs_visual_evidence(plan_message: dict[str, Any], prepared: dict[str, Any]) -> bool:
+    if _design_plan_type(plan_message) != "draft_plan":
+        return False
+    if not _context_has_annotations(prepared):
+        return False
+    content = plan_message.get("content")
+    if not isinstance(content, dict):
+        return False
+    steps = content.get("steps")
+    if not isinstance(steps, list):
+        return False
+    step_ids = {
+        str(step.get("step_id") or "")
+        for step in steps
+        if isinstance(step, dict)
+    }
+    return bool({"derive_footprint_from_annotations", "locate_hole_marks"} & step_ids)
+
+
+def _append_visual_evidence_request_for_plan(
+    design_threads: DesignThreadService,
+    thread_id: str,
+    prepared: dict[str, Any],
+    plan_message: dict[str, Any],
+) -> dict[str, Any]:
+    request = design_threads.request_visual_evidence(
+        thread_id,
+        _visual_evidence_request_payload(
+            prepared,
+            source="agent",
+            purpose="capture top-view evidence for annotated draft planning",
+        ),
+    )
+    metadata = plan_message.get("metadata")
+    plan_id = str(metadata.get("plan_id") or "") if isinstance(metadata, dict) else ""
+    assistant_message = design_threads.append_message(
+        thread_id,
+        {
+            "type": "assistant_message",
+            "role": "assistant",
+            "content": (
+                f"I created a {request['view']} visual-evidence request for the annotated draft plan. "
+                "Once the viewer captures it, I can use that evidence to continue the draft."
+            ),
+            "metadata": {
+                **_planner_metadata(prepared),
+                "status": "waiting_for_visual_evidence",
+                "plan_id": plan_id,
+                "visual_evidence_request_id": request["request_id"],
+            },
+        },
+    )
+    return {"request": request, "messages": [assistant_message]}
+
+
+def _persist_runtime_event_and_side_effects(
+    design_threads: DesignThreadService,
+    thread_id: str,
+    event: dict[str, Any],
+    metadata_base: dict[str, Any],
+    prepared: dict[str, Any],
+) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    message = _persist_agent_runtime_event(design_threads, thread_id, event, metadata_base)
+    if message is not None:
+        messages.append(message)
+
+    if str(event.get("type") or "") != "tool_call":
+        return messages
+    if str(event.get("tool") or "") != "request_visual_evidence":
+        return messages
+
+    arguments = event.get("arguments") if isinstance(event.get("arguments"), dict) else {}
+    request = design_threads.request_visual_evidence(
+        thread_id,
+        _visual_evidence_request_payload(prepared, source="agent", arguments=arguments),
+    )
+    result_message = _persist_agent_runtime_event(
+        design_threads,
+        thread_id,
+        {
+            "type": "tool_result",
+            "tool": "request_visual_evidence",
+            "result": {
+                "status": "pending",
+                "summary": f"Created visual evidence request {request['request_id']}",
+                "request_id": request["request_id"],
+                "view": request["view"],
+            },
+        },
+        metadata_base,
+    )
+    if result_message is not None:
+        messages.append(result_message)
+    return messages
+
+
+def _snapshot_annotations(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    viewer_state = snapshot.get("viewer_state") if isinstance(snapshot.get("viewer_state"), dict) else {}
+    annotations = viewer_state.get("annotations")
+    if not isinstance(annotations, list):
+        annotations = snapshot.get("annotations")
+    return [annotation for annotation in annotations if isinstance(annotation, dict)] if isinstance(annotations, list) else []
+
+
+def _annotation_points(annotation: dict[str, Any]) -> list[tuple[float, float]]:
+    points = annotation.get("points")
+    result: list[tuple[float, float]] = []
+    if isinstance(points, list):
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            x = point.get("x")
+            y = point.get("y")
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                result.append((min(max(float(x), 0.0), 1.0), min(max(float(y), 0.0), 1.0)))
+    if not result:
+        x = annotation.get("x")
+        y = annotation.get("y")
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            result.append((min(max(float(x), 0.0), 1.0), min(max(float(y), 0.0), 1.0)))
+    return result
+
+
+def _annotation_bounds(annotations: list[dict[str, Any]]) -> tuple[float, float, float, float]:
+    points = [point for annotation in annotations for point in _annotation_points(annotation)]
+    if not points:
+        return (0.0, 1.0, 0.0, 1.0)
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    min_x = min(xs)
+    max_x = max(xs)
+    min_y = min(ys)
+    max_y = max(ys)
+    if max_x - min_x < 0.01:
+        min_x, max_x = 0.0, 1.0
+    if max_y - min_y < 0.01:
+        min_y, max_y = 0.0, 1.0
+    return (min_x, max_x, min_y, max_y)
+
+
+def _small_annotation_centers(annotations: list[dict[str, Any]]) -> list[tuple[float, float]]:
+    centers: list[tuple[float, float]] = []
+    for annotation in annotations:
+        kind = str(annotation.get("kind") or "").lower()
+        points = _annotation_points(annotation)
+        if kind == "circle":
+            if points:
+                centers.append(points[0])
+            continue
+        if len(points) < 3:
+            continue
+        xs = [point[0] for point in points]
+        ys = [point[1] for point in points]
+        width = max(xs) - min(xs)
+        height = max(ys) - min(ys)
+        if width <= 0.18 and height <= 0.18:
+            centers.append((sum(xs) / len(xs), sum(ys) / len(ys)))
+    return centers[:8]
+
+
+def _sketch_dimensions_from_text(text: str) -> tuple[float, float, float]:
+    lowered = text.lower()
+    thickness = 10.0
+    thickness_match = re.search(r"(\d+(?:\.\d+)?)\s*mm\s*(?:thick|thickness)", lowered)
+    if thickness_match:
+        thickness = float(thickness_match.group(1))
+
+    pair_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)\s*mm", lowered)
+    if not pair_match:
+        pair_match = re.search(r"roughly\s+(\d+(?:\.\d+)?)\s*(?:mm)?\s+(?:by|x|×)\s+(\d+(?:\.\d+)?)\s*mm", lowered)
+    if pair_match:
+        first = float(pair_match.group(1))
+        second = float(pair_match.group(2))
+        return max(first, second), min(first, second), thickness
+
+    values = [float(match.group(1)) for match in re.finditer(r"(\d+(?:\.\d+)?)\s*mm", lowered)]
+    if len(values) >= 3:
+        plan_values = values[-2:]
+        return max(plan_values), min(plan_values), thickness
+    if len(values) >= 2:
+        return max(values[-2:]), min(values[-2:]), thickness
+    return 100.0, 65.0, thickness
+
+
+def _hole_diameter_from_text(text: str) -> float:
+    metric = re.search(r"\bm\s*(\d+(?:\.\d+)?)\b", text, re.IGNORECASE)
+    if metric:
+        return float(metric.group(1))
+    return 4.0
+
+
+def _user_message_for_snapshot(thread: dict[str, Any], snapshot_id: str) -> str:
+    for message in reversed(thread.get("messages", [])):
+        if not isinstance(message, dict):
+            continue
+        if message.get("type") != "user_message":
+            continue
+        metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        if metadata.get("context_snapshot_id") == snapshot_id:
+            return str(message.get("content") or "")
+    return ""
+
+
+def _snapshot_for_id(thread: dict[str, Any], snapshot_id: str) -> dict[str, Any] | None:
+    snapshots = thread.get("context_snapshots") if isinstance(thread.get("context_snapshots"), list) else []
+    for snapshot in snapshots:
+        if isinstance(snapshot, dict) and snapshot.get("snapshot_id") == snapshot_id:
+            return snapshot
+    return None
+
+
+def _continue_annotated_draft_after_visual_evidence(
+    design_threads: DesignThreadService,
+    viewer_service: ViewerService,
+    thread_id: str,
+    completion: dict[str, Any],
+) -> dict[str, Any] | None:
+    evidence = completion.get("visual_evidence") if isinstance(completion.get("visual_evidence"), dict) else {}
+    metadata = evidence.get("metadata") if isinstance(evidence.get("metadata"), dict) else {}
+    if metadata.get("created_by") != "design_thread_chat":
+        return None
+    snapshot_id = metadata.get("context_snapshot_id")
+    if not isinstance(snapshot_id, str) or not snapshot_id:
+        return None
+
+    thread = design_threads.get_thread(thread_id)
+    snapshot = _snapshot_for_id(thread, snapshot_id)
+    if snapshot is None:
+        return None
+    annotations = _snapshot_annotations(snapshot)
+    if not annotations:
+        return None
+
+    command = _user_message_for_snapshot(thread, snapshot_id)
+    length, width, thickness = _sketch_dimensions_from_text(command)
+    diameter = _hole_diameter_from_text(command)
+    part_id = "sketch_plate"
+    transaction = viewer_service.draft_begin_transaction({"part_id": part_id})
+    transaction_token = str(transaction["transaction_token"])
+    applied_operations: list[dict[str, Any]] = []
+    create_payload = {"part_id": part_id, "length": length, "width": width, "height": thickness}
+    create_result = viewer_service.draft_transaction_create_box(transaction_token, create_payload)
+    applied_operations.append({"name": "create_box", "endpoint": "box", "parameters": create_payload, "result": create_result})
+
+    min_x, max_x, min_y, max_y = _annotation_bounds(annotations)
+    span_x = max(max_x - min_x, 0.01)
+    span_y = max(max_y - min_y, 0.01)
+    wants_counterbore = "counter" in command.lower()
+    for center_x, center_y in _small_annotation_centers(annotations):
+        x = min(max(((center_x - min_x) / span_x) * length, 0.0), length)
+        y = min(max(((center_y - min_y) / span_y) * width, 0.0), width)
+        if wants_counterbore:
+            payload = {"face": "top", "x": x, "y": y, "diameter": max(diameter * 1.8, diameter + 3.0), "depth": min(2.5, thickness / 2.0)}
+            result = viewer_service.draft_transaction_add_counterbore(transaction_token, payload)
+            applied_operations.append({"name": "add_counterbore", "endpoint": "counterbores", "parameters": payload, "result": result})
+        else:
+            payload = {"face": "top", "x": x, "y": y, "diameter": diameter, "through": True}
+            result = viewer_service.draft_transaction_add_hole(transaction_token, payload)
+            applied_operations.append({"name": "add_hole", "endpoint": "holes", "parameters": payload, "result": result})
+
+    preview_model = viewer_service.draft_transaction_preview_model(transaction_token)
+    metadata_base = {
+        "runtime": "flow_cad_visual_evidence_continuation",
+        "context_snapshot_id": snapshot_id,
+        "visual_evidence_request_id": metadata.get("visual_evidence_request_id"),
+        "visual_evidence_artifact_id": evidence.get("artifact_id"),
+        "draft_transaction_token": transaction_token,
+        "part_id": part_id,
+    }
+    messages = [
+        design_threads.append_draft_event(
+            thread_id,
+            {
+                "content": {
+                    "action": "apply",
+                    "summary": "Applied approximate sketch draft operations from visual evidence",
+                    "draft_transaction_token": transaction_token,
+                    "part_id": part_id,
+                    "operations": applied_operations,
+                    "assumptions": [
+                        "Approximated the sketched outline as a rectangular plate for V1.",
+                        "Mapped small annotation marks onto the top face as hole/counterbore centers.",
+                    ],
+                },
+                "metadata": metadata_base,
+            },
+        ),
+        design_threads.append_draft_event(
+            thread_id,
+            {
+                "content": {
+                    "action": "preview",
+                    "summary": "Draft preview generated from visual evidence",
+                    "draft_transaction_token": transaction_token,
+                    "part_id": part_id,
+                    "preview_model": preview_model,
+                },
+                "metadata": metadata_base,
+            },
+        ),
+        design_threads.append_message(
+            thread_id,
+            {
+                "type": "assistant_message",
+                "role": "assistant",
+                "content": (
+                    f"Created draft `{part_id}` from the captured sketch evidence as "
+                    f"{length:g} x {width:g} x {thickness:g} mm with "
+                    f"{max(len(applied_operations) - 1, 0)} approximate {'counterbores' if wants_counterbore else 'holes'}. "
+                    "Inspect the preview, then accept or discard the draft."
+                ),
+                "metadata": {
+                    **metadata_base,
+                    "status": "draft_preview_ready",
+                    "source_loop_commands": preview_model.get("source_loop_commands", []),
+                },
+            },
+        ),
+    ]
+    return {
+        "messages": messages,
+        "draft_result": {
+            "ok": True,
+            "part_id": part_id,
+            "transaction_token": transaction_token,
+            "applied_operations": applied_operations,
+        },
+        "draft_preview_model": preview_model,
+    }
+
+
 def _agent_runtime_health(agent_runtime: AgentRuntimeClient, profile: AgentProfile) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "class": agent_runtime.__class__.__name__,
@@ -653,6 +1090,14 @@ def create_app(
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
+    @app.post("/api/design-threads/{thread_id}/design-plans")
+    def post_design_thread_plan(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return design_threads.append_design_plan(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
     @app.post("/api/design-threads/{thread_id}/validator-events")
     def post_design_thread_validator_event(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
         try:
@@ -665,9 +1110,31 @@ def create_app(
     def post_design_thread_chat(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
         try:
             prepared = design_threads.begin_chat_turn(thread_id, payload)
+            design_plan_message = _append_design_plan_for_turn(design_threads, thread_id, prepared)
+            if _design_plan_type(design_plan_message) == "questions":
+                assistant_message = design_threads.append_message(
+                    thread_id,
+                    {
+                        "type": "assistant_message",
+                        "role": "assistant",
+                        "content": _question_plan_response_content(design_plan_message),
+                        "metadata": {
+                            **_planner_metadata(prepared),
+                            "status": "needs_user_input",
+                            "plan_id": design_plan_message["metadata"]["plan_id"],
+                        },
+                    },
+                )
+                return {
+                    "thread_id": thread_id,
+                    "messages": [prepared["user_message"], design_plan_message, assistant_message],
+                    "events": [],
+                    "context_snapshot": prepared.get("context_snapshot"),
+                    "thread": design_threads.get_thread(thread_id),
+                }
             deterministic = _deterministic_draft_chat_turn(design_threads, viewer_service, thread_id, prepared)
             if deterministic is not None:
-                messages = [prepared["user_message"], *deterministic["messages"]]
+                messages = [prepared["user_message"], design_plan_message, *deterministic["messages"]]
                 return {
                     "thread_id": thread_id,
                     "messages": messages,
@@ -675,6 +1142,21 @@ def create_app(
                     "context_snapshot": prepared.get("context_snapshot"),
                     "draft_result": deterministic.get("draft_result"),
                     "draft_preview_model": deterministic.get("draft_preview_model"),
+                    "thread": design_threads.get_thread(thread_id),
+                }
+            if _design_plan_needs_visual_evidence(design_plan_message, prepared):
+                evidence_request = _append_visual_evidence_request_for_plan(
+                    design_threads,
+                    thread_id,
+                    prepared,
+                    design_plan_message,
+                )
+                return {
+                    "thread_id": thread_id,
+                    "messages": [prepared["user_message"], design_plan_message, *evidence_request["messages"]],
+                    "events": [],
+                    "context_snapshot": prepared.get("context_snapshot"),
+                    "visual_evidence_request": evidence_request["request"],
                     "thread": design_threads.get_thread(thread_id),
                 }
             messages, context_packet, safe_tools, model_profile, metadata_base = _agent_turn_runtime_inputs(
@@ -686,7 +1168,7 @@ def create_app(
                 agent_profile,
             )
             assistant_chunks: list[str] = []
-            persisted_messages = [prepared["user_message"]]
+            persisted_messages = [prepared["user_message"], design_plan_message]
             runtime_events: list[dict[str, Any]] = []
             for event in agent_runtime.stream_chat(thread_id, messages, context_packet, safe_tools, model_profile):
                 event = dict(event)
@@ -695,9 +1177,15 @@ def create_app(
                 if str(event.get("type") or "") == "assistant_delta":
                     assistant_chunks.append(_assistant_delta_text(event))
                     continue
-                message = _persist_agent_runtime_event(design_threads, thread_id, event, metadata_base)
-                if message is not None:
-                    persisted_messages.append(message)
+                persisted_messages.extend(
+                    _persist_runtime_event_and_side_effects(
+                        design_threads,
+                        thread_id,
+                        event,
+                        metadata_base,
+                        prepared,
+                    )
+                )
 
             if assistant_chunks:
                 persisted_messages.append(
@@ -735,17 +1223,29 @@ def create_app(
 
         def event_stream():
             assistant_chunks: list[str] = []
-            messages, context_packet, safe_tools, model_profile, metadata_base = _agent_turn_runtime_inputs(
-                design_threads,
-                thread_id,
-                payload,
-                prepared,
-                agent_runtime,
-                agent_profile,
-            )
-
             yield _sse({"message": prepared["user_message"]})
             try:
+                design_plan_message = _append_design_plan_for_turn(design_threads, thread_id, prepared)
+                yield _sse({"message": design_plan_message})
+                if _design_plan_type(design_plan_message) == "questions":
+                    assistant_message = design_threads.append_message(
+                        thread_id,
+                        {
+                            "type": "assistant_message",
+                            "role": "assistant",
+                            "content": _question_plan_response_content(design_plan_message),
+                            "metadata": {
+                                **_planner_metadata(prepared),
+                                "status": "needs_user_input",
+                                "plan_id": design_plan_message["metadata"]["plan_id"],
+                            },
+                        },
+                    )
+                    yield _sse({"message": assistant_message})
+                    yield _sse({"done": True, "thread": design_threads.get_thread(thread_id)})
+                    yield "data: [DONE]\n\n"
+                    return
+
                 deterministic = _deterministic_draft_chat_turn(design_threads, viewer_service, thread_id, prepared)
                 if deterministic is not None:
                     for message in deterministic["messages"]:
@@ -761,6 +1261,33 @@ def create_app(
                     yield "data: [DONE]\n\n"
                     return
 
+                if _design_plan_needs_visual_evidence(design_plan_message, prepared):
+                    evidence_request = _append_visual_evidence_request_for_plan(
+                        design_threads,
+                        thread_id,
+                        prepared,
+                        design_plan_message,
+                    )
+                    for message in evidence_request["messages"]:
+                        yield _sse({"message": message})
+                    yield _sse(
+                        {
+                            "done": True,
+                            "visual_evidence_request": evidence_request["request"],
+                            "thread": design_threads.get_thread(thread_id),
+                        }
+                    )
+                    yield "data: [DONE]\n\n"
+                    return
+
+                messages, context_packet, safe_tools, model_profile, metadata_base = _agent_turn_runtime_inputs(
+                    design_threads,
+                    thread_id,
+                    payload,
+                    prepared,
+                    agent_runtime,
+                    agent_profile,
+                )
                 for event in agent_runtime.stream_chat(
                     thread_id,
                     messages,
@@ -774,8 +1301,17 @@ def create_app(
                         assistant_chunks.append(_assistant_delta_text(event))
                         yield _sse({"event": event})
                     elif event_type in {"tool_call", "tool_result", "error"}:
-                        message = _persist_agent_runtime_event(design_threads, thread_id, event, metadata_base)
-                        yield _sse({"event": event, "message": message})
+                        persisted_messages = _persist_runtime_event_and_side_effects(
+                            design_threads,
+                            thread_id,
+                            event,
+                            metadata_base,
+                            prepared,
+                        )
+                        if not persisted_messages:
+                            yield _sse({"event": event})
+                        for message in persisted_messages:
+                            yield _sse({"event": event, "message": message})
                     elif event_type == "done":
                         yield _sse({"event": event})
 
@@ -855,7 +1391,20 @@ def create_app(
         payload: dict[str, object],
     ) -> dict[str, object]:
         try:
-            return design_threads.fulfill_visual_evidence_request(thread_id, request_id, payload)
+            completion = design_threads.fulfill_visual_evidence_request(thread_id, request_id, payload)
+            continuation = _continue_annotated_draft_after_visual_evidence(
+                design_threads,
+                viewer_service,
+                thread_id,
+                completion,
+            )
+            if continuation is not None:
+                completion = {
+                    **completion,
+                    "continuation": continuation,
+                    "thread": design_threads.get_thread(thread_id),
+                }
+            return completion
         except (ThreadStorageError, ThreadNotFoundError, VisualEvidenceRequestNotFoundError) as exc:
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
@@ -959,6 +1508,10 @@ def create_app(
             return viewer_service.preview_command_proposal(payload)
         except ViewerError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/draft-operation-registry")
+    def draft_operation_registry() -> dict[str, object]:
+        return viewer_service.draft_operation_registry()
 
     @app.post("/api/drafts/box")
     def draft_create_box(payload: dict[str, object]) -> dict[str, object]:
