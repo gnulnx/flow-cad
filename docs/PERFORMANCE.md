@@ -536,22 +536,33 @@ This lets agents and local models inspect before editing.
 
 ### Phase 2: Draft Geometry
 
-Add draft-only tools:
+Add transaction-first draft tools as the default agent-facing path:
 
-- `draft_create_box`
-- `draft_add_hole`
-- `draft_add_slot`
-- `draft_add_louver_pattern`
-- `draft_measure`
-- `draft_export_step`
-- `draft_discard`
-- `visual_evidence_create` for storing thread-local PNG evidence that an
-  existing renderer or browser session already produced
+- `draft_begin_transaction`
+- `draft_transaction_create_box`
+- `draft_transaction_set_panel_thickness`
+- `draft_transaction_add_hole`
+- `draft_transaction_add_counterbore`
+- `draft_transaction_add_slot`
+- `draft_transaction_add_louver_pattern`
+- `draft_transaction_mirror_features`
+- `draft_transaction_measure`
+- `draft_transaction_preview`
+- `draft_transaction_accept`
+- `draft_transaction_discard`
 - `request_visual_evidence` for asking an active browser session to capture a
   named offscreen render without moving the user's viewport
 
 These tools should write only local runtime draft state, temporary preview
 artifacts, or thread-local visual evidence.
+
+Direct `draft_*` primitives remain available only through the advanced MCP
+toolset for debugging, tests, and power-user flows. The advanced toolset also
+keeps `visual_evidence_create` for storing thread-local PNG evidence that an
+existing renderer or browser session already produced. The default MCP toolset
+should expose the transaction tools plus validator/profile and visual evidence
+request/read tools so agents do not have to choose between duplicate direct and
+transaction workflows or raw PNG upload paths.
 
 ### Phase 3: Source Promotion
 

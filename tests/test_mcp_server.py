@@ -48,51 +48,75 @@ def clear_mcp_state(monkeypatch) -> None:
     mcp_server._DRAFT_STORES.clear()
     monkeypatch.delenv("FLOW_CAD_PROJECT_ROOT", raising=False)
     monkeypatch.delenv("FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS", raising=False)
+    monkeypatch.delenv("FLOW_CAD_MCP_TOOLSET", raising=False)
 
 
-def test_build_server_registers_draft_geometry_tools(monkeypatch) -> None:
+def test_build_server_registers_default_agent_toolset(monkeypatch) -> None:
     install_fake_fastmcp(monkeypatch)
 
     server = mcp_server.build_server()
 
     assert server.name == "Flow CAD MCP"
     assert "draft-only CAD geometry operations" in server.instructions
-    assert "draft_create_box" in server.tools
-    assert "draft_set_panel_thickness" in server.tools
-    assert "draft_add_hole" in server.tools
-    assert "draft_add_counterbore" in server.tools
-    assert "draft_add_slot" in server.tools
-    assert "draft_add_louver_pattern" in server.tools
-    assert "draft_mirror_features" in server.tools
-    assert "draft_measure" in server.tools
-    assert "draft_export_step" in server.tools
-    assert "draft_discard" in server.tools
+    assert set(server.tools) == mcp_server.DEFAULT_TOOL_NAMES
+    assert len(server.tools) == 19
+    assert "draft_create_box" not in server.tools
+    assert "visual_evidence_create" not in server.tools
     assert "draft_begin_transaction" in server.tools
     assert "draft_transaction_create_box" in server.tools
-    assert "draft_transaction_set_panel_thickness" in server.tools
-    assert "draft_transaction_add_hole" in server.tools
-    assert "draft_transaction_add_counterbore" in server.tools
-    assert "draft_transaction_add_slot" in server.tools
-    assert "draft_transaction_add_louver_pattern" in server.tools
-    assert "draft_transaction_mirror_features" in server.tools
-    assert "draft_transaction_measure" in server.tools
-    assert "draft_transaction_preview" in server.tools
-    assert "draft_transaction_accept" in server.tools
-    assert "draft_transaction_discard" in server.tools
-    assert "validator_list" in server.tools
-    assert "validator_run" in server.tools
-    assert "profile_last" in server.tools
-    assert "visual_evidence_list" in server.tools
-    assert "visual_evidence_get" in server.tools
     assert "request_visual_evidence" in server.tools
-    assert "visual_evidence_requests_list" in server.tools
+
+
+def test_build_server_registers_advanced_toolset(monkeypatch) -> None:
+    install_fake_fastmcp(monkeypatch)
+    monkeypatch.setenv("FLOW_CAD_MCP_TOOLSET", "advanced")
+
+    server = mcp_server.build_server()
+
+    assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["advanced"]
+    assert len(server.tools) == 30
+    assert "draft_create_box" in server.tools
     assert "visual_evidence_create" in server.tools
+
+
+def test_build_server_registers_visual_toolset(monkeypatch) -> None:
+    install_fake_fastmcp(monkeypatch)
+    monkeypatch.setenv("FLOW_CAD_MCP_TOOLSET", "visual")
+
+    server = mcp_server.build_server()
+
+    assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["visual"]
+    assert set(server.tools) == mcp_server.ADVANCED_VISUAL_TOOL_NAMES
+    assert "draft_begin_transaction" not in server.tools
+
+
+def test_build_server_registers_transactions_toolset(monkeypatch) -> None:
+    install_fake_fastmcp(monkeypatch)
+    monkeypatch.setenv("FLOW_CAD_MCP_TOOLSET", "transactions")
+
+    server = mcp_server.build_server()
+
+    assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["transactions"]
+    assert "draft_begin_transaction" in server.tools
+    assert "validator_run" in server.tools
+    assert "request_visual_evidence" not in server.tools
+    assert "draft_create_box" not in server.tools
+
+
+def test_build_server_unknown_toolset_falls_back_to_default(monkeypatch) -> None:
+    install_fake_fastmcp(monkeypatch)
+    monkeypatch.setenv("FLOW_CAD_MCP_TOOLSET", "typo")
+
+    server = mcp_server.build_server()
+
+    assert set(server.tools) == mcp_server.DEFAULT_TOOL_NAMES
 
 
 def test_mcp_draft_tools_write_only_project_local_draft_state(monkeypatch, tmp_path: Path) -> None:
     install_fake_fastmcp(monkeypatch)
     init_project(tmp_path)
     monkeypatch.setenv("FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("FLOW_CAD_MCP_TOOLSET", "advanced")
 
     server = mcp_server.build_server()
     created = server.tools["draft_create_box"](
@@ -177,6 +201,7 @@ def test_mcp_draft_transaction_tools_create_review_artifacts_only(monkeypatch, t
 
 def test_mcp_draft_tools_reject_project_roots_outside_allowed_roots(monkeypatch, tmp_path: Path) -> None:
     install_fake_fastmcp(monkeypatch)
+    monkeypatch.setenv("FLOW_CAD_MCP_TOOLSET", "advanced")
     allowed_root = tmp_path / "allowed"
     outside_root = tmp_path / "outside"
     allowed_root.mkdir()
@@ -217,6 +242,7 @@ def test_mcp_visual_evidence_tools_write_thread_local_artifacts(monkeypatch, tmp
     install_fake_fastmcp(monkeypatch)
     init_project(tmp_path)
     monkeypatch.setenv("FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("FLOW_CAD_MCP_TOOLSET", "visual")
 
     service = mcp_server.design_thread_service(str(tmp_path))
     thread = service.create_thread({"title": "MCP visual evidence"})

@@ -168,18 +168,8 @@ An editable install also exposes:
 flow-cad-mcp
 ```
 
-Tools:
+Default tools:
 
-- `draft_create_box`
-- `draft_set_panel_thickness`
-- `draft_add_hole`
-- `draft_add_counterbore`
-- `draft_add_slot`
-- `draft_add_louver_pattern`
-- `draft_mirror_features`
-- `draft_measure`
-- `draft_export_step`
-- `draft_discard`
 - `draft_begin_transaction`
 - `draft_transaction_create_box`
 - `draft_transaction_set_panel_thickness`
@@ -193,6 +183,22 @@ Tools:
 - `draft_transaction_accept`
 - `draft_transaction_discard`
 
+Direct draft primitives remain available in the advanced MCP toolset for
+debugging and tests:
+
+- `draft_create_box`
+- `draft_set_panel_thickness`
+- `draft_add_hole`
+- `draft_add_counterbore`
+- `draft_add_slot`
+- `draft_add_louver_pattern`
+- `draft_mirror_features`
+- `draft_measure`
+- `draft_export_step`
+- `draft_discard`
+
 By default, the MCP server allows the current working directory as the project
 root. Set `FLOW_CAD_PROJECT_ROOT` or `FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS` to
-control which project roots the server may write draft state under.
+control which project roots the server may write draft state under. Set
+`FLOW_CAD_MCP_TOOLSET=advanced` to expose direct primitives; otherwise agents
+see the transaction-first default surface.

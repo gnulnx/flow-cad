@@ -23,8 +23,67 @@ DEFAULT_LOG_FILENAME = "flow_cad_mcp.log"
 PROJECT_ROOT_ENV = "FLOW_CAD_PROJECT_ROOT"
 ALLOWED_PROJECT_ROOTS_ENV = "FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS"
 LOG_PATH_ENV = "FLOW_CAD_MCP_LOG_PATH"
+TOOLSET_ENV = "FLOW_CAD_MCP_TOOLSET"
 
 _DRAFT_STORES: dict[Path, DraftGeometryStore] = {}
+
+DIRECT_DRAFT_TOOL_NAMES = {
+    "draft_create_box",
+    "draft_set_panel_thickness",
+    "draft_add_hole",
+    "draft_add_counterbore",
+    "draft_add_slot",
+    "draft_add_louver_pattern",
+    "draft_mirror_features",
+    "draft_measure",
+    "draft_export_step",
+    "draft_discard",
+}
+TRANSACTION_TOOL_NAMES = {
+    "draft_begin_transaction",
+    "draft_transaction_create_box",
+    "draft_transaction_set_panel_thickness",
+    "draft_transaction_add_hole",
+    "draft_transaction_add_counterbore",
+    "draft_transaction_add_slot",
+    "draft_transaction_add_louver_pattern",
+    "draft_transaction_mirror_features",
+    "draft_transaction_measure",
+    "draft_transaction_preview",
+    "draft_transaction_accept",
+    "draft_transaction_discard",
+}
+VALIDATOR_PROFILE_TOOL_NAMES = {
+    "validator_list",
+    "validator_run",
+    "profile_last",
+}
+DEFAULT_VISUAL_TOOL_NAMES = {
+    "visual_evidence_list",
+    "visual_evidence_get",
+    "request_visual_evidence",
+    "visual_evidence_requests_list",
+}
+ADVANCED_VISUAL_TOOL_NAMES = DEFAULT_VISUAL_TOOL_NAMES | {"visual_evidence_create"}
+DEFAULT_TOOL_NAMES = TRANSACTION_TOOL_NAMES | VALIDATOR_PROFILE_TOOL_NAMES | DEFAULT_VISUAL_TOOL_NAMES
+TOOLSET_TOOL_NAMES = {
+    "default": DEFAULT_TOOL_NAMES,
+    "advanced": DIRECT_DRAFT_TOOL_NAMES | TRANSACTION_TOOL_NAMES | VALIDATOR_PROFILE_TOOL_NAMES | ADVANCED_VISUAL_TOOL_NAMES,
+    "visual": ADVANCED_VISUAL_TOOL_NAMES,
+    "transactions": TRANSACTION_TOOL_NAMES | VALIDATOR_PROFILE_TOOL_NAMES,
+}
+
+
+def active_toolset() -> str:
+    requested = os.getenv(TOOLSET_ENV, "default").strip().lower() or "default"
+    if requested not in TOOLSET_TOOL_NAMES:
+        LOGGER.warning("Unknown Flow CAD MCP toolset %r; using default", requested)
+        return "default"
+    return requested
+
+
+def active_tool_names() -> set[str]:
+    return set(TOOLSET_TOOL_NAMES[active_toolset()])
 
 
 def resolve_log_path() -> Path:
@@ -108,6 +167,7 @@ def design_thread_service(project_root: str | None = None) -> DesignThreadServic
 def build_server() -> FastMCP:
     from mcp.server.fastmcp import FastMCP
 
+    tool_names = active_tool_names()
     mcp = FastMCP(
         "Flow CAD MCP",
         instructions=(
@@ -115,9 +175,19 @@ def build_server() -> FastMCP:
             "Draft tools write only project-local runtime state, preview artifacts, and review artifacts."
         ),
     )
-    LOGGER.info("Created FastMCP server instance.")
+    LOGGER.info("Created FastMCP server instance. toolset=%s tools=%s", active_toolset(), sorted(tool_names))
 
-    @mcp.tool(name="draft_create_box", description="Create a draft-only rectangular box or panel.")
+    def tool(*, name: str, description: str):
+        if name in tool_names:
+            return mcp.tool(name=name, description=description)
+
+        def decorator(func):
+            LOGGER.debug("Skipping MCP tool %s for toolset %s", name, active_toolset())
+            return func
+
+        return decorator
+
+    @tool(name="draft_create_box", description="Create a draft-only rectangular box or panel.")
     def draft_create_box_tool(
         length: float,
         width: float,
@@ -144,7 +214,7 @@ def build_server() -> FastMCP:
             role=role,
         )
 
-    @mcp.tool(name="draft_set_panel_thickness", description="Adjust a draft panel thickness.")
+    @tool(name="draft_set_panel_thickness", description="Adjust a draft panel thickness.")
     def draft_set_panel_thickness_tool(
         draft_token: str,
         thickness: float,
@@ -153,7 +223,7 @@ def build_server() -> FastMCP:
         LOGGER.info("draft_set_panel_thickness called. project_root=%s draft_token=%s", project_root, draft_token)
         return draft_store(project_root).set_panel_thickness(draft_token, thickness=thickness)
 
-    @mcp.tool(name="draft_add_hole", description="Add a draft through-hole to a selected face.")
+    @tool(name="draft_add_hole", description="Add a draft through-hole to a selected face.")
     def draft_add_hole_tool(
         draft_token: str,
         face: str,
@@ -173,7 +243,7 @@ def build_server() -> FastMCP:
             through=through,
         )
 
-    @mcp.tool(name="draft_add_counterbore", description="Add a basic draft counterbore pocket to a selected face.")
+    @tool(name="draft_add_counterbore", description="Add a basic draft counterbore pocket to a selected face.")
     def draft_add_counterbore_tool(
         draft_token: str,
         face: str,
@@ -195,7 +265,7 @@ def build_server() -> FastMCP:
             depth=depth,
         )
 
-    @mcp.tool(name="draft_add_slot", description="Add a draft rounded slot to a selected face.")
+    @tool(name="draft_add_slot", description="Add a draft rounded slot to a selected face.")
     def draft_add_slot_tool(
         draft_token: str,
         face: str,
@@ -217,7 +287,7 @@ def build_server() -> FastMCP:
             angle=angle,
         )
 
-    @mcp.tool(name="draft_add_louver_pattern", description="Add a draft louver pattern as repeated rounded slots.")
+    @tool(name="draft_add_louver_pattern", description="Add a draft louver pattern as repeated rounded slots.")
     def draft_add_louver_pattern_tool(
         draft_token: str,
         face: str,
@@ -249,7 +319,7 @@ def build_server() -> FastMCP:
             angle=angle,
         )
 
-    @mcp.tool(name="draft_mirror_features", description="Mirror draft features to the opposing parallel face.")
+    @tool(name="draft_mirror_features", description="Mirror draft features to the opposing parallel face.")
     def draft_mirror_features_tool(
         draft_token: str,
         source_face: str,
@@ -269,22 +339,22 @@ def build_server() -> FastMCP:
             target_face=target_face,
         )
 
-    @mcp.tool(name="draft_measure", description="Measure a draft part and return structured geometry facts.")
+    @tool(name="draft_measure", description="Measure a draft part and return structured geometry facts.")
     def draft_measure_tool(draft_token: str, project_root: str | None = None) -> dict[str, object]:
         LOGGER.info("draft_measure called. project_root=%s draft_token=%s", project_root, draft_token)
         return draft_store(project_root).measure_part(draft_token)
 
-    @mcp.tool(name="draft_export_step", description="Export a draft-only STEP preview under project local state.")
+    @tool(name="draft_export_step", description="Export a draft-only STEP preview under project local state.")
     def draft_export_step_tool(draft_token: str, project_root: str | None = None) -> dict[str, object]:
         LOGGER.info("draft_export_step called. project_root=%s draft_token=%s", project_root, draft_token)
         return draft_store(project_root).export_draft_step(draft_token)
 
-    @mcp.tool(name="draft_discard", description="Discard a draft token and remove its local runtime artifacts.")
+    @tool(name="draft_discard", description="Discard a draft token and remove its local runtime artifacts.")
     def draft_discard_tool(draft_token: str, project_root: str | None = None) -> dict[str, object]:
         LOGGER.info("draft_discard called. project_root=%s draft_token=%s", project_root, draft_token)
         return draft_store(project_root).discard(draft_token)
 
-    @mcp.tool(name="draft_begin_transaction", description="Begin a draft geometry transaction.")
+    @tool(name="draft_begin_transaction", description="Begin a draft geometry transaction.")
     def draft_begin_transaction_tool(
         project_root: str | None = None,
         part_id: str | None = None,
@@ -292,7 +362,7 @@ def build_server() -> FastMCP:
         LOGGER.info("draft_begin_transaction called. project_root=%s part_id=%s", project_root, part_id)
         return draft_store(project_root).begin_transaction(part_id=part_id)
 
-    @mcp.tool(name="draft_transaction_create_box", description="Create the box or panel inside a draft transaction.")
+    @tool(name="draft_transaction_create_box", description="Create the box or panel inside a draft transaction.")
     def draft_transaction_create_box_tool(
         transaction_token: str,
         length: float,
@@ -314,7 +384,7 @@ def build_server() -> FastMCP:
             role=role,
         )
 
-    @mcp.tool(name="draft_transaction_set_panel_thickness", description="Set panel thickness inside a draft transaction.")
+    @tool(name="draft_transaction_set_panel_thickness", description="Set panel thickness inside a draft transaction.")
     def draft_transaction_set_panel_thickness_tool(
         transaction_token: str,
         thickness: float,
@@ -323,7 +393,7 @@ def build_server() -> FastMCP:
         LOGGER.info("draft_transaction_set_panel_thickness called. project_root=%s transaction=%s", project_root, transaction_token)
         return draft_store(project_root).transaction_set_panel_thickness(transaction_token, thickness=thickness)
 
-    @mcp.tool(name="draft_transaction_add_hole", description="Add a through-hole inside a draft transaction.")
+    @tool(name="draft_transaction_add_hole", description="Add a through-hole inside a draft transaction.")
     def draft_transaction_add_hole_tool(
         transaction_token: str,
         face: str,
@@ -343,7 +413,7 @@ def build_server() -> FastMCP:
             through=through,
         )
 
-    @mcp.tool(name="draft_transaction_add_counterbore", description="Add a counterbore inside a draft transaction.")
+    @tool(name="draft_transaction_add_counterbore", description="Add a counterbore inside a draft transaction.")
     def draft_transaction_add_counterbore_tool(
         transaction_token: str,
         face: str,
@@ -363,7 +433,7 @@ def build_server() -> FastMCP:
             depth=depth,
         )
 
-    @mcp.tool(name="draft_transaction_add_slot", description="Add a rounded slot inside a draft transaction.")
+    @tool(name="draft_transaction_add_slot", description="Add a rounded slot inside a draft transaction.")
     def draft_transaction_add_slot_tool(
         transaction_token: str,
         face: str,
@@ -385,7 +455,7 @@ def build_server() -> FastMCP:
             angle=angle,
         )
 
-    @mcp.tool(name="draft_transaction_add_louver_pattern", description="Add a louver pattern inside a draft transaction.")
+    @tool(name="draft_transaction_add_louver_pattern", description="Add a louver pattern inside a draft transaction.")
     def draft_transaction_add_louver_pattern_tool(
         transaction_token: str,
         face: str,
@@ -411,7 +481,7 @@ def build_server() -> FastMCP:
             angle=angle,
         )
 
-    @mcp.tool(name="draft_transaction_mirror_features", description="Mirror features inside a draft transaction.")
+    @tool(name="draft_transaction_mirror_features", description="Mirror features inside a draft transaction.")
     def draft_transaction_mirror_features_tool(
         transaction_token: str,
         source_face: str,
@@ -425,27 +495,27 @@ def build_server() -> FastMCP:
             target_face=target_face,
         )
 
-    @mcp.tool(name="draft_transaction_measure", description="Measure the draft part inside a transaction.")
+    @tool(name="draft_transaction_measure", description="Measure the draft part inside a transaction.")
     def draft_transaction_measure_tool(transaction_token: str, project_root: str | None = None) -> dict[str, object]:
         LOGGER.info("draft_transaction_measure called. project_root=%s transaction=%s", project_root, transaction_token)
         return draft_store(project_root).transaction_measure(transaction_token)
 
-    @mcp.tool(name="draft_transaction_preview", description="Export a transaction STEP preview under project local state.")
+    @tool(name="draft_transaction_preview", description="Export a transaction STEP preview under project local state.")
     def draft_transaction_preview_tool(transaction_token: str, project_root: str | None = None) -> dict[str, object]:
         LOGGER.info("draft_transaction_preview called. project_root=%s transaction=%s", project_root, transaction_token)
         return draft_store(project_root).transaction_preview(transaction_token)
 
-    @mcp.tool(name="draft_transaction_accept", description="Accept a transaction into reviewable source patch artifacts.")
+    @tool(name="draft_transaction_accept", description="Accept a transaction into reviewable source patch artifacts.")
     def draft_transaction_accept_tool(transaction_token: str, project_root: str | None = None) -> dict[str, object]:
         LOGGER.info("draft_transaction_accept called. project_root=%s transaction=%s", project_root, transaction_token)
         return draft_store(project_root).accept_transaction(transaction_token)
 
-    @mcp.tool(name="draft_transaction_discard", description="Discard a draft transaction and local runtime artifacts.")
+    @tool(name="draft_transaction_discard", description="Discard a draft transaction and local runtime artifacts.")
     def draft_transaction_discard_tool(transaction_token: str, project_root: str | None = None) -> dict[str, object]:
         LOGGER.info("draft_transaction_discard called. project_root=%s transaction=%s", project_root, transaction_token)
         return draft_store(project_root).discard_transaction(transaction_token)
 
-    @mcp.tool(name="validator_list", description="List focused validators for a Flow CAD project.")
+    @tool(name="validator_list", description="List focused validators for a Flow CAD project.")
     def validator_list_tool(
         project_root: str | None = None,
         family: str | None = None,
@@ -455,7 +525,7 @@ def build_server() -> FastMCP:
         validators = validation_runner(project_root).list_validators(family=family, tag=tag)
         return {"ok": True, "validators": validators}
 
-    @mcp.tool(name="validator_run", description="Run focused validators and return structured reports.")
+    @tool(name="validator_run", description="Run focused validators and return structured reports.")
     def validator_run_tool(
         validator_id: str | None = None,
         project_root: str | None = None,
@@ -489,7 +559,7 @@ def build_server() -> FastMCP:
             "profile": profile_payload,
         }
 
-    @mcp.tool(name="profile_last", description="Return the latest build or validator profile summary.")
+    @tool(name="profile_last", description="Return the latest build or validator profile summary.")
     def profile_last_tool(
         project_root: str | None = None,
         limit: int = 5,
@@ -506,7 +576,7 @@ def build_server() -> FastMCP:
             "summary": format_profile_summary(profile, limit=limit),
         }
 
-    @mcp.tool(name="visual_evidence_list", description="List visual evidence artifacts for a design thread.")
+    @tool(name="visual_evidence_list", description="List visual evidence artifacts for a design thread.")
     def visual_evidence_list_tool(
         thread_id: str,
         project_root: str | None = None,
@@ -521,7 +591,7 @@ def build_server() -> FastMCP:
             "visual_evidence": visual_evidence if isinstance(visual_evidence, list) else [],
         }
 
-    @mcp.tool(name="visual_evidence_get", description="Read visual evidence metadata for a design thread artifact.")
+    @tool(name="visual_evidence_get", description="Read visual evidence metadata for a design thread artifact.")
     def visual_evidence_get_tool(
         thread_id: str,
         artifact_id: str,
@@ -535,7 +605,7 @@ def build_server() -> FastMCP:
         )
         return design_thread_service(project_root).get_visual_evidence(thread_id, artifact_id)
 
-    @mcp.tool(
+    @tool(
         name="request_visual_evidence",
         description="Request an offscreen browser render for a design thread; the viewer fulfills it asynchronously.",
     )
@@ -574,7 +644,7 @@ def build_server() -> FastMCP:
         }
         return design_thread_service(project_root).request_visual_evidence(thread_id, payload)
 
-    @mcp.tool(name="visual_evidence_requests_list", description="List render requests for a design thread.")
+    @tool(name="visual_evidence_requests_list", description="List render requests for a design thread.")
     def visual_evidence_requests_list_tool(
         thread_id: str,
         project_root: str | None = None,
@@ -588,7 +658,7 @@ def build_server() -> FastMCP:
         )
         return design_thread_service(project_root).list_visual_evidence_requests(thread_id, status=status)
 
-    @mcp.tool(name="visual_evidence_create", description="Store a PNG visual evidence artifact for a design thread.")
+    @tool(name="visual_evidence_create", description="Store a PNG visual evidence artifact for a design thread.")
     def visual_evidence_create_tool(
         thread_id: str,
         project_root: str | None = None,
@@ -629,17 +699,7 @@ def build_server() -> FastMCP:
         }
         return design_thread_service(project_root).add_visual_evidence(thread_id, payload)
 
-    LOGGER.info(
-        "Registered MCP tools: draft_create_box, draft_set_panel_thickness, draft_add_hole, "
-        "draft_add_counterbore, draft_add_slot, draft_add_louver_pattern, draft_mirror_features, "
-        "draft_measure, draft_export_step, draft_discard, draft_begin_transaction, "
-        "draft_transaction_create_box, draft_transaction_set_panel_thickness, draft_transaction_add_hole, "
-        "draft_transaction_add_counterbore, draft_transaction_add_slot, draft_transaction_add_louver_pattern, "
-        "draft_transaction_mirror_features, draft_transaction_measure, draft_transaction_preview, "
-        "draft_transaction_accept, draft_transaction_discard, validator_list, validator_run, profile_last, "
-        "visual_evidence_list, visual_evidence_get, request_visual_evidence, "
-        "visual_evidence_requests_list, visual_evidence_create"
-    )
+    LOGGER.info("Registered MCP tools: %s", ", ".join(sorted(tool_names)))
     return mcp
 
 

@@ -46,24 +46,58 @@ Environment variables:
 - `FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS`: path-list of allowed roots. When set,
   requested project roots must be inside one of these roots.
 - `FLOW_CAD_MCP_LOG_PATH`: optional MCP log path. Defaults to a temp-file log.
+- `FLOW_CAD_MCP_TOOLSET`: optional discovery profile. Defaults to `default`.
 
 If neither root variable is set, the current working directory is the allowed
 project root.
 
-## Current Tools
+## Toolsets
 
-Draft geometry tools:
+The MCP server keeps the lower-level tools implemented, but it does not expose
+every tool by default. This keeps the model-facing discovery surface smaller and
+pushes normal agents toward reviewable transaction workflows.
 
-- `draft_create_box`
-- `draft_set_panel_thickness`
-- `draft_add_hole`
-- `draft_add_counterbore`
-- `draft_add_slot`
-- `draft_add_louver_pattern`
-- `draft_mirror_features`
-- `draft_measure`
-- `draft_export_step`
-- `draft_discard`
+Available toolsets:
+
+- `default`: transaction draft tools, validators/profile, and agent visual
+  evidence request/read tools. This is the recommended agent-facing surface.
+- `advanced`: every Flow CAD MCP tool, including direct draft primitives and
+  raw visual evidence upload. Use for debugging, tests, and power users.
+- `visual`: only visual evidence tools, including raw upload.
+- `transactions`: transaction draft tools plus validators/profile; no visual
+  evidence tools and no direct draft primitives.
+
+Example:
+
+```bash
+FLOW_CAD_MCP_TOOLSET=default flow-cad-mcp
+FLOW_CAD_MCP_TOOLSET=advanced flow-cad-mcp
+```
+
+Codex example:
+
+```bash
+codex mcp add flow-cad \
+  --env FLOW_CAD_PROJECT_ROOT=/path/to/project \
+  --env FLOW_CAD_MCP_TOOLSET=default \
+  -- flow-cad-mcp
+```
+
+Hermes example:
+
+```bash
+hermes mcp add flow-cad \
+  --command flow-cad-mcp \
+  --env FLOW_CAD_PROJECT_ROOT=/path/to/project \
+  --env FLOW_CAD_MCP_TOOLSET=default
+```
+
+## Default Tools
+
+The default toolset exposes 19 tools:
+
+Draft transaction tools:
+
 - `draft_begin_transaction`
 - `draft_transaction_create_box`
 - `draft_transaction_set_panel_thickness`
@@ -89,6 +123,27 @@ Design-thread visual evidence tools:
 - `visual_evidence_get`
 - `request_visual_evidence`
 - `visual_evidence_requests_list`
+
+## Advanced Tools
+
+The advanced toolset includes all default tools plus direct draft primitives and
+raw visual evidence upload.
+
+Draft geometry tools:
+
+- `draft_create_box`
+- `draft_set_panel_thickness`
+- `draft_add_hole`
+- `draft_add_counterbore`
+- `draft_add_slot`
+- `draft_add_louver_pattern`
+- `draft_mirror_features`
+- `draft_measure`
+- `draft_export_step`
+- `draft_discard`
+
+Advanced visual evidence tool:
+
 - `visual_evidence_create`
 
 These tools use `DraftGeometryStore` and return the same structured facts as the
