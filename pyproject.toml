@@ -21,7 +21,7 @@ flow = "flow_cad.cli:flow"
 flow-cad-mcp = "flow_cad.mcp:main"
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest", "httpx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
