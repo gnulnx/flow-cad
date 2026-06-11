@@ -472,6 +472,16 @@ export interface DesignThreadWorkerJobResponse {
   thread?: DesignThreadRecord
 }
 
+export interface DesignThreadActionResponse {
+  ok?: boolean
+  thread_id: string
+  validation?: Record<string, unknown>
+  build?: Record<string, unknown>
+  messages?: DesignThreadEvent[]
+  message?: DesignThreadEvent
+  thread?: DesignThreadRecord
+}
+
 export interface ModelData {
   name: string
   partId: string

@@ -50,6 +50,7 @@ import type {
   CreateDesignThreadPayload,
   DesignThreadChatPayload,
   DesignThreadChatResponse,
+  DesignThreadActionResponse,
   DesignThreadWorkerJobResponse,
   DesignThreadDraftEventRequest,
   DesignThreadDraftEventResponse,
@@ -1083,6 +1084,57 @@ export default function App() {
     await loadThreadSummaries()
     return payload
   }, [apiBase, loadThread, loadThreadSummaries, syncThreadFromPayload])
+
+  const draftModeActionPayload = useCallback(() => {
+    const selectedSourcePartId = selectedIds.find((partId) => !partId.startsWith('draft:'))
+    const targetPartId = selectedSourcePartId || (activeName && !activeName.startsWith('draft:') ? activeName : null)
+    return {
+      validator_id: 'panel-basic',
+      interaction_mode: 'draft',
+      requested_skill: 'draft-mode',
+      ...(targetPartId ? { part_id: targetPartId } : {}),
+      ...(draftTransactionToken ? { draft_transaction_token: draftTransactionToken } : {}),
+    }
+  }, [activeName, draftTransactionToken, selectedIds])
+
+  const validateDraftMode = useCallback(async (threadId: string) => {
+    const response = await fetch(
+      apiUrl(apiBase, `/api/design-threads/${threadId}/validate`),
+      buildHeaders(draftModeActionPayload()),
+    )
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as DesignThreadActionResponse
+    if (payload.thread) {
+      syncThreadFromPayload(payload.thread)
+    } else {
+      await loadThread(threadId)
+    }
+    await loadThreadSummaries()
+    return payload
+  }, [apiBase, draftModeActionPayload, loadThread, loadThreadSummaries, syncThreadFromPayload])
+
+  const buildDraftMode = useCallback(async (threadId: string) => {
+    const response = await fetch(
+      apiUrl(apiBase, `/api/design-threads/${threadId}/build`),
+      buildHeaders(draftModeActionPayload()),
+    )
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as DesignThreadActionResponse
+    if (payload.thread) {
+      syncThreadFromPayload(payload.thread)
+    } else {
+      await loadThread(threadId)
+    }
+    await loadThreadSummaries()
+    if (payload.ok) {
+      await loadViewerState()
+    }
+    return payload
+  }, [apiBase, draftModeActionPayload, loadThread, loadThreadSummaries, loadViewerState, syncThreadFromPayload])
 
   const createViewportAttachment = useCallback(async (threadId: string, payload: ViewportScreenshotPayload) => {
     const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/attachments/viewport-screenshot`), {
@@ -2368,6 +2420,8 @@ export default function App() {
           onActivateThread={loadThread}
           onPatchThread={patchThread}
           onSendChatMessage={sendThreadChatMessage}
+          onValidateDraftMode={validateDraftMode}
+          onBuildDraftMode={buildDraftMode}
           onCommitWorkerJob={commitWorkerJob}
           onCreateViewportAttachment={createViewportAttachment}
           onRequestVisualEvidence={createVisualEvidence}
@@ -2442,6 +2496,29 @@ export default function App() {
               onClear={() => setViewportAnnotations([])}
               onClose={() => setMarkupActive(false)}
             />
+            {tapeMode && (
+              <div className="viewport-annotation-toolbar" role="toolbar" aria-label="Tape measure toolbar" style={{ zIndex: 111 }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginRight: '8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  📏 Tape Measure
+                </span>
+                <button
+                  type="button"
+                  className="btn-tool"
+                  onClick={handleClearMeasurements}
+                  aria-label="Clear measurements"
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  className="btn-tool annotation-toolbar-close"
+                  onClick={() => handleTapeModeChange(false)}
+                  aria-label="Close tape measure toolbar"
+                >
+                  Close
+                </button>
+              </div>
+            )}
           </FileDropZone>
         </div>
         {partsCollapsed ? null : (

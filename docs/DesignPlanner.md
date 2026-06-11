@@ -30,14 +30,53 @@ The planner treats every user request as:
      and applicable scope.
 3. **DesignPlan**
    - A structured list of steps with operation references and plan kind.
+   - A structured `intent_items` checklist that records what the prompt asked
+     for even when the current draft adapter cannot execute every item.
+   - A `coverage` report that says whether the plan is safe to auto-execute,
+     partial, blocked by missing decisions, or concept-only.
 4. **Execution**
-   - Apply operations through draft transaction paths only.
+   - Apply operations through draft transaction paths only when coverage says the
+     deterministic draft path can execute without silently dropping intent.
 5. **Preview/validation loop**
    - Preview the draft, surface warnings and failed steps, and keep all writes within
      runtime state until accepted.
 
 Every stage is persisted as structured thread evidence so failures are diagnosable and
 retryable.
+
+## Intent Checklist And Coverage
+
+The planner must never treat a partial parse as success. Every plan now carries:
+
+- `intent_items`: one row per detected requirement, such as base geometry,
+  holes, pillars/bosses, inserts/recesses, side-face mounting holes, louver
+  patterns, non-overlap constraints, or advanced surface operations.
+- `intent_items[].status`:
+  - `covered`: the current registry operations can directly represent it.
+  - `partial`: there is a plausible operation path, but an important frame,
+    feature primitive, or target decision is missing.
+  - `unsupported`: the current draft operation registry cannot represent it.
+  - `needs_decision`: user/context data is missing.
+  - `verification_only`: no mutation is needed, but a validator or geometry
+    check must prove it after preview.
+- `coverage.can_auto_execute`: true only when the deterministic draft adapter can
+  run without silently dropping required intent.
+- `coverage.blocking_items`: requirement ids that prevent safe automatic draft
+  execution.
+- `verification`: checks that should be run after preview or source promotion.
+
+For example, a prompt asking for a plate with four M4 corner holes can be
+`ready`. A prompt asking for pillars, insert pockets, side-face holes, and
+non-overlap constraints is `partial_requires_review` until those requirements
+are handled by an LLM/tool loop or new draft operations.
+
+When a design-thread chat turn produces a `draft_plan` with
+`coverage.can_auto_execute=false`, the viewer must show the intent audit instead
+of running the deterministic adapter and returning a misleading partial preview.
+Annotated follow-up edits on an existing draft transaction remain allowed because
+they already carry draft state plus visual context. Source-level edit intents,
+such as moving existing holes to another face, stay on the runtime-agent path as
+`concept_plan` items with explicit unsupported `feature_relocation` coverage.
 
 ## Plan Types
 
@@ -140,6 +179,31 @@ Planned thread-visible lifecycle states:
 
 When blocked, the plan should preserve the exact failure reason, failed step, and
 the next ask to continue.
+
+## Verification
+
+Run the planner-only verification matrix:
+
+```bash
+python -m flow_cad.design_planner --verify
+```
+
+The command returns JSON with per-case `plan_type`, `execution_readiness`,
+coverage counts, and intent kinds. It is intended for quick local inspection.
+
+Run the unit and integration gates:
+
+```bash
+.venv/bin/python -m pytest tests/test_design_planner.py -q
+.venv/bin/python -m pytest tests/test_viewer_design_threads.py -q
+```
+
+`tests/test_design_planner.py` covers simple plates, corner holes, slots,
+louvers, pillars/standoffs, inserts/recesses, non-overlap constraints,
+feature-relocation routing, annotations, broad question plans, and unsupported
+advanced surface operations.
+`tests/test_viewer_design_threads.py` proves complex uncovered intent does not
+auto-run the deterministic draft adapter or create a draft transaction.
 
 ## V1 Boundaries
 

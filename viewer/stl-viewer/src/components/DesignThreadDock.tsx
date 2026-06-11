@@ -60,6 +60,8 @@ interface DesignThreadDockProps {
   onActivateThread: (threadId: string) => Promise<unknown>
   onPatchThread: (threadId: string, patch: Record<string, unknown>) => Promise<unknown>
   onSendChatMessage: (threadId: string, payload: DesignThreadChatPayload) => Promise<DesignThreadChatResponse>
+  onValidateDraftMode?: (threadId: string) => Promise<unknown>
+  onBuildDraftMode?: (threadId: string) => Promise<unknown>
   onCommitWorkerJob?: (threadId: string, jobId: string) => Promise<unknown>
   onCreateViewportAttachment: (threadId: string, payload: ViewportScreenshotPayload) => Promise<ViewportAttachmentRecord | null>
   onRequestVisualEvidence?: (threadId: string) => Promise<ThreadVisualEvidenceArtifact | null>
@@ -260,6 +262,8 @@ export default function DesignThreadDock({
   onActivateThread,
   onPatchThread,
   onSendChatMessage,
+  onValidateDraftMode,
+  onBuildDraftMode,
   onCommitWorkerJob,
   onCreateViewportAttachment,
   onRequestVisualEvidence,
@@ -282,6 +286,10 @@ export default function DesignThreadDock({
   const [visualEvidenceError, setVisualEvidenceError] = useState<string | null>(null)
   const [chatBusy, setChatBusy] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
+  const [validateBusy, setValidateBusy] = useState(false)
+  const [validateError, setValidateError] = useState<string | null>(null)
+  const [buildBusy, setBuildBusy] = useState(false)
+  const [buildError, setBuildError] = useState<string | null>(null)
   const [commitBusy, setCommitBusy] = useState(false)
   const [commitError, setCommitError] = useState<string | null>(null)
   const [threadsOpen, setThreadsOpen] = useState(false)
@@ -443,11 +451,41 @@ export default function DesignThreadDock({
       await onSendChatMessage(activeThreadId, {
         message: submittedText,
         context_snapshot: onBuildViewerContext(),
+        metadata: {
+          interaction_mode: 'draft',
+          requested_skill: 'draft-mode',
+        },
       })
     } catch (error) {
       setChatError(error instanceof Error ? error.message : 'Chat request failed')
     } finally {
       setChatBusy(false)
+    }
+  }
+
+  const validateDraftMode = async () => {
+    if (!activeThreadId || !onValidateDraftMode) return
+    setValidateBusy(true)
+    setValidateError(null)
+    try {
+      await onValidateDraftMode(activeThreadId)
+    } catch (error) {
+      setValidateError(error instanceof Error ? error.message : 'Validation failed')
+    } finally {
+      setValidateBusy(false)
+    }
+  }
+
+  const buildDraftMode = async () => {
+    if (!activeThreadId || !onBuildDraftMode) return
+    setBuildBusy(true)
+    setBuildError(null)
+    try {
+      await onBuildDraftMode(activeThreadId)
+    } catch (error) {
+      setBuildError(error instanceof Error ? error.message : 'Build failed')
+    } finally {
+      setBuildBusy(false)
     }
   }
 
@@ -697,14 +735,32 @@ export default function DesignThreadDock({
               <div className="chat-composer-actions">
                 <span>{activeThreadId ? 'View context attached on send' : 'Select or create a thread'}</span>
                 <button
+                  type="button"
+                  className="btn-tool"
+                  onClick={() => void validateDraftMode()}
+                  disabled={!activeThreadId || commandBusyState || validateBusy || buildBusy || !onValidateDraftMode}
+                >
+                  {validateBusy ? 'Validating...' : 'Validate'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-tool"
+                  onClick={() => void buildDraftMode()}
+                  disabled={!activeThreadId || commandBusyState || validateBusy || buildBusy || !onBuildDraftMode}
+                >
+                  {buildBusy ? 'Building...' : 'Build'}
+                </button>
+                <button
                   type="submit"
                   className="btn-tool chat-send"
-                  disabled={!activeThreadId || !composerText.trim() || commandBusyState}
+                  disabled={!activeThreadId || !composerText.trim() || commandBusyState || validateBusy || buildBusy}
                 >
                   {chatBusy ? 'Sending...' : 'Send'}
                 </button>
               </div>
               {chatError ? <span className="thread-error chat-composer-error">{chatError}</span> : null}
+              {validateError ? <span className="thread-error chat-composer-error">{validateError}</span> : null}
+              {buildError ? <span className="thread-error chat-composer-error">{buildError}</span> : null}
             </form>
 
             <details className="advanced-thread-tools">

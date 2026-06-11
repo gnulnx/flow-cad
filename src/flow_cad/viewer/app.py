@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +126,129 @@ def _cad_safe_tools() -> list[dict[str, Any]]:
 
 def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n\n"
+
+
+def _run_flow_cli(project_root: Path, args: list[str]) -> dict[str, Any]:
+    command = [sys.executable, "-m", "flow_cad.cli", *args]
+    result = subprocess.run(command, cwd=project_root, capture_output=True, text=True)
+    return {
+        "command": " ".join(["python", "-m", "flow_cad.cli", *args]),
+        "argv": command,
+        "exit_code": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "ok": result.returncode == 0,
+    }
+
+
+def _parse_json_stdout(result: dict[str, Any]) -> dict[str, Any] | None:
+    stdout = result.get("stdout")
+    if not isinstance(stdout, str) or not stdout.strip():
+        return None
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _validator_action_payload(
+    viewer_service: ViewerService,
+    *,
+    validator_id: str,
+    part_id: str | None,
+    draft_transaction_token: str | None,
+) -> dict[str, Any]:
+    args = ["validate", "run", validator_id, "--json"]
+    target_label = ""
+    if draft_transaction_token:
+        args.extend(["--draft-transaction", draft_transaction_token])
+        target_label = f"draft transaction {draft_transaction_token}"
+    elif part_id:
+        args.extend(["--part", part_id])
+        target_label = f"part {part_id}"
+    else:
+        raise ViewerError("Validation requires a draft transaction token or part id.")
+
+    result = _run_flow_cli(viewer_service.project_root, args)
+    payload = _parse_json_stdout(result)
+    ok = bool(payload.get("ok")) if isinstance(payload, dict) and "ok" in payload else bool(result["ok"])
+    report_count = len(payload.get("reports", [])) if isinstance(payload, dict) and isinstance(payload.get("reports"), list) else 0
+    summary = (
+        f"Validation passed for {target_label}."
+        if ok
+        else f"Validation failed for {target_label}."
+    )
+    return {
+        "kind": "tool_result",
+        "tool": "flow_validate",
+        "status": "success" if ok else "error",
+        "summary": summary,
+        "command": result["command"],
+        "exit_code": result["exit_code"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+        "validator_id": validator_id,
+        "part_id": part_id,
+        "draft_transaction_token": draft_transaction_token,
+        "report_count": report_count,
+        "reports": payload.get("reports", []) if isinstance(payload, dict) else [],
+        "profile": payload.get("profile") if isinstance(payload, dict) else None,
+        "ok": ok,
+    }
+
+
+def _append_validation_result(
+    design_threads: DesignThreadService,
+    thread_id: str,
+    validation: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any]:
+    return design_threads.append_validator_event(
+        thread_id,
+        {
+            "content": validation,
+            "metadata": {
+                "runtime": "flow_cad_draft_mode",
+                "source": source,
+                "validator_id": validation.get("validator_id"),
+                **(
+                    {"draft_transaction_token": validation["draft_transaction_token"]}
+                    if validation.get("draft_transaction_token")
+                    else {}
+                ),
+                **({"part_id": validation["part_id"]} if validation.get("part_id") else {}),
+            },
+        },
+    )
+
+
+def _thread_validation_action(
+    design_threads: DesignThreadService,
+    viewer_service: ViewerService,
+    thread_id: str,
+    payload: dict[str, object],
+    *,
+    source: str,
+) -> dict[str, Any]:
+    validator_id = str(payload.get("validator_id") or "panel-basic")
+    part_id = str(payload.get("part_id") or "").strip() or None
+    draft_transaction_token = str(payload.get("draft_transaction_token") or "").strip() or None
+    validation = _validator_action_payload(
+        viewer_service,
+        validator_id=validator_id,
+        part_id=part_id,
+        draft_transaction_token=draft_transaction_token,
+    )
+    message = _append_validation_result(design_threads, thread_id, validation, source=source)
+    return {
+        "ok": bool(validation.get("ok")),
+        "thread_id": thread_id,
+        "validation": validation,
+        "messages": [message],
+        "thread": design_threads.get_thread(thread_id),
+    }
 
 
 def _assistant_delta_text(event: dict[str, Any]) -> str:
@@ -585,6 +710,59 @@ def _design_plan_type(message: dict[str, Any]) -> str:
     if not isinstance(content, dict):
         return ""
     return str(content.get("plan_type") or "")
+
+
+def _design_plan_can_auto_execute(message: dict[str, Any]) -> bool:
+    content = message.get("content")
+    if not isinstance(content, dict):
+        return False
+    coverage = content.get("coverage")
+    if not isinstance(coverage, dict):
+        return True
+    return bool(coverage.get("can_auto_execute"))
+
+
+def _can_run_annotated_draft_followup(prepared: dict[str, Any]) -> bool:
+    return bool(_draft_transaction_token_from_prepared(prepared) and _annotations_from_prepared(prepared))
+
+
+def _intent_audit_response_content(plan_message: dict[str, Any]) -> str:
+    content = plan_message.get("content")
+    plan = content if isinstance(content, dict) else {}
+    coverage = plan.get("coverage") if isinstance(plan.get("coverage"), dict) else {}
+    items = plan.get("intent_items") if isinstance(plan.get("intent_items"), list) else []
+    blocking_ids = set(coverage.get("blocking_items") if isinstance(coverage.get("blocking_items"), list) else [])
+    blocking = [
+        item
+        for item in items
+        if isinstance(item, dict)
+        and (
+            item.get("requirement_id") in blocking_ids
+            or item.get("status") in {"unsupported", "needs_decision", "partial"}
+        )
+    ]
+    if not blocking:
+        return (
+            "I parsed this as draft intent, but I do not have enough verified operation coverage "
+            "to run an automatic draft safely."
+        )
+
+    lines = []
+    for item in blocking[:8]:
+        summary = str(item.get("summary") or item.get("kind") or item.get("requirement_id") or "intent item")
+        status = str(item.get("status") or "unknown")
+        missing = item.get("missing_capabilities") if isinstance(item.get("missing_capabilities"), list) else []
+        suffix = f" Missing: {', '.join(str(value) for value in missing)}." if missing else ""
+        lines.append(f"- {summary} [{status}].{suffix}")
+    coverage_summary = str(coverage.get("summary") or "Intent coverage is incomplete.")
+    rendered = "\n".join(lines)
+    return (
+        "I should not run the deterministic draft adapter yet because it would only produce a partial result.\n\n"
+        f"Intent coverage: {coverage_summary}\n\n"
+        f"{rendered}\n\n"
+        "Use a draft-capable agent/tool loop for these remaining items, or simplify the next turn to the supported "
+        "plate/hole/slot/louver operations."
+    )
 
 
 def _question_plan_response_content(plan_message: dict[str, Any]) -> str:
@@ -1163,6 +1341,139 @@ def create_app(
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
+    @app.post("/api/design-threads/{thread_id}/validate")
+    def validate_design_thread_target(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return _thread_validation_action(
+                design_threads,
+                viewer_service,
+                thread_id,
+                payload,
+                source="chat_validate_button",
+            )
+        except (ThreadStorageError, ThreadNotFoundError, ViewerError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/build")
+    def build_design_thread_target(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            validation_payload = _thread_validation_action(
+                design_threads,
+                viewer_service,
+                thread_id,
+                payload,
+                source="chat_build_button",
+            )
+            messages = list(validation_payload["messages"])
+            validation = validation_payload["validation"]
+            part_id = str(payload.get("part_id") or "").strip()
+            if not validation.get("ok"):
+                build_result = {
+                    "kind": "tool_result",
+                    "tool": "flow_cad_build",
+                    "status": "error",
+                    "summary": "Build skipped because validation failed.",
+                    "part_id": part_id or None,
+                    "ok": False,
+                    "skipped": True,
+                }
+                messages.append(
+                    design_threads.append_validator_event(
+                        thread_id,
+                        {
+                            "content": build_result,
+                            "metadata": {
+                                "runtime": "flow_cad_draft_mode",
+                                "source": "chat_build_button",
+                                **({"part_id": part_id} if part_id else {}),
+                            },
+                        },
+                    )
+                )
+                return {
+                    "ok": False,
+                    "thread_id": thread_id,
+                    "validation": validation,
+                    "build": build_result,
+                    "messages": messages,
+                    "thread": design_threads.get_thread(thread_id),
+                }
+
+            if not part_id:
+                build_result = {
+                    "kind": "tool_result",
+                    "tool": "flow_cad_build",
+                    "status": "error",
+                    "summary": "Build requires a registered part id. Accept or promote the draft before building source artifacts.",
+                    "ok": False,
+                    "skipped": True,
+                }
+                messages.append(
+                    design_threads.append_validator_event(
+                        thread_id,
+                        {
+                            "content": build_result,
+                            "metadata": {
+                                "runtime": "flow_cad_draft_mode",
+                                "source": "chat_build_button",
+                            },
+                        },
+                    )
+                )
+                return {
+                    "ok": False,
+                    "thread_id": thread_id,
+                    "validation": validation,
+                    "build": build_result,
+                    "messages": messages,
+                    "thread": design_threads.get_thread(thread_id),
+                }
+
+            cli_result = _run_flow_cli(viewer_service.project_root, ["cad", "build", "--part", part_id, "--no-reports"])
+            build_result = {
+                "kind": "tool_result",
+                "tool": "flow_cad_build",
+                "status": "success" if cli_result["ok"] else "error",
+                "summary": (
+                    f"Build passed for part {part_id}."
+                    if cli_result["ok"]
+                    else f"Build failed for part {part_id}."
+                ),
+                "command": cli_result["command"],
+                "exit_code": cli_result["exit_code"],
+                "stdout": cli_result["stdout"],
+                "stderr": cli_result["stderr"],
+                "part_id": part_id,
+                "ok": bool(cli_result["ok"]),
+            }
+            messages.append(
+                design_threads.append_validator_event(
+                    thread_id,
+                    {
+                        "content": build_result,
+                        "metadata": {
+                            "runtime": "flow_cad_draft_mode",
+                            "source": "chat_build_button",
+                            "part_id": part_id,
+                        },
+                    },
+                )
+            )
+            if cli_result["ok"]:
+                viewer_service.reload()
+            return {
+                "ok": bool(validation.get("ok") and cli_result["ok"]),
+                "thread_id": thread_id,
+                "validation": validation,
+                "build": build_result,
+                "messages": messages,
+                "thread": design_threads.get_thread(thread_id),
+            }
+        except (ThreadStorageError, ThreadNotFoundError, ViewerError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
     @app.post("/api/design-threads/{thread_id}/worker-jobs")
     def create_design_thread_worker_job(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
         try:
@@ -1247,6 +1558,31 @@ def create_app(
                     "events": [],
                     "context_snapshot": prepared.get("context_snapshot"),
                     "visual_evidence_request": evidence_request["request"],
+                    "thread": design_threads.get_thread(thread_id),
+                }
+            if (
+                _design_plan_type(design_plan_message) == "draft_plan"
+                and not _design_plan_can_auto_execute(design_plan_message)
+                and not _can_run_annotated_draft_followup(prepared)
+            ):
+                assistant_message = design_threads.append_message(
+                    thread_id,
+                    {
+                        "type": "assistant_message",
+                        "role": "assistant",
+                        "content": _intent_audit_response_content(design_plan_message),
+                        "metadata": {
+                            **_planner_metadata(prepared),
+                            "status": "intent_incomplete",
+                            "plan_id": design_plan_message["metadata"]["plan_id"],
+                        },
+                    },
+                )
+                return {
+                    "thread_id": thread_id,
+                    "messages": [prepared["user_message"], design_plan_message, assistant_message],
+                    "events": [],
+                    "context_snapshot": prepared.get("context_snapshot"),
                     "thread": design_threads.get_thread(thread_id),
                 }
             deterministic = _deterministic_draft_chat_turn(design_threads, viewer_service, thread_id, prepared)
@@ -1354,6 +1690,47 @@ def create_app(
                             "metadata": {
                                 **_planner_metadata(prepared),
                                 "status": "needs_user_input",
+                                "plan_id": design_plan_message["metadata"]["plan_id"],
+                            },
+                        },
+                    )
+                    yield _sse({"message": assistant_message})
+                    yield _sse({"done": True, "thread": design_threads.get_thread(thread_id)})
+                    yield "data: [DONE]\n\n"
+                    return
+
+                if (
+                    _design_plan_type(design_plan_message) == "draft_plan"
+                    and not _design_plan_can_auto_execute(design_plan_message)
+                    and not _can_run_annotated_draft_followup(prepared)
+                ):
+                    if _design_plan_needs_visual_evidence(design_plan_message, prepared):
+                        evidence_request = _append_visual_evidence_request_for_plan(
+                            design_threads,
+                            thread_id,
+                            prepared,
+                            design_plan_message,
+                        )
+                        for message in evidence_request["messages"]:
+                            yield _sse({"message": message})
+                        yield _sse(
+                            {
+                                "done": True,
+                                "visual_evidence_request": evidence_request["request"],
+                                "thread": design_threads.get_thread(thread_id),
+                            }
+                        )
+                        yield "data: [DONE]\n\n"
+                        return
+                    assistant_message = design_threads.append_message(
+                        thread_id,
+                        {
+                            "type": "assistant_message",
+                            "role": "assistant",
+                            "content": _intent_audit_response_content(design_plan_message),
+                            "metadata": {
+                                **_planner_metadata(prepared),
+                                "status": "intent_incomplete",
                                 "plan_id": design_plan_message["metadata"]["plan_id"],
                             },
                         },

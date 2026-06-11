@@ -8,6 +8,7 @@ from flow_cad.viewer.agent_runtime import FakeAgentRuntimeClient
 from flow_cad.viewer.app import (
     create_app,
 )
+import flow_cad.viewer.app as viewer_app
 from flow_cad.viewer.service import ViewerService
 
 
@@ -93,6 +94,63 @@ def test_viewer_design_threads_crud_and_list(tmp_path) -> None:
     assert get_response["message_count"] == 0
     assert get_response["snapshot_count"] == 0
     assert get_response["messages"] == []
+
+
+def test_design_thread_validate_and_build_buttons_run_draft_mode_actions(tmp_path, monkeypatch) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+    thread_id = client.post("/api/design-threads", json={"title": "Draft mode"}).json()["thread_id"]
+    calls: list[list[str]] = []
+
+    def fake_run_flow_cli(project_root: Path, args: list[str]) -> dict[str, object]:
+        calls.append(args)
+        if args[:2] == ["validate", "run"]:
+            return {
+                "command": "python -m flow_cad.cli " + " ".join(args),
+                "argv": [],
+                "exit_code": 0,
+                "stdout": json.dumps({"ok": True, "reports": [], "profile": {"profile_id": "validator-profile"}}),
+                "stderr": "",
+                "ok": True,
+            }
+        return {
+            "command": "python -m flow_cad.cli " + " ".join(args),
+            "argv": [],
+            "exit_code": 0,
+            "stdout": "Exported 1 STEP files\n",
+            "stderr": "",
+            "ok": True,
+        }
+
+    monkeypatch.setattr(viewer_app, "_run_flow_cli", fake_run_flow_cli)
+
+    validate = client.post(
+        f"/api/design-threads/{thread_id}/validate",
+        json={"draft_transaction_token": "draft-1", "part_id": "example_block"},
+    )
+    build = client.post(
+        f"/api/design-threads/{thread_id}/build",
+        json={"draft_transaction_token": "draft-1", "part_id": "example_block"},
+    )
+
+    assert validate.status_code == 200
+    assert validate.json()["ok"] is True
+    assert build.status_code == 200
+    assert build.json()["ok"] is True
+    assert calls == [
+        ["validate", "run", "panel-basic", "--json", "--draft-transaction", "draft-1"],
+        ["validate", "run", "panel-basic", "--json", "--draft-transaction", "draft-1"],
+        ["cad", "build", "--part", "example_block", "--no-reports"],
+    ]
+    thread = client.get(f"/api/design-threads/{thread_id}").json()
+    summaries = [
+        message["content"]["summary"]
+        for message in thread["messages"]
+        if isinstance(message.get("content"), dict) and "summary" in message["content"]
+    ]
+    assert "Validation passed for draft transaction draft-1." in summaries
+    assert "Build passed for part example_block." in summaries
 
 
 def test_viewer_design_threads_append_messages_and_reload_from_disk(tmp_path) -> None:
@@ -392,6 +450,59 @@ def test_viewer_design_threads_chat_creates_deterministic_base_plate_draft(tmp_p
     assert reloaded["linked_draft_transaction_tokens"] == [transaction_token]
     assert [message["type"] for message in reloaded["messages"]] == message_types
     assert (service.project.paths.local_state / "draft-transactions" / transaction_token / "transaction.json").exists()
+
+
+def test_viewer_design_threads_complex_intent_does_not_auto_run_partial_draft(tmp_path) -> None:
+    _write_example_step(tmp_path)
+    service = ViewerService(tmp_path)
+    runtime = FakeAgentRuntimeClient(
+        [
+            {"type": "assistant_delta", "text": "This should not be used."},
+            {"type": "done"},
+        ]
+    )
+    client = TestClient(create_app(service=service, agent_runtime_client=runtime))
+    thread_id = client.post("/api/design-threads", json={"title": "Complex intent"}).json()["thread_id"]
+
+    response = client.post(
+        f"/api/design-threads/{thread_id}/chat",
+        json={
+            "message": (
+                "Add pillars in all 4 corners. Each pillar should be 40mm tall. Pillars should be insert 3mm "
+                "for plates that attach to the pillars on all 4 sides. Each pillar needs 4 mounting holes. "
+                "2 on each external face. The M4 mounting holes should not overlap on the interior of the pillars."
+            ),
+            "context_snapshot": {
+                "visible_part_ids": ["example_block"],
+                "selected_part_ids": ["example_block"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "draft_result" not in payload
+    assert [message["type"] for message in payload["messages"]] == [
+        "user_message",
+        "design_plan",
+        "assistant_message",
+    ]
+    plan = payload["messages"][1]["content"]
+    assert plan["coverage"]["can_auto_execute"] is False
+    assert plan["coverage"]["execution_readiness"] == "partial_requires_review"
+    assert {item["kind"] for item in plan["intent_items"]} >= {
+        "boss_or_pillar",
+        "insert_or_recess",
+        "hole_pattern",
+        "constraint",
+    }
+    assert payload["messages"][2]["metadata"]["status"] == "intent_incomplete"
+    assert "partial result" in payload["messages"][2]["content"]
+    assert "This should not be used." not in payload["messages"][2]["content"]
+
+    reloaded = client.get(f"/api/design-threads/{thread_id}").json()
+    assert reloaded["linked_draft_transaction_tokens"] == []
+    assert not (service.project.paths.local_state / "draft-transactions").exists()
 
 
 def test_viewer_design_threads_chat_broad_prompt_persists_question_plan_without_runtime(tmp_path) -> None:

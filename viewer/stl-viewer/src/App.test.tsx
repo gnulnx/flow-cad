@@ -705,6 +705,93 @@ describe('App source loading', () => {
           thread.visual_evidence_count = thread.visual_evidence.length
           return jsonResponse(evidence)
         }
+        if (route === 'validate' && method === 'POST') {
+          const body = jsonBody(init)
+          const message: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 1}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:00:58Z',
+            type: 'tool_result',
+            role: 'system',
+            content: {
+              kind: 'tool_result',
+              tool: 'flow_validate',
+              status: 'success',
+              summary: 'Validation passed for draft transaction draft-preview-1.',
+              command: 'python -m flow_cad.cli validate run panel-basic --json --draft-transaction draft-preview-1',
+              draft_transaction_token: body.draft_transaction_token,
+              part_id: body.part_id,
+              ok: true,
+            },
+            metadata: {
+              runtime: 'flow_cad_draft_mode',
+              source: 'chat_validate_button',
+              requested_skill: body.requested_skill,
+            },
+          }
+          thread.messages.push(message)
+          return jsonResponse({
+            ok: true,
+            thread_id: thread.thread_id,
+            validation: message.content,
+            messages: [message],
+            thread,
+          })
+        }
+        if (route === 'build' && method === 'POST') {
+          const body = jsonBody(init)
+          const validationMessage: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 1}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:00:59Z',
+            type: 'tool_result',
+            role: 'system',
+            content: {
+              kind: 'tool_result',
+              tool: 'flow_validate',
+              status: 'success',
+              summary: 'Validation passed for draft transaction draft-preview-1.',
+              draft_transaction_token: body.draft_transaction_token,
+              part_id: body.part_id,
+              ok: true,
+            },
+            metadata: {
+              runtime: 'flow_cad_draft_mode',
+              source: 'chat_build_button',
+              requested_skill: body.requested_skill,
+            },
+          }
+          const buildMessage: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 2}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:01:00Z',
+            type: 'tool_result',
+            role: 'system',
+            content: {
+              kind: 'tool_result',
+              tool: 'flow_cad_build',
+              status: 'success',
+              summary: 'Build passed for part wheel_box_test_body.',
+              command: 'python -m flow_cad.cli cad build --part wheel_box_test_body --no-reports',
+              part_id: body.part_id,
+              ok: true,
+            },
+            metadata: {
+              runtime: 'flow_cad_draft_mode',
+              source: 'chat_build_button',
+              requested_skill: body.requested_skill,
+            },
+          }
+          thread.messages.push(validationMessage, buildMessage)
+          return jsonResponse({
+            ok: true,
+            thread_id: thread.thread_id,
+            validation: validationMessage.content,
+            build: buildMessage.content,
+            messages: [validationMessage, buildMessage],
+            thread,
+          })
+        }
         if (route === 'worker-jobs' && method === 'POST') {
           const body = jsonBody(init)
           const context = typeof body.context_snapshot === 'object' && body.context_snapshot !== null
@@ -1476,6 +1563,58 @@ describe('App source loading', () => {
     expect(findFetchCall(`/api/design-threads/${thread.thread_id}/chat/stream`)).toBeDefined()
     expect(findFetchCall(`/api/design-threads/${thread.thread_id}/worker-jobs`)).toBeUndefined()
     expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/draft-transactions/draft-preview-1/model')
+    const chatBody = jsonBody(findFetchCall(`/api/design-threads/${thread.thread_id}/chat/stream`)![1] as RequestInit)
+    expect(chatBody.metadata).toMatchObject({
+      interaction_mode: 'draft',
+      requested_skill: 'draft-mode',
+    })
+  })
+
+  it('runs explicit draft-mode validate and build actions from chat controls', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByText('wheel_box_test_body'))
+    await user.type(
+      screen.getByLabelText('Thread message composer'),
+      'Please create a base plate that is 100mm x 100mm x 10mm thick',
+    )
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    await screen.findByText('Created draft `base_plate` as 100 x 100 x 10 mm.')
+    await waitFor(() => {
+      const latestModels = viewerRenderProps.at(-1)?.models ?? []
+      expect(latestModels.some((model) => model.partId === 'draft:draft-preview-1')).toBe(true)
+    })
+
+    const thread = designThreads[0]
+    const validateButton = screen.getByRole('button', { name: 'Validate' })
+    await waitFor(() => expect(validateButton).toBeEnabled())
+    await user.click(validateButton)
+    await screen.findByText('Validation passed for draft transaction draft-preview-1.')
+    const buildButton = screen.getByRole('button', { name: 'Build' })
+    await waitFor(() => expect(buildButton).toBeEnabled())
+    await user.click(buildButton)
+    await screen.findByText('Build passed for part wheel_box_test_body.')
+
+    const validateCall = findFetchCall(`/api/design-threads/${thread.thread_id}/validate`)
+    const buildCall = findFetchCall(`/api/design-threads/${thread.thread_id}/build`)
+    expect(validateCall).toBeDefined()
+    expect(buildCall).toBeDefined()
+    expect(jsonBody(validateCall![1] as RequestInit)).toMatchObject({
+      requested_skill: 'draft-mode',
+      interaction_mode: 'draft',
+      draft_transaction_token: 'draft-preview-1',
+      part_id: 'wheel_box_test_body',
+    })
+    expect(jsonBody(buildCall![1] as RequestInit)).toMatchObject({
+      requested_skill: 'draft-mode',
+      interaction_mode: 'draft',
+      draft_transaction_token: 'draft-preview-1',
+      part_id: 'wheel_box_test_body',
+    })
+    expect(findFetchCall(`/api/design-threads/${thread.thread_id}/worker-jobs`)).toBeUndefined()
   })
 
   it('routes measured rectangle and counterbore prompts to draft chat instead of the source worker', async () => {
