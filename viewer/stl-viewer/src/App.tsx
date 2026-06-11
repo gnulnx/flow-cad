@@ -1466,108 +1466,15 @@ export default function App() {
       return chat
     }
 
-    if (shouldUseDraftChatFirst(payload.message)) {
-      if (!chatStreamUnavailable) {
-        try {
-          return await requestDraftChatStream()
-        } catch (error) {
-          console.warn('Draft chat stream failed:', error instanceof Error ? error.message : error)
-          setChatStreamUnavailable(true)
-        }
-      }
-      return requestDraftChatJson()
-    }
-
-    const followWorkerJob = async (jobId: string) => {
-      let closed = false
-      const pollInterval = window.setInterval(() => {
-        if (closed) return
-        void loadThread(threadId)
-          .then((updatedThread) => {
-            syncThreadState(updatedThread)
-            const job = updatedThread.worker_jobs?.find((candidate) => candidate.job_id === jobId)
-            if (job && ['succeeded', 'failed', 'cancelled', 'committed'].includes(job.status)) {
-              refreshViewerFromWorker()
-            }
-          })
-          .catch((error) => {
-            console.warn('Worker thread polling failed:', error instanceof Error ? error.message : error)
-          })
-      }, 1500)
-
-      try {
-        const streamResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/worker-jobs/${jobId}/stream`))
-        if (!streamResponse.ok) {
-          throw new Error(await responseDetail(streamResponse))
-        }
-        await streamWorkerResponse(streamResponse)
-        await loadViewerState()
-        const updatedThread = await loadThread(threadId)
-        syncThreadState(updatedThread)
-        await loadThreadSummaries()
-      } catch (error) {
-        console.warn('Worker stream failed:', error instanceof Error ? error.message : error)
-        appendThreadEvents(threadId, [{
-          message_id: `worker-stream-error-${jobId}-${Date.now()}`,
-          thread_id: threadId,
-          created_at: new Date().toISOString(),
-          type: 'status',
-          role: 'system',
-          content: {
-            kind: 'worker_error',
-            summary: `Worker stream failed: ${error instanceof Error ? error.message : String(error)}`,
-          },
-          attachments: [],
-          metadata: {
-            runtime: 'codex_worker',
-            worker_job_id: jobId,
-            worker_job_progress: true,
-            worker_progress_kind: 'error',
-          },
-        }])
-      } finally {
-        closed = true
-        window.clearInterval(pollInterval)
-      }
-    }
-
     if (!chatStreamUnavailable) {
       try {
-        const workerResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/worker-jobs`), buildHeaders(payloadWithAttachment))
-        if (workerResponse.ok) {
-          const workerPayload = await workerResponse.json() as DesignThreadWorkerJobResponse
-          if (workerPayload.thread) {
-            syncThreadState(workerPayload.thread)
-          }
-          appendThreadEvents(threadId, workerPayload.messages ?? [])
-          const jobId = workerPayload.job?.job_id
-          if (!jobId) {
-            throw new Error('Worker job response did not include a job id')
-          }
-          void followWorkerJob(jobId)
-          await loadThreadSummaries()
-          return {
-            thread_id: threadId,
-            messages: workerPayload.thread?.messages ?? workerPayload.messages ?? [],
-            thread: workerPayload.thread ?? {
-              thread_id: threadId,
-              title: '',
-              status: 'active',
-              created_at: '',
-              updated_at: '',
-              messages: workerPayload.messages ?? [],
-            },
-          } as DesignThreadChatResponse
-        }
-
-        if (workerResponse.status === 404 || workerResponse.status === 405 || workerResponse.status === 501) {
-          setChatStreamUnavailable(true)
-        } else {
-          throw new Error(await responseDetail(workerResponse))
-        }
+        return await requestDraftChatStream()
       } catch (error) {
-        console.warn('Worker chat request failed:', error instanceof Error ? error.message : error)
-        throw error
+        console.warn(
+          shouldUseDraftChatFirst(payload.message) ? 'Draft chat stream failed:' : 'Chat stream failed:',
+          error instanceof Error ? error.message : error,
+        )
+        setChatStreamUnavailable(true)
       }
     }
 

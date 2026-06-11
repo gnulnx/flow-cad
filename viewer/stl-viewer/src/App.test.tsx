@@ -1585,42 +1585,36 @@ describe('App source loading', () => {
       await waitFor(() => expect(screen.getAllByText('att-01').length).toBeGreaterThan(0))
 
       const composer = screen.getByLabelText('Thread message composer')
-      const partFetchCountBeforeWorker = vi.mocked(globalThis.fetch).mock.calls
-        .filter(([url]) => String(url).endsWith('/api/parts')).length
       await user.type(composer, 'Move the holes to the front face')
       await user.click(screen.getByRole('button', { name: 'Send' }))
       expect(composer).toHaveValue('')
 
       await screen.findByText('Move the holes to the front face')
-      await screen.findByText('Codex worker response with view context.')
-      await waitFor(() => {
-        const partFetchCountAfterWorker = vi.mocked(globalThis.fetch).mock.calls
-          .filter(([url]) => String(url).endsWith('/api/parts')).length
-        expect(partFetchCountAfterWorker).toBeGreaterThan(partFetchCountBeforeWorker)
-      })
+      await screen.findByText('Stub assistant response with view context.')
       await waitFor(() => {
         const panelThread = requireDesignThread('Panel review')
-        const workerCall = findFetchCall(`/api/design-threads/${panelThread.thread_id}/worker-jobs`)
-        expect(workerCall).toBeDefined()
-        const workerBody = jsonBody(workerCall![1] as RequestInit)
-        expect(workerBody.context_snapshot).toMatchObject({
+        const chatCall = findFetchCall(`/api/design-threads/${panelThread.thread_id}/chat`)
+        expect(chatCall).toBeDefined()
+        const chatBody = jsonBody(chatCall![1] as RequestInit)
+        expect(chatBody.context_snapshot).toMatchObject({
           viewport_screenshot: {
             kind: 'viewport_screenshot',
             attachment_id: 'att-01',
           },
         })
-        expect(workerBody.context_snapshot).toMatchObject({
+        expect(chatBody.context_snapshot).toMatchObject({
           selected_part_ids: ['wheel_box_test_body'],
           visible_part_ids: ['wheel_box_test_body'],
         })
-        expect(workerBody.attachments).toEqual(['att-01'])
-        expect(workerBody.metadata).toMatchObject({
+        expect(chatBody.attachments).toEqual(['att-01'])
+        expect(chatBody.metadata).toMatchObject({
           viewer_api_base: 'http://127.0.0.1:8000',
           viewport_screenshot: {
             kind: 'viewport_screenshot',
             attachment_id: 'att-01',
           },
         })
+        expect(findFetchCall(`/api/design-threads/${panelThread.thread_id}/worker-jobs`)).toBeUndefined()
       })
       const panelThread = requireDesignThread('Panel review')
       expect(panelThread.context_snapshots[0]).toMatchObject({
@@ -1640,9 +1634,9 @@ describe('App source loading', () => {
       expect(panelThread.messages.find((message) => message.type === 'assistant_message')).toMatchObject({
         type: 'assistant_message',
         role: 'assistant',
-        content: 'Codex worker response with view context.',
+        content: 'Stub assistant response with view context.',
         metadata: {
-          runtime: 'codex_worker',
+          runtime: 'flow_cad_stub',
           context_snapshot_id: 'snap-1',
         },
       })
@@ -2246,8 +2240,8 @@ describe('App source loading', () => {
 
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const url = String(input)
-      const streamMatch = url.match(/\/api\/design-threads\/([^/]+)\/worker-jobs\/([^/]+)\/stream$/)
-      if (streamMatch && (init.method ?? 'GET') === 'GET') {
+      const streamMatch = url.match(/\/api\/design-threads\/([^/]+)\/chat\/stream$/)
+      if (streamMatch && init.method === 'POST') {
         const threadId = streamMatch[1]
         const thread = designThreads.find((candidate) => candidate.thread_id === threadId)
         const toolMessage = {
@@ -2310,67 +2304,34 @@ describe('App source loading', () => {
     }
   })
 
-  it('shows worker progress and releases the composer while the job keeps running', async () => {
+  it('routes ordinary chat through chat stream instead of starting a source worker', async () => {
     const baselineFetch = vi.mocked(globalThis.fetch).getMockImplementation()
     if (!baselineFetch) {
       throw new Error('fetch baseline missing')
     }
 
-    const encoder = new TextEncoder()
-    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
-
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const url = String(input)
-      const streamMatch = url.match(/\/api\/design-threads\/([^/]+)\/worker-jobs\/([^/]+)\/stream$/)
-      if (streamMatch && (init.method ?? 'GET') === 'GET') {
+      const streamMatch = url.match(/\/api\/design-threads\/([^/]+)\/chat\/stream$/)
+      if (streamMatch && init.method === 'POST') {
         const threadId = streamMatch[1]
-        const jobId = streamMatch[2]
-        return Promise.resolve(new Response(new ReadableStream({
-          start(controller) {
-            streamController = controller
-            const thinkingMessage = {
-              message_id: `worker-${jobId}-thinking`,
-              thread_id: threadId,
-              created_at: '2026-06-09T12:30:00Z',
-              type: 'status',
-              role: 'assistant',
-              content: {
-                kind: 'worker_thinking',
-                summary: 'I am checking the rectangular sides before rebuilding.',
-              },
-              attachments: [],
-              metadata: {
-                runtime: 'codex_worker',
-                worker_job_id: jobId,
-                worker_job_progress: true,
-                worker_progress_kind: 'thinking',
-              },
-            }
-            const commandMessage = {
-              message_id: `worker-${jobId}-command`,
-              thread_id: threadId,
-              created_at: '2026-06-09T12:30:01Z',
-              type: 'status',
-              role: 'assistant',
-              content: {
-                kind: 'worker_command',
-                summary: 'Completed: flow cad build --part example_block',
-                command: 'flow cad build --part example_block',
-                status: 'completed',
-                exit_code: 0,
-              },
-              attachments: [],
-              metadata: {
-                runtime: 'codex_worker',
-                worker_job_id: jobId,
-                worker_job_progress: true,
-                worker_progress_kind: 'command',
-              },
-            }
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ message: thinkingMessage })}\n\n`))
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ message: commandMessage })}\n\n`))
-          },
-        })))
+        const thread = designThreads.find((candidate) => candidate.thread_id === threadId)
+        const assistantMessage = {
+          type: 'assistant_message',
+          role: 'assistant',
+          message_id: 'chat-stream-assistant',
+          thread_id: threadId,
+          created_at: '2026-06-09T12:30:01Z',
+          content: 'That visible block does not match the marked sketch.',
+          attachments: [],
+          metadata: { runtime: 'flow_cad_stub' },
+        }
+        thread?.messages.push(assistantMessage)
+        return streamResponse([
+          `data: ${JSON.stringify({ message: assistantMessage, thread })}\n`,
+          `data: ${JSON.stringify({ done: true, thread })}\n`,
+          'data: [DONE]\n',
+        ])
       }
       return baselineFetch(input, init)
     }))
@@ -2381,50 +2342,82 @@ describe('App source loading', () => {
       render(<App />)
 
       await screen.findByText('wheel_box_test_body')
-      const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
-      const partsCallsBeforeSend = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/parts')).length
       await openThreadDrawer(user)
-      await user.type(screen.getByLabelText('New thread title'), 'Progress thread')
+      await user.type(screen.getByLabelText('New thread title'), 'Plain chat thread')
       await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
 
-      await screen.findByText('Progress thread')
-      await user.type(screen.getByLabelText('Thread message composer'), 'Run a long worker job')
+      await screen.findByText('Plain chat thread')
+      await user.type(screen.getByLabelText('Thread message composer'), 'does that block look anything like what I wanted?')
       await user.click(screen.getByRole('button', { name: 'Send' }))
 
-      await screen.findByText('Starting Codex worker in the project workspace.')
-      await screen.findByText('Thinking Process')
-      await screen.findByText('I am checking the rectangular sides before rebuilding.')
-      await screen.findByText('flow cad build --part example_block')
+      await screen.findByText('That visible block does not match the marked sketch.')
       await waitFor(() => {
         expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
         expect(screen.getByLabelText('Thread message composer')).toBeEnabled()
       })
-      await waitFor(() => {
-        const partsCalls = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/parts')).length
-        expect(partsCalls).toBeGreaterThan(partsCallsBeforeSend)
-      })
-      await waitFor(() => {
-        expect(findFetchCall('/api/reload')).toBeDefined()
-      })
+      const thread = requireDesignThread('Plain chat thread')
+      expect(findFetchCall(`/api/design-threads/${thread.thread_id}/chat/stream`)).toBeDefined()
+      expect(findFetchCall(`/api/design-threads/${thread.thread_id}/worker-jobs`)).toBeUndefined()
     } finally {
-      streamController?.close()
+      // restored automatically by afterEach via vi.unstubAllGlobals()
     }
   })
 
   it('shows a commit action for completed worker jobs and calls the commit endpoint', async () => {
     const user = userEvent.setup()
 
+    designThreads = [
+      {
+        schema_version: 1,
+        thread_id: 'thread-commit',
+        title: 'Commit worker thread',
+        status: 'active',
+        archived: false,
+        created_at: '2026-06-09T12:00:00Z',
+        updated_at: '2026-06-09T12:02:00Z',
+        messages: [
+          {
+            message_id: 'msg-worker-done',
+            thread_id: 'thread-commit',
+            created_at: '2026-06-09T12:01:00Z',
+            type: 'assistant_message',
+            role: 'assistant',
+            content: 'Codex worker response with view context.',
+            attachments: [],
+            metadata: {
+              runtime: 'codex_worker',
+              worker_job_id: 'job-1',
+              worker_job_status: 'succeeded',
+            },
+          },
+        ],
+        context_snapshots: [],
+        visual_evidence: [],
+        visual_evidence_count: 0,
+        visual_evidence_requests: [],
+        visual_evidence_request_count: 0,
+        worker_jobs: [
+          {
+            schema_version: 1,
+            job_id: 'job-1',
+            thread_id: 'thread-commit',
+            status: 'succeeded',
+            created_at: '2026-06-09T12:00:00Z',
+            updated_at: '2026-06-09T12:01:00Z',
+            changed_paths: ['flow/parts/panel.py'],
+            diff_summary: 'flow/parts/panel.py | 2 +-',
+            validation_evidence: [],
+            commit_ready: true,
+          },
+        ],
+        worker_job_count: 1,
+      },
+    ]
+
     render(<App />)
 
     await screen.findByText('wheel_box_test_body')
-    await openThreadDrawer(user)
-    await user.type(screen.getByLabelText('New thread title'), 'Commit worker thread')
-    await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
-
     await screen.findByText('Commit worker thread')
-    await user.type(screen.getByLabelText('Thread message composer'), 'Please make a source change and prepare a commit')
-    await user.click(screen.getByRole('button', { name: 'Send' }))
-
     await screen.findByText('Codex worker response with view context.')
     await waitFor(() => {
       const thread = requireDesignThread('Commit worker thread')
