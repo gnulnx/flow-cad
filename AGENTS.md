@@ -142,6 +142,30 @@ over assertions tied to button labels or layout structure.
 If a downstream project is affected, reinstall Flow CAD editable and verify in
 that project repo with its AGENTS guide and validators.
 
+## Agent Screen Verification
+
+For Flow CAD viewer work, agent-screen capture is a protected workflow.
+
+When the user asks what is visible, points to an annotation, asks for screen
+review, or says to verify the current viewer state, do not rely on offscreen
+renders, metadata, old screenshots, or model assumptions.
+
+Use the project-local `agent_screen_*` MCP path:
+
+1. Call `agent_screen_request` for the active project root.
+2. Wait for the running browser workbench to fulfill the request.
+3. Call `agent_screen_latest`.
+4. Open the stored `.flow/agent-screen/<capture-id>.png`.
+5. Report only what is visible in that actual PNG.
+
+The capture must preserve the live viewport camera and in-app annotation overlay.
+`render_context: viewport-canvas` is the expected path for annotated screen
+review. Offscreen rendering is only a fallback when the live canvas is missing or
+blank, and must be called out explicitly.
+
+Do not call viewer/screen verification complete unless the actual PNG has been
+opened and inspected.
+
 ## Geometry Authority
 
 Flow CAD is STEP-first for authoritative CAD data:
