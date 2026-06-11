@@ -60,6 +60,7 @@ interface DesignThreadDockProps {
   onActivateThread: (threadId: string) => Promise<unknown>
   onPatchThread: (threadId: string, patch: Record<string, unknown>) => Promise<unknown>
   onSendChatMessage: (threadId: string, payload: DesignThreadChatPayload) => Promise<DesignThreadChatResponse>
+  onCommitWorkerJob?: (threadId: string, jobId: string) => Promise<unknown>
   onCreateViewportAttachment: (threadId: string, payload: ViewportScreenshotPayload) => Promise<ViewportAttachmentRecord | null>
   onRequestVisualEvidence?: (threadId: string) => Promise<ThreadVisualEvidenceArtifact | null>
   visualEvidenceView: VisualEvidenceViewPreset
@@ -104,10 +105,121 @@ function eventContentText(event: DesignThreadEvent) {
   return ''
 }
 
+function eventContentRecord(event: DesignThreadEvent) {
+  return event.content && typeof event.content === 'object' && !Array.isArray(event.content)
+    ? event.content as Record<string, unknown>
+    : null
+}
+
+function workerProgressKind(event: DesignThreadEvent) {
+  const metadataKind = event.metadata?.worker_progress_kind
+  if (typeof metadataKind === 'string' && metadataKind.trim()) return metadataKind.trim()
+  const content = eventContentRecord(event)
+  const contentKind = content?.kind
+  if (typeof contentKind === 'string' && contentKind.startsWith('worker_')) {
+    return contentKind.slice('worker_'.length)
+  }
+  return null
+}
+
+function workerProgressStatusClass(status: unknown) {
+  const text = String(status || '').toLowerCase()
+  if (text === 'completed' || text === 'success' || text === 'succeeded') return 'completed'
+  if (text === 'failed' || text === 'error') return 'failed'
+  if (text === 'cancelled') return 'cancelled'
+  return 'running'
+}
+
+function workerProgressStatusLabel(status: unknown) {
+  const text = String(status || '').replace(/_/g, ' ').trim()
+  return text ? text : 'running'
+}
+
+function eventBody(event: DesignThreadEvent) {
+  const kind = workerProgressKind(event)
+  const content = eventContentRecord(event)
+  if (kind && content) {
+    const summary = typeof content.summary === 'string' ? content.summary : eventContentText(event)
+    if (kind === 'thinking') {
+      return (
+        <details className="chat-worker-thinking" open>
+          <summary>Thinking Process</summary>
+          <div className="chat-worker-thinking-content">{summary}</div>
+        </details>
+      )
+    }
+
+    if (kind === 'status') {
+      const status = content.status
+      return (
+        <div className={`chat-worker-card ${workerProgressStatusClass(status)}`}>
+          <div className="chat-worker-card-header">
+            <span>Worker</span>
+            <span>{workerProgressStatusLabel(status)}</span>
+          </div>
+          <p>{summary}</p>
+        </div>
+      )
+    }
+
+    if (kind === 'command') {
+      const status = content.status
+      const command = typeof content.command === 'string' ? content.command : summary
+      const output = typeof content.output === 'string' ? content.output : ''
+      const exitCode = typeof content.exit_code === 'number' ? content.exit_code : null
+      return (
+        <div className={`chat-worker-card ${workerProgressStatusClass(status)}`}>
+          <div className="chat-worker-card-header">
+            <span>Command</span>
+            <span>{workerProgressStatusLabel(status)}{exitCode !== null ? ` (${exitCode})` : ''}</span>
+          </div>
+          <code>{command}</code>
+          {output ? (
+            <details className="chat-worker-output">
+              <summary>Output</summary>
+              <pre>{output}</pre>
+            </details>
+          ) : null}
+        </div>
+      )
+    }
+
+    if (kind === 'file_change') {
+      const status = content.status
+      const paths = Array.isArray(content.paths)
+        ? content.paths.filter((path): path is string => typeof path === 'string')
+        : []
+      return (
+        <div className={`chat-worker-card ${workerProgressStatusClass(status)}`}>
+          <div className="chat-worker-card-header">
+            <span>Source Change</span>
+            <span>{workerProgressStatusLabel(status)}</span>
+          </div>
+          {paths.length ? (
+            <ul className="chat-worker-path-list">
+              {paths.slice(0, 5).map((path) => <li key={path}>{path}</li>)}
+            </ul>
+          ) : (
+            <p>{summary}</p>
+          )}
+        </div>
+      )
+    }
+
+    if (kind === 'error') {
+      return <p className="chat-worker-error">{summary}</p>
+    }
+  }
+
+  return <p>{eventContentText(event)}</p>
+}
+
 function eventActor(event: DesignThreadEvent) {
   if (event.role === 'user') return 'You'
   if (event.type === 'draft_event') return 'Draft'
   if (event.type === 'design_plan') return 'Plan'
+  const progressKind = workerProgressKind(event)
+  if (progressKind && progressKind !== 'thinking') return 'Work'
   return 'AI'
 }
 
@@ -148,6 +260,7 @@ export default function DesignThreadDock({
   onActivateThread,
   onPatchThread,
   onSendChatMessage,
+  onCommitWorkerJob,
   onCreateViewportAttachment,
   onRequestVisualEvidence,
   visualEvidenceView,
@@ -169,6 +282,8 @@ export default function DesignThreadDock({
   const [visualEvidenceError, setVisualEvidenceError] = useState<string | null>(null)
   const [chatBusy, setChatBusy] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
+  const [commitBusy, setCommitBusy] = useState(false)
+  const [commitError, setCommitError] = useState<string | null>(null)
   const [threadsOpen, setThreadsOpen] = useState(false)
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
@@ -214,6 +329,21 @@ export default function DesignThreadDock({
     })
     return byId
   }, [threadVisualEvidence])
+  const commitCandidate = useMemo(() => {
+    const jobs = activeThread?.worker_jobs ?? []
+    for (let index = jobs.length - 1; index >= 0; index -= 1) {
+      const job = jobs[index]
+      if (
+        job.status === 'succeeded'
+        && job.commit_ready
+        && Array.isArray(job.changed_paths)
+        && job.changed_paths.length > 0
+      ) {
+        return job
+      }
+    }
+    return null
+  }, [activeThread?.worker_jobs])
 
   const commandBusyState = useMemo(
     () => !activeThreadId || isThreadMuted || threadBusy || chatBusy,
@@ -321,6 +451,20 @@ export default function DesignThreadDock({
     }
   }
 
+  const commitLatestWorkerJob = async () => {
+    const targetThreadId = activeThreadId || commitCandidate?.thread_id
+    if (!targetThreadId || !commitCandidate || !onCommitWorkerJob) return
+    setCommitBusy(true)
+    setCommitError(null)
+    try {
+      await onCommitWorkerJob(targetThreadId, commitCandidate.job_id)
+    } catch (error) {
+      setCommitError(error instanceof Error ? error.message : 'Commit failed')
+    } finally {
+      setCommitBusy(false)
+    }
+  }
+
   const visualEvidenceForEvent = (event: DesignThreadEvent) => {
     if (event.type !== 'assistant_message' && event.type !== 'tool_result') return []
     const artifactId = event.metadata?.visual_evidence_artifact_id
@@ -385,6 +529,17 @@ export default function DesignThreadDock({
                 <p>{selectedThread ? `${events.length} messages` : 'Create or select a thread'}</p>
               </div>
               <div className="chat-header-actions">
+                {commitCandidate && onCommitWorkerJob ? (
+                  <button
+                    type="button"
+                    className="btn-tool"
+                    onClick={() => void commitLatestWorkerJob()}
+                    disabled={commitBusy || chatBusy || threadBusy}
+                    aria-label="Commit worker job changes"
+                  >
+                    {commitBusy ? 'Committing...' : `Commit ${commitCandidate.changed_paths?.length ?? 0}`}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="btn-tool"
@@ -405,6 +560,7 @@ export default function DesignThreadDock({
                 </button>
               </div>
             </header>
+            {commitError ? <span className="thread-error chat-composer-error">{commitError}</span> : null}
 
             {threadsOpen ? (
               <section id="thread-drawer" className="thread-drawer" aria-label="Thread manager">
@@ -497,7 +653,7 @@ export default function DesignThreadDock({
                           <span>{event.type}</span>
                           <span>{event.created_at ?? ''}</span>
                         </div>
-                        <p>{eventContentText(event)}</p>
+                        {eventBody(event)}
                         {inlineEvidence.length ? (
                           <div className="chat-inline-evidence-list" aria-label="Assistant shared images">
                             {inlineEvidence.map((artifact) => {

@@ -356,6 +356,11 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/design-threads/{thread_id}/messages" in route_paths
     assert "/api/design-threads/{thread_id}/draft-events" in route_paths
     assert "/api/design-threads/{thread_id}/validator-events" in route_paths
+    assert "/api/design-threads/{thread_id}/worker-jobs" in route_paths
+    assert "/api/design-threads/{thread_id}/worker-jobs/{job_id}" in route_paths
+    assert "/api/design-threads/{thread_id}/worker-jobs/{job_id}/stream" in route_paths
+    assert "/api/design-threads/{thread_id}/worker-jobs/{job_id}/cancel" in route_paths
+    assert "/api/design-threads/{thread_id}/worker-jobs/{job_id}/commit" in route_paths
     assert "/api/design-threads/{thread_id}/chat" in route_paths
     assert "/api/design-threads/{thread_id}/chat/stream" in route_paths
     assert "/api/design-threads/{thread_id}/context-snapshots" in route_paths

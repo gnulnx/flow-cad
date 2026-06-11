@@ -406,6 +406,43 @@ def _safe_relative_path(value: Any, *, base: Path | None = None) -> str | None:
     return text.replace("\\", "/")
 
 
+def _sanitize_worker_job_record(record: dict[str, Any]) -> dict[str, Any]:
+    if not _worker_job_has_git_unavailable_diff(record):
+        return record
+    sanitized = dict(record)
+    sanitized["changed_paths"] = []
+    sanitized["diff_summary"] = ""
+    sanitized["commit_ready"] = False
+    snapshot = sanitized.get("diff_snapshot")
+    if isinstance(snapshot, dict):
+        sanitized["diff_snapshot"] = {
+            **snapshot,
+            "paths": [],
+            "status": "",
+            "summary": "",
+            "entries": [],
+            "git_error": snapshot.get("git_error") or sanitized.get("post_git_status") or sanitized.get("pre_git_status") or "",
+        }
+    return sanitized
+
+
+def _worker_job_has_git_unavailable_diff(record: dict[str, Any]) -> bool:
+    if not record.get("commit_ready") and not record.get("changed_paths"):
+        return False
+    text_parts = [
+        str(record.get("pre_git_status") or ""),
+        str(record.get("post_git_status") or ""),
+        str(record.get("diff_summary") or ""),
+    ]
+    for path in record.get("changed_paths") or []:
+        text_parts.append(str(path))
+    snapshot = record.get("diff_snapshot")
+    if isinstance(snapshot, dict):
+        text_parts.append(str(snapshot.get("status") or ""))
+        text_parts.append(str(snapshot.get("git_error") or ""))
+    return "not a git repository" in "\n".join(text_parts).lower()
+
+
 def _normalize_string_list(value: Any) -> list[str]:
     return _unique_preserve_order([item for item in _as_str_list(value) if item])
 
@@ -532,6 +569,8 @@ def _default_thread_payload(thread_id: str, title: str | None, *, now: str) -> d
         "visual_evidence_count": 0,
         "visual_evidence_requests": [],
         "visual_evidence_request_count": 0,
+        "worker_jobs": [],
+        "worker_job_count": 0,
     }
 
 
@@ -633,16 +672,19 @@ class DesignThreadService:
         attachments = self._thread_attachments(thread_id)
         visual_evidence = self._thread_visual_evidence(thread_id)
         visual_evidence_requests = self._thread_visual_evidence_requests(thread_id)
+        worker_jobs = self._thread_worker_jobs(thread_id)
         thread["messages"] = messages
         thread["context_snapshots"] = snapshots
         thread["attachments"] = attachments
         thread["visual_evidence"] = visual_evidence
         thread["visual_evidence_requests"] = visual_evidence_requests
+        thread["worker_jobs"] = worker_jobs
         thread["message_count"] = len(messages)
         thread["snapshot_count"] = len(snapshots)
         thread["attachment_count"] = len(attachments)
         thread["visual_evidence_count"] = len(visual_evidence)
         thread["visual_evidence_request_count"] = len(visual_evidence_requests)
+        thread["worker_job_count"] = len(worker_jobs)
         return thread
 
     def add_visual_evidence(self, thread_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1565,6 +1607,9 @@ class DesignThreadService:
     def _thread_visual_evidence_requests_dir(self, thread_id: str) -> Path:
         return self._thread_visual_evidence_dir(thread_id) / "requests"
 
+    def _thread_worker_jobs_dir(self, thread_id: str) -> Path:
+        return self._thread_dir(thread_id) / "worker-jobs"
+
     def _thread_attachment_png_path(self, thread_id: str, attachment_id: str) -> Path:
         return self._thread_attachments_dir(thread_id) / f"{_safe_thread_id(attachment_id, fallback='att')}.png"
 
@@ -1606,6 +1651,14 @@ class DesignThreadService:
         return [
             _read_json(path) or {"request_id": path.stem, "status": "unknown"}
             for path in _ordered_json_files(requests_dir)
+            if path.is_file()
+        ]
+
+    def _thread_worker_jobs(self, thread_id: str) -> list[dict[str, Any]]:
+        jobs_dir = self._thread_worker_jobs_dir(thread_id)
+        return [
+            _sanitize_worker_job_record(_read_json(path) or {"job_id": path.parent.name, "status": "unknown"})
+            for path in sorted(jobs_dir.glob("*/job.json"))
             if path.is_file()
         ]
 

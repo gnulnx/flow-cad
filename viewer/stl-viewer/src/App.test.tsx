@@ -334,6 +334,8 @@ interface MockDesignThread {
   visual_evidence_count?: number
   visual_evidence_requests?: MockVisualEvidenceRequestPayload[]
   visual_evidence_request_count?: number
+  worker_jobs?: Array<Record<string, unknown>>
+  worker_job_count?: number
 }
 
 interface MockAttachmentPayload {
@@ -522,6 +524,11 @@ describe('App source loading', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const url = input.toString()
       const method = init.method ?? 'GET'
+      if (url.endsWith('/api/reload') && method === 'POST') {
+        partsRevision += 1
+        healthRevision = partsRevision
+        return jsonResponse({ ok: true, revision: partsRevision })
+      }
       if (url.endsWith('/api/parts')) return jsonResponse({ ...partsPayload, revision: partsRevision, parts: activeParts })
       if (url.endsWith('/api/design-threads')) {
         if (method === 'POST') {
@@ -541,6 +548,8 @@ describe('App source loading', () => {
             visual_evidence_count: 0,
             visual_evidence_requests: [],
             visual_evidence_request_count: 0,
+            worker_jobs: [],
+            worker_job_count: 0,
           }
           designThreads.push(thread)
           return jsonResponse(thread)
@@ -696,7 +705,334 @@ describe('App source loading', () => {
           thread.visual_evidence_count = thread.visual_evidence.length
           return jsonResponse(evidence)
         }
+        if (route === 'worker-jobs' && method === 'POST') {
+          const body = jsonBody(init)
+          const context = typeof body.context_snapshot === 'object' && body.context_snapshot !== null
+            ? body.context_snapshot as Record<string, unknown>
+            : {}
+          const viewportScreenshot =
+            typeof context.viewport_screenshot === 'object' && context.viewport_screenshot !== null
+              ? context.viewport_screenshot as { attachment_id?: string }
+              : undefined
+          const attachmentId = viewportScreenshot?.attachment_id
+          snapshotCounter += 1
+          const snapshot = {
+            schema_version: 1,
+            thread_id: thread.thread_id,
+            snapshot_id: `snap-${snapshotCounter}`,
+            selected_part_ids: context.selected_part_ids,
+            visible_part_ids: context.visible_part_ids,
+            measurements: context.measurements,
+            active_assembly_id: context.active_assembly_id,
+            active_project_revision: context.active_project_revision,
+            viewer_state: context,
+          }
+          if (attachmentId) {
+            snapshot.viewer_state.viewport_screenshot = {
+              kind: 'viewport_screenshot',
+              attachment_id: attachmentId,
+            }
+          }
+          thread.context_snapshots.push(snapshot)
+          const userMessage: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 1}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:01:00Z',
+            type: 'user_message',
+            role: 'user',
+            content: String(body.message || ''),
+            attachments: attachmentId ? [attachmentId] : [],
+            metadata: { context_snapshot_id: snapshot.snapshot_id },
+          }
+          if (attachmentId) {
+            userMessage.metadata.viewport_screenshot = true
+          }
+          thread.messages.push(userMessage)
+
+          const jobId = `job-${(thread.worker_jobs?.length ?? 0) + 1}`
+          const job: Record<string, unknown> = {
+            schema_version: 1,
+            job_id: jobId,
+            thread_id: thread.thread_id,
+            status: 'running',
+            created_at: '2026-06-09T12:01:00Z',
+            updated_at: '2026-06-09T12:01:00Z',
+            changed_paths: [],
+            diff_summary: '',
+            validation_evidence: [],
+            commit_ready: false,
+          }
+          const startMessage: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 1}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:01:00Z',
+            type: 'status',
+            role: 'assistant',
+            content: {
+              kind: 'worker_status',
+              summary: 'Starting Codex worker in the project workspace.',
+              status: 'starting',
+            },
+            attachments: [],
+            metadata: {
+              runtime: 'codex_worker',
+              worker_job_id: jobId,
+              worker_job_status: 'queued',
+              worker_job_progress: true,
+              worker_progress_kind: 'status',
+            },
+          }
+          thread.messages.push(startMessage)
+          const finalMessages: MockDesignThreadMessage[] = []
+          const messageText = String(body.message || '')
+          const lowerMessage = messageText.toLowerCase()
+          if (lowerMessage.includes('base plate')) {
+            const previewPayload = {
+              ...draftPreviewPayload,
+              part_id: 'base_plate',
+              model_url: '/api/draft-transactions/draft-preview-1/model',
+              dimensions: {
+                length_mm: 100,
+                width_mm: 100,
+                height_mm: 10,
+                authority: 'mesh',
+                source: 'preview',
+              },
+            }
+            const draftEvents: MockDesignThreadMessage[] = [
+              {
+                message_id: `msg-${thread.messages.length + 1}`,
+                thread_id: thread.thread_id,
+                created_at: '2026-06-09T12:01:01Z',
+                type: 'draft_event',
+                role: 'assistant',
+                content: {
+                  action: 'propose',
+                  summary: 'Proposed 1 deterministic draft operations',
+                  draft_transaction_token: previewPayload.transaction_token,
+                  part_id: 'base_plate',
+                },
+                attachments: [],
+                metadata: { runtime: 'flow_cad_deterministic_draft' },
+              },
+              {
+                message_id: `msg-${thread.messages.length + 2}`,
+                thread_id: thread.thread_id,
+                created_at: '2026-06-09T12:01:02Z',
+                type: 'draft_event',
+                role: 'assistant',
+                content: {
+                  action: 'apply',
+                  summary: 'Applied deterministic draft operations',
+                  draft_transaction_token: previewPayload.transaction_token,
+                  part_id: 'base_plate',
+                },
+                attachments: [],
+                metadata: { runtime: 'flow_cad_deterministic_draft' },
+              },
+              {
+                message_id: `msg-${thread.messages.length + 3}`,
+                thread_id: thread.thread_id,
+                created_at: '2026-06-09T12:01:03Z',
+                type: 'draft_event',
+                role: 'assistant',
+                content: {
+                  action: 'preview',
+                  summary: 'Draft preview generated from chat',
+                  draft_transaction_token: previewPayload.transaction_token,
+                  part_id: 'base_plate',
+                  preview_model: previewPayload,
+                },
+                attachments: [],
+                metadata: { runtime: 'flow_cad_deterministic_draft' },
+              },
+            ]
+            const assistantMessage: MockDesignThreadMessage = {
+              message_id: `msg-${thread.messages.length + 4}`,
+              thread_id: thread.thread_id,
+              created_at: '2026-06-09T12:01:04Z',
+              type: 'assistant_message',
+              role: 'assistant',
+              content: 'Created draft `base_plate` as 100 x 100 x 10 mm.',
+              attachments: [],
+              metadata: {
+                runtime: 'flow_cad_deterministic_draft',
+                draft_transaction_token: previewPayload.transaction_token,
+              },
+            }
+            finalMessages.push(...draftEvents, assistantMessage)
+          } else {
+            if (lowerMessage.includes('source change') || lowerMessage.includes('commit')) {
+              job.changed_paths = ['flow/parts/panel.py']
+              job.diff_summary = 'flow/parts/panel.py | 2 +-'
+              job.commit_ready = true
+            }
+            finalMessages.push({
+              message_id: `msg-${thread.messages.length + 1}`,
+              thread_id: thread.thread_id,
+              created_at: '2026-06-09T12:01:02Z',
+              type: 'assistant_message',
+              role: 'assistant',
+              content: 'Codex worker response with view context.',
+              attachments: [],
+              metadata: {
+                runtime: 'codex_worker',
+                worker_job_id: jobId,
+                worker_job_status: 'succeeded',
+                context_snapshot_id: snapshot.snapshot_id,
+                changed_paths: job.changed_paths,
+                commit_ready: job.commit_ready,
+                ...(attachmentId ? { viewport_screenshot: true } : {}),
+              },
+            })
+          }
+          job.final_messages = finalMessages
+          job.final_sent = false
+          thread.worker_jobs = thread.worker_jobs ?? []
+          thread.worker_jobs.push(job)
+          thread.worker_job_count = thread.worker_jobs.length
+          return jsonResponse({
+            thread_id: thread.thread_id,
+            job,
+            messages: [userMessage, startMessage],
+            context_snapshot: snapshot,
+            thread,
+          })
+        }
+        const workerStreamMatch = route.match(/^worker-jobs\/([^/]+)\/stream$/)
+        if (workerStreamMatch && method === 'GET') {
+          const jobId = workerStreamMatch[1]
+          const job = thread.worker_jobs?.find((candidate) => candidate.job_id === jobId)
+          if (!job) return Promise.resolve(new Response('not found', { status: 404 }))
+          const finalMessages = Array.isArray(job.final_messages)
+            ? job.final_messages as MockDesignThreadMessage[]
+            : []
+          if (!job.final_sent) {
+            thread.messages.push(...finalMessages)
+            job.final_sent = true
+          }
+          job.status = 'succeeded'
+          job.updated_at = '2026-06-09T12:01:05Z'
+          job.completed_at = '2026-06-09T12:01:05Z'
+          return streamResponse([
+            ...finalMessages.map((message) => `data: ${JSON.stringify({ message })}\n`),
+            `data: ${JSON.stringify({ done: true, job, thread })}\n`,
+            'data: [DONE]\n',
+          ])
+        }
+        const workerCommitMatch = route.match(/^worker-jobs\/([^/]+)\/commit$/)
+        if (workerCommitMatch && method === 'POST') {
+          const jobId = workerCommitMatch[1]
+          const job = thread.worker_jobs?.find((candidate) => candidate.job_id === jobId)
+          if (!job) return Promise.resolve(new Response('not found', { status: 404 }))
+          job.status = 'committed'
+          job.commit_ready = false
+          job.commit_hash = 'abc1234'
+          job.committed_at = '2026-06-09T12:02:00Z'
+          const message: MockDesignThreadMessage = {
+            message_id: `msg-${thread.messages.length + 1}`,
+            thread_id: thread.thread_id,
+            created_at: '2026-06-09T12:02:00Z',
+            type: 'status',
+            role: 'system',
+            content: {
+              summary: `Committed Codex worker job ${jobId}`,
+              commit_hash: 'abc1234',
+              changed_paths: job.changed_paths,
+            },
+            attachments: [],
+            metadata: {
+              worker_job_id: jobId,
+              worker_job_status: 'committed',
+              commit_hash: 'abc1234',
+            },
+          }
+          thread.messages.push(message)
+          return jsonResponse({ ok: true, job, message, thread })
+        }
         if (route === 'chat/stream' && method === 'POST') {
+          const body = jsonBody(init)
+          const messageText = String(body.message || '')
+          const lowerMessageText = messageText.toLowerCase()
+          if (lowerMessageText.includes('base plate') || lowerMessageText.includes('100mm wide')) {
+            const context = typeof body.context_snapshot === 'object' && body.context_snapshot !== null
+              ? body.context_snapshot as Record<string, unknown>
+              : {}
+            snapshotCounter += 1
+            const snapshot = {
+              schema_version: 1,
+              thread_id: thread.thread_id,
+              snapshot_id: `snap-${snapshotCounter}`,
+              selected_part_ids: context.selected_part_ids,
+              visible_part_ids: context.visible_part_ids,
+              measurements: context.measurements,
+              active_assembly_id: context.active_assembly_id,
+              active_project_revision: context.active_project_revision,
+              viewer_state: context,
+            }
+            thread.context_snapshots.push(snapshot)
+            const userMessage: MockDesignThreadMessage = {
+              message_id: `msg-${thread.messages.length + 1}`,
+              thread_id: thread.thread_id,
+              created_at: '2026-06-09T12:01:00Z',
+              type: 'user_message',
+              role: 'user',
+              content: messageText,
+              attachments: [],
+              metadata: { context_snapshot_id: snapshot.snapshot_id },
+            }
+            const previewPayload = {
+              ...draftPreviewPayload,
+              part_id: 'base_plate',
+              model_url: '/api/draft-transactions/draft-preview-1/model',
+              dimensions: {
+                length_mm: 100,
+                width_mm: 100,
+                height_mm: 10,
+                authority: 'mesh',
+                source: 'preview',
+              },
+            }
+            const draftEvent: MockDesignThreadMessage = {
+              message_id: `msg-${thread.messages.length + 2}`,
+              thread_id: thread.thread_id,
+              created_at: '2026-06-09T12:01:01Z',
+              type: 'draft_event',
+              role: 'assistant',
+              content: {
+                action: 'preview',
+                summary: 'Draft preview generated from chat',
+                draft_transaction_token: previewPayload.transaction_token,
+                part_id: 'base_plate',
+                preview_model: previewPayload,
+              },
+              attachments: [],
+              metadata: { runtime: 'flow_cad_deterministic_draft' },
+            }
+            const assistantMessage: MockDesignThreadMessage = {
+              message_id: `msg-${thread.messages.length + 3}`,
+              thread_id: thread.thread_id,
+              created_at: '2026-06-09T12:01:02Z',
+              type: 'assistant_message',
+              role: 'assistant',
+              content: 'Created draft `base_plate` as 100 x 100 x 10 mm.',
+              attachments: [],
+              metadata: {
+                runtime: 'flow_cad_deterministic_draft',
+                status: 'draft_preview_ready',
+                draft_transaction_token: previewPayload.transaction_token,
+                part_id: 'base_plate',
+              },
+            }
+            thread.messages.push(userMessage, draftEvent, assistantMessage)
+            return streamResponse([
+              `data: ${JSON.stringify({ message: userMessage })}\n`,
+              `data: ${JSON.stringify({ message: draftEvent })}\n`,
+              `data: ${JSON.stringify({ message: assistantMessage })}\n`,
+              `data: ${JSON.stringify({ done: true, draft_preview_model: previewPayload, thread })}\n`,
+              'data: [DONE]\n',
+            ])
+          }
           return Promise.resolve(new Response('Not found', { status: 404 }))
         }
         if (route === 'chat' && method === 'POST') {
@@ -741,96 +1077,8 @@ describe('App source loading', () => {
           if (attachmentId) {
             userMessage.metadata.viewport_screenshot = true
           }
-          if (String(body.message || '').toLowerCase().includes('base plate')) {
-            const previewPayload = {
-              ...draftPreviewPayload,
-              part_id: 'base_plate',
-              model_url: '/api/draft-transactions/draft-preview-1/model',
-              dimensions: {
-                length_mm: 100,
-                width_mm: 100,
-                height_mm: 10,
-                authority: 'mesh',
-                source: 'preview',
-              },
-            }
-            const draftEvents: MockDesignThreadMessage[] = [
-              {
-                message_id: `msg-${thread.messages.length + 2}`,
-                thread_id: thread.thread_id,
-                created_at: '2026-06-09T12:01:01Z',
-                type: 'draft_event',
-                role: 'assistant',
-                content: {
-                  action: 'propose',
-                  summary: 'Proposed 1 deterministic draft operations',
-                  draft_transaction_token: previewPayload.transaction_token,
-                  part_id: 'base_plate',
-                },
-                attachments: [],
-                metadata: { runtime: 'flow_cad_deterministic_draft' },
-              },
-              {
-                message_id: `msg-${thread.messages.length + 3}`,
-                thread_id: thread.thread_id,
-                created_at: '2026-06-09T12:01:02Z',
-                type: 'draft_event',
-                role: 'assistant',
-                content: {
-                  action: 'apply',
-                  summary: 'Applied deterministic draft operations',
-                  draft_transaction_token: previewPayload.transaction_token,
-                  part_id: 'base_plate',
-                },
-                attachments: [],
-                metadata: { runtime: 'flow_cad_deterministic_draft' },
-              },
-              {
-                message_id: `msg-${thread.messages.length + 4}`,
-                thread_id: thread.thread_id,
-                created_at: '2026-06-09T12:01:03Z',
-                type: 'draft_event',
-                role: 'assistant',
-                content: {
-                  action: 'preview',
-                  summary: 'Draft preview generated from chat',
-                  draft_transaction_token: previewPayload.transaction_token,
-                  part_id: 'base_plate',
-                  preview_model: previewPayload,
-                },
-                attachments: [],
-                metadata: { runtime: 'flow_cad_deterministic_draft' },
-              },
-            ]
-            const assistantMessage: MockDesignThreadMessage = {
-              message_id: `msg-${thread.messages.length + 5}`,
-              thread_id: thread.thread_id,
-              created_at: '2026-06-09T12:01:04Z',
-              type: 'assistant_message',
-              role: 'assistant',
-              content: 'Created draft `base_plate` as 100 x 100 x 10 mm.',
-              attachments: [],
-              metadata: {
-                runtime: 'flow_cad_deterministic_draft',
-                draft_transaction_token: previewPayload.transaction_token,
-              },
-            }
-            thread.messages.push(userMessage, ...draftEvents, assistantMessage)
-            return jsonResponse({
-              thread_id: thread.thread_id,
-              messages: [userMessage, ...draftEvents, assistantMessage],
-              context_snapshot: snapshot,
-              draft_result: {
-                ok: true,
-                part_id: 'base_plate',
-                transaction_token: previewPayload.transaction_token,
-              },
-              draft_preview_model: previewPayload,
-              thread,
-            })
-          }
           const assistantMessage: MockDesignThreadMessage = {
-            message_id: `msg-${thread.messages.length + 3}`,
+            message_id: `msg-${thread.messages.length + 2}`,
             thread_id: thread.thread_id,
             created_at: '2026-06-09T12:01:02Z',
             type: 'assistant_message',
@@ -843,34 +1091,10 @@ describe('App source loading', () => {
               ...(attachmentId ? { viewport_screenshot: true } : {}),
             },
           }
-          const designPlanMessage: MockDesignThreadMessage = {
-            message_id: `msg-${thread.messages.length + 2}`,
-            thread_id: thread.thread_id,
-            created_at: '2026-06-09T12:01:01Z',
-            type: 'design_plan',
-            role: 'system',
-            content: {
-              plan_id: 'plan-mock-1',
-              plan_type: 'concept_plan',
-              status: 'proposed',
-              steps: [
-                {
-                  step_id: 'synthesize-brief',
-                  step_type: 'analysis',
-                  summary: 'Synthesize the request into a concept direction.',
-                },
-              ],
-            },
-            attachments: [],
-            metadata: {
-              runtime: 'flow_cad_design_planner',
-              context_snapshot_id: snapshot.snapshot_id,
-            },
-          }
-          thread.messages.push(userMessage, designPlanMessage, assistantMessage)
+          thread.messages.push(userMessage, assistantMessage)
           return jsonResponse({
             thread_id: thread.thread_id,
-            messages: [userMessage, designPlanMessage, assistantMessage],
+            messages: [userMessage, assistantMessage],
             context_snapshot: snapshot,
             thread,
           })
@@ -1248,7 +1472,32 @@ describe('App source loading', () => {
       const latestModels = viewerRenderProps.at(-1)?.models ?? []
       expect(latestModels.some((model) => model.partId === 'draft:draft-preview-1')).toBe(true)
     })
+    const thread = designThreads[0]
+    expect(findFetchCall(`/api/design-threads/${thread.thread_id}/chat/stream`)).toBeDefined()
+    expect(findFetchCall(`/api/design-threads/${thread.thread_id}/worker-jobs`)).toBeUndefined()
     expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/draft-transactions/draft-preview-1/model')
+  })
+
+  it('routes measured rectangle and counterbore prompts to draft chat instead of the source worker', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.type(
+      screen.getByLabelText('Thread message composer'),
+      'I would like a part similar to this. 100mm wide, 65mm tall and 10mm thick. holes should be M4 counter bore holes',
+    )
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    await screen.findByText('Created draft `base_plate` as 100 x 100 x 10 mm.')
+    await waitFor(() => {
+      const latestModels = viewerRenderProps.at(-1)?.models ?? []
+      expect(latestModels.some((model) => model.partId === 'draft:draft-preview-1')).toBe(true)
+    })
+    const thread = designThreads[0]
+    expect(findFetchCall(`/api/design-threads/${thread.thread_id}/chat/stream`)).toBeDefined()
+    expect(findFetchCall(`/api/design-threads/${thread.thread_id}/worker-jobs`)).toBeUndefined()
   })
 
   it('creates a design thread, attaches viewer context, and appends a chat message', async () => {
@@ -1336,30 +1585,37 @@ describe('App source loading', () => {
       await waitFor(() => expect(screen.getAllByText('att-01').length).toBeGreaterThan(0))
 
       const composer = screen.getByLabelText('Thread message composer')
+      const partFetchCountBeforeWorker = vi.mocked(globalThis.fetch).mock.calls
+        .filter(([url]) => String(url).endsWith('/api/parts')).length
       await user.type(composer, 'Move the holes to the front face')
       await user.click(screen.getByRole('button', { name: 'Send' }))
       expect(composer).toHaveValue('')
 
       await screen.findByText('Move the holes to the front face')
-      await screen.findByText('concept_plan: Synthesize the request into a concept direction.')
-      await screen.findByText('Stub assistant response with view context.')
+      await screen.findByText('Codex worker response with view context.')
+      await waitFor(() => {
+        const partFetchCountAfterWorker = vi.mocked(globalThis.fetch).mock.calls
+          .filter(([url]) => String(url).endsWith('/api/parts')).length
+        expect(partFetchCountAfterWorker).toBeGreaterThan(partFetchCountBeforeWorker)
+      })
       await waitFor(() => {
         const panelThread = requireDesignThread('Panel review')
-        const chatCall = findFetchCall(`/api/design-threads/${panelThread.thread_id}/chat`)
-        expect(chatCall).toBeDefined()
-        const chatBody = jsonBody(chatCall![1] as RequestInit)
-        expect(chatBody.context_snapshot).toMatchObject({
+        const workerCall = findFetchCall(`/api/design-threads/${panelThread.thread_id}/worker-jobs`)
+        expect(workerCall).toBeDefined()
+        const workerBody = jsonBody(workerCall![1] as RequestInit)
+        expect(workerBody.context_snapshot).toMatchObject({
           viewport_screenshot: {
             kind: 'viewport_screenshot',
             attachment_id: 'att-01',
           },
         })
-        expect(chatBody.context_snapshot).toMatchObject({
+        expect(workerBody.context_snapshot).toMatchObject({
           selected_part_ids: ['wheel_box_test_body'],
           visible_part_ids: ['wheel_box_test_body'],
         })
-        expect(chatBody.attachments).toEqual(['att-01'])
-        expect(chatBody.metadata).toMatchObject({
+        expect(workerBody.attachments).toEqual(['att-01'])
+        expect(workerBody.metadata).toMatchObject({
+          viewer_api_base: 'http://127.0.0.1:8000',
           viewport_screenshot: {
             kind: 'viewport_screenshot',
             attachment_id: 'att-01',
@@ -1381,24 +1637,12 @@ describe('App source loading', () => {
           viewport_screenshot: true,
         },
       })
-      expect(panelThread.messages[1]).toMatchObject({
-        type: 'design_plan',
-        role: 'system',
-        content: {
-          plan_type: 'concept_plan',
-          status: 'proposed',
-        },
-        metadata: {
-          runtime: 'flow_cad_design_planner',
-          context_snapshot_id: 'snap-1',
-        },
-      })
-      expect(panelThread.messages[2]).toMatchObject({
+      expect(panelThread.messages.find((message) => message.type === 'assistant_message')).toMatchObject({
         type: 'assistant_message',
         role: 'assistant',
-        content: 'Stub assistant response with view context.',
+        content: 'Codex worker response with view context.',
         metadata: {
-          runtime: 'flow_cad_stub',
+          runtime: 'codex_worker',
           context_snapshot_id: 'snap-1',
         },
       })
@@ -2002,28 +2246,38 @@ describe('App source loading', () => {
 
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const url = String(input)
-      if (/\/api\/design-threads\/[^/]+\/chat\/stream$/.test(url) && (init.method ?? 'GET') === 'POST') {
+      const streamMatch = url.match(/\/api\/design-threads\/([^/]+)\/worker-jobs\/([^/]+)\/stream$/)
+      if (streamMatch && (init.method ?? 'GET') === 'GET') {
+        const threadId = streamMatch[1]
+        const thread = designThreads.find((candidate) => candidate.thread_id === threadId)
+        const toolMessage = {
+          type: 'tool_call',
+          role: 'assistant',
+          message_id: 'stream-tool',
+          thread_id: threadId,
+          created_at: '2026-06-09T12:20:00Z',
+          content: {
+            kind: 'tool_call',
+            summary: 'Prepare draft geometry',
+            tool: 'draft-tool',
+          },
+          attachments: [],
+          metadata: {},
+        }
+        const assistantMessage = {
+          type: 'assistant_message',
+          role: 'assistant',
+          message_id: 'stream-assistant',
+          thread_id: threadId,
+          created_at: '2026-06-09T12:20:01Z',
+          content: 'Draft assistant response ready.',
+          attachments: [],
+          metadata: {},
+        }
+        thread?.messages.push(toolMessage, assistantMessage)
         return streamResponse([
-          `data: ${JSON.stringify({
-            type: 'tool_call',
-            role: 'assistant',
-            message_id: 'stream-tool',
-            thread_id: 'thread-1',
-            created_at: '2026-06-09T12:20:00Z',
-            content: {
-              kind: 'tool_call',
-              summary: 'Prepare draft geometry',
-              tool: 'draft-tool',
-            },
-          })}\n`,
-          `data: ${JSON.stringify({
-            type: 'assistant_message',
-            role: 'assistant',
-            message_id: 'stream-assistant',
-            thread_id: 'thread-1',
-            created_at: '2026-06-09T12:20:01Z',
-            content: 'Draft assistant response ready.',
-          })}\n`,
+          `data: ${JSON.stringify({ message: toolMessage })}\n`,
+          `data: ${JSON.stringify({ message: assistantMessage, thread })}\n`,
         ])
       }
       return baselineFetch(input, init)
@@ -2054,5 +2308,132 @@ describe('App source loading', () => {
     } finally {
       // restored automatically by afterEach via vi.unstubAllGlobals()
     }
+  })
+
+  it('shows worker progress and releases the composer while the job keeps running', async () => {
+    const baselineFetch = vi.mocked(globalThis.fetch).getMockImplementation()
+    if (!baselineFetch) {
+      throw new Error('fetch baseline missing')
+    }
+
+    const encoder = new TextEncoder()
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
+
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const url = String(input)
+      const streamMatch = url.match(/\/api\/design-threads\/([^/]+)\/worker-jobs\/([^/]+)\/stream$/)
+      if (streamMatch && (init.method ?? 'GET') === 'GET') {
+        const threadId = streamMatch[1]
+        const jobId = streamMatch[2]
+        return Promise.resolve(new Response(new ReadableStream({
+          start(controller) {
+            streamController = controller
+            const thinkingMessage = {
+              message_id: `worker-${jobId}-thinking`,
+              thread_id: threadId,
+              created_at: '2026-06-09T12:30:00Z',
+              type: 'status',
+              role: 'assistant',
+              content: {
+                kind: 'worker_thinking',
+                summary: 'I am checking the rectangular sides before rebuilding.',
+              },
+              attachments: [],
+              metadata: {
+                runtime: 'codex_worker',
+                worker_job_id: jobId,
+                worker_job_progress: true,
+                worker_progress_kind: 'thinking',
+              },
+            }
+            const commandMessage = {
+              message_id: `worker-${jobId}-command`,
+              thread_id: threadId,
+              created_at: '2026-06-09T12:30:01Z',
+              type: 'status',
+              role: 'assistant',
+              content: {
+                kind: 'worker_command',
+                summary: 'Completed: flow cad build --part example_block',
+                command: 'flow cad build --part example_block',
+                status: 'completed',
+                exit_code: 0,
+              },
+              attachments: [],
+              metadata: {
+                runtime: 'codex_worker',
+                worker_job_id: jobId,
+                worker_job_progress: true,
+                worker_progress_kind: 'command',
+              },
+            }
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ message: thinkingMessage })}\n\n`))
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ message: commandMessage })}\n\n`))
+          },
+        })))
+      }
+      return baselineFetch(input, init)
+    }))
+
+    const user = userEvent.setup()
+
+    try {
+      render(<App />)
+
+      await screen.findByText('wheel_box_test_body')
+      const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+      const partsCallsBeforeSend = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/parts')).length
+      await openThreadDrawer(user)
+      await user.type(screen.getByLabelText('New thread title'), 'Progress thread')
+      await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+
+      await screen.findByText('Progress thread')
+      await user.type(screen.getByLabelText('Thread message composer'), 'Run a long worker job')
+      await user.click(screen.getByRole('button', { name: 'Send' }))
+
+      await screen.findByText('Starting Codex worker in the project workspace.')
+      await screen.findByText('Thinking Process')
+      await screen.findByText('I am checking the rectangular sides before rebuilding.')
+      await screen.findByText('flow cad build --part example_block')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Thread message composer')).toBeEnabled()
+      })
+      await waitFor(() => {
+        const partsCalls = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/parts')).length
+        expect(partsCalls).toBeGreaterThan(partsCallsBeforeSend)
+      })
+      await waitFor(() => {
+        expect(findFetchCall('/api/reload')).toBeDefined()
+      })
+    } finally {
+      streamController?.close()
+    }
+  })
+
+  it('shows a commit action for completed worker jobs and calls the commit endpoint', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await openThreadDrawer(user)
+    await user.type(screen.getByLabelText('New thread title'), 'Commit worker thread')
+    await user.click(screen.getByRole('button', { name: 'Create new design thread' }))
+
+    await screen.findByText('Commit worker thread')
+    await user.type(screen.getByLabelText('Thread message composer'), 'Please make a source change and prepare a commit')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    await screen.findByText('Codex worker response with view context.')
+    await waitFor(() => {
+      const thread = requireDesignThread('Commit worker thread')
+      const button = screen.getByRole('button', { name: 'Commit worker job changes' })
+      expect(button).toBeEnabled()
+      fireEvent.click(button)
+      expect(findFetchCall(`/api/design-threads/${thread.thread_id}/worker-jobs/job-1/commit`)).toBeDefined()
+      expect(thread.worker_jobs?.[0].status).toBe('committed')
+    })
+    await screen.findByText('Committed Codex worker job job-1')
   })
 })

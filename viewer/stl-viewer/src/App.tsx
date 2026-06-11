@@ -50,6 +50,7 @@ import type {
   CreateDesignThreadPayload,
   DesignThreadChatPayload,
   DesignThreadChatResponse,
+  DesignThreadWorkerJobResponse,
   DesignThreadDraftEventRequest,
   DesignThreadDraftEventResponse,
   DesignThreadsPayload,
@@ -433,6 +434,61 @@ function extractThreadMessagesFromStreamPayload(payload: unknown): DesignThreadE
   }
 
   return events
+}
+
+const WORKER_VIEWER_RELOAD_COMMAND = /\bflow\s+(?:cad\s+build|reload)\b|\/api\/reload\b/
+
+function workerCommandCanRefreshViewer(command: unknown) {
+  return typeof command === 'string' && WORKER_VIEWER_RELOAD_COMMAND.test(command)
+}
+
+function workerCommandCompleted(status: unknown, exitCode: unknown) {
+  const normalized = String(status || '').toLowerCase()
+  if (!(normalized === 'completed' || normalized === 'success' || normalized === 'succeeded')) return false
+  return exitCode === undefined || exitCode === null || exitCode === 0 || exitCode === '0'
+}
+
+function workerMessageShouldReloadViewer(message: unknown) {
+  if (!isDesignThreadEvent(message)) return false
+  const content = message.content
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return false
+  const record = content as {
+    command?: unknown
+    status?: unknown
+    exit_code?: unknown
+    kind?: unknown
+  }
+  return (
+    record.kind === 'worker_command'
+    && workerCommandCanRefreshViewer(record.command)
+    && workerCommandCompleted(record.status, record.exit_code)
+  )
+}
+
+function workerStreamPayloadShouldReloadViewer(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return false
+  const record = payload as { codex_event?: unknown; type?: unknown; done?: unknown }
+  if (record.done === true) return true
+  if (extractThreadMessagesFromStreamPayload(payload).some(workerMessageShouldReloadViewer)) return true
+  const codexEvent = record.codex_event
+  if (!codexEvent || typeof codexEvent !== 'object') return false
+  const item = (codexEvent as { item?: unknown }).item
+  if (!item || typeof item !== 'object') return false
+  const commandItem = item as { type?: unknown; status?: unknown; exit_code?: unknown; command?: unknown }
+  return (
+    commandItem.type === 'command_execution'
+    && workerCommandCompleted(commandItem.status, commandItem.exit_code)
+    && workerCommandCanRefreshViewer(commandItem.command)
+  )
+}
+
+function shouldUseDraftChatFirst(message: unknown) {
+  if (typeof message !== 'string') return false
+  const text = message.toLowerCase()
+  const mentionsSimplePart = /\b(panel|plate|rectangle|rectangular|block|box|part)\b/.test(text)
+  const mentionsMillimeters = /\d+(?:\.\d+)?\s*mm\b/.test(text)
+  const mentionsPanelFacts = /\b(width|wide|height|tall|thick|thickness|length|long|hole|holes|counter\s*bore|counterbore|m\d+)\b/.test(text)
+  return mentionsSimplePart && mentionsMillimeters && mentionsPanelFacts
 }
 
 function extractDraftEventMessage(action: DraftThreadAction, body: Record<string, unknown>) {
@@ -858,13 +914,22 @@ export default function App() {
     if (!messages.length) return
     setActiveThread((previous) => {
       if (!previous || previous.thread_id !== threadId) return previous
-      const existing = new Set(previous.messages.map((event) => event.message_id))
-      const unique = messages.filter((message) => !existing.has(message.message_id))
-      if (!unique.length) return previous
+      const incomingById = new Map(messages.map((message) => [message.message_id, message]))
+      let changed = false
+      const mergedMessages = previous.messages.map((event) => {
+        const incoming = incomingById.get(event.message_id)
+        if (!incoming) return event
+        incomingById.delete(event.message_id)
+        changed = true
+        return incoming
+      })
+      const newMessages = Array.from(incomingById.values())
+      if (newMessages.length) changed = true
+      if (!changed) return previous
 
       const next = {
         ...previous,
-        messages: [...previous.messages, ...unique],
+        messages: [...mergedMessages, ...newMessages],
       }
 
       const threadAttachmentIds = extractThreadAttachmentIds(next)
@@ -1003,6 +1068,21 @@ export default function App() {
     await loadThreadSummaries()
     return payload
   }, [apiBase, activeThreadId, loadThreadSummaries])
+
+  const commitWorkerJob = useCallback(async (threadId: string, jobId: string) => {
+    const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/worker-jobs/${jobId}/commit`), buildHeaders({}))
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as DesignThreadWorkerJobResponse
+    if (payload.thread) {
+      syncThreadFromPayload(payload.thread)
+    } else {
+      await loadThread(threadId)
+    }
+    await loadThreadSummaries()
+    return payload
+  }, [apiBase, loadThread, loadThreadSummaries, syncThreadFromPayload])
 
   const createViewportAttachment = useCallback(async (threadId: string, payload: ViewportScreenshotPayload) => {
     const response = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/attachments/viewport-screenshot`), {
@@ -1235,18 +1315,24 @@ export default function App() {
     if ('viewport_screenshot' in normalizedContextSnapshot) {
       delete normalizedContextSnapshot.viewport_screenshot
     }
+    const workerMetadata = {
+      ...(payload.metadata ?? {}),
+      viewer_api_base: apiBase,
+      ...(latestAttachmentId
+        ? {
+          viewport_screenshot: {
+            kind: 'viewport_screenshot',
+            attachment_id: latestAttachmentId,
+          },
+        }
+        : {}),
+    }
     const payloadWithAttachment = {
       ...payload,
+      metadata: workerMetadata,
       ...(latestAttachmentId
         ? {
           attachments: [latestAttachmentId],
-          metadata: {
-            ...(payload.metadata ?? {}),
-            viewport_screenshot: {
-              kind: 'viewport_screenshot',
-              attachment_id: latestAttachmentId,
-            },
-          },
         }
         : {}),
       context_snapshot: {
@@ -1268,6 +1354,34 @@ export default function App() {
       setActiveThreadId(threadId)
     }
 
+    let lastWorkerViewerRefreshAt = 0
+    const reloadViewerFromWorker = async () => {
+      setStatusMessage('Reloading viewer after worker update...')
+      try {
+        const reloadResponse = await fetch(apiUrl(apiBase, '/api/reload'), { method: 'POST' })
+        if (!reloadResponse.ok) {
+          throw new Error(await responseDetail(reloadResponse))
+        }
+      } catch (error) {
+        console.warn('Worker-triggered backend reload failed:', error instanceof Error ? error.message : error)
+      }
+      await loadViewerState()
+    }
+
+    const refreshViewerFromWorker = () => {
+      const now = Date.now()
+      if (now - lastWorkerViewerRefreshAt < 750) return
+      lastWorkerViewerRefreshAt = now
+      void reloadViewerFromWorker().catch((error) => {
+        console.warn('Worker-triggered viewer refresh failed:', error instanceof Error ? error.message : error)
+      })
+      window.setTimeout(() => {
+        void loadViewerState().catch((error) => {
+          console.warn('Worker-triggered delayed viewer reload failed:', error instanceof Error ? error.message : error)
+        })
+      }, 800)
+    }
+
     const applyThreadStreamPayload = (record: unknown) => {
       if (!record || typeof record !== 'object') return
 
@@ -1285,11 +1399,15 @@ export default function App() {
 
       const threadMessages = extractThreadMessagesFromStreamPayload(streamPayload)
       appendThreadEvents(threadId, threadMessages)
+
+      if (workerStreamPayloadShouldReloadViewer(streamPayload)) {
+        refreshViewerFromWorker()
+      }
     }
 
-    const streamChatResponse = async (response: Response) => {
+    const streamWorkerResponse = async (response: Response) => {
       if (!response.body) {
-        throw new Error('Chat stream response has no body')
+        throw new Error('Worker stream response has no body')
       }
 
       const reader = response.body.getReader()
@@ -1319,39 +1437,142 @@ export default function App() {
       draftChatParserRef.current = ''
     }
 
-    if (!chatStreamUnavailable) {
-      try {
-        const streamResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat/stream`), buildHeaders(payloadWithAttachment))
-        if (streamResponse.ok) {
-          await streamChatResponse(streamResponse)
-          const updatedThread = await loadThread(threadId)
-          syncThreadState(updatedThread)
-          await loadThreadSummaries()
-          return {
-            thread_id: threadId,
-            messages: updatedThread.messages,
-            thread: updatedThread,
-          } as DesignThreadChatResponse
-        }
+    const requestDraftChatStream = async () => {
+      const chatStreamResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat/stream`), buildHeaders(payloadWithAttachment))
+      if (!chatStreamResponse.ok) {
+        throw new Error(await responseDetail(chatStreamResponse))
+      }
+      await streamWorkerResponse(chatStreamResponse)
+      const updatedThread = await loadThread(threadId)
+      syncThreadState(updatedThread)
+      await loadThreadSummaries()
+      return {
+        thread_id: threadId,
+        messages: updatedThread.messages,
+        context_snapshot: normalizedContextSnapshot,
+        thread: updatedThread,
+      } as DesignThreadChatResponse
+    }
 
-        if (streamResponse.status === 404 || streamResponse.status === 405 || streamResponse.status === 501) {
+    const requestDraftChatJson = async () => {
+      const fallbackResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat`), buildHeaders(payloadWithAttachment))
+      if (!fallbackResponse.ok) {
+        throw new Error(await responseDetail(fallbackResponse))
+      }
+      const chat = await fallbackResponse.json() as DesignThreadChatResponse
+      syncThreadState(chat.thread)
+      appendThreadEvents(threadId, chat.messages)
+      await loadThreadSummaries()
+      return chat
+    }
+
+    if (shouldUseDraftChatFirst(payload.message)) {
+      if (!chatStreamUnavailable) {
+        try {
+          return await requestDraftChatStream()
+        } catch (error) {
+          console.warn('Draft chat stream failed:', error instanceof Error ? error.message : error)
           setChatStreamUnavailable(true)
         }
+      }
+      return requestDraftChatJson()
+    }
+
+    const followWorkerJob = async (jobId: string) => {
+      let closed = false
+      const pollInterval = window.setInterval(() => {
+        if (closed) return
+        void loadThread(threadId)
+          .then((updatedThread) => {
+            syncThreadState(updatedThread)
+            const job = updatedThread.worker_jobs?.find((candidate) => candidate.job_id === jobId)
+            if (job && ['succeeded', 'failed', 'cancelled', 'committed'].includes(job.status)) {
+              refreshViewerFromWorker()
+            }
+          })
+          .catch((error) => {
+            console.warn('Worker thread polling failed:', error instanceof Error ? error.message : error)
+          })
+      }, 1500)
+
+      try {
+        const streamResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/worker-jobs/${jobId}/stream`))
+        if (!streamResponse.ok) {
+          throw new Error(await responseDetail(streamResponse))
+        }
+        await streamWorkerResponse(streamResponse)
+        await loadViewerState()
+        const updatedThread = await loadThread(threadId)
+        syncThreadState(updatedThread)
+        await loadThreadSummaries()
       } catch (error) {
-        console.warn('Streaming chat request failed, using fallback:', error instanceof Error ? error.message : error)
+        console.warn('Worker stream failed:', error instanceof Error ? error.message : error)
+        appendThreadEvents(threadId, [{
+          message_id: `worker-stream-error-${jobId}-${Date.now()}`,
+          thread_id: threadId,
+          created_at: new Date().toISOString(),
+          type: 'status',
+          role: 'system',
+          content: {
+            kind: 'worker_error',
+            summary: `Worker stream failed: ${error instanceof Error ? error.message : String(error)}`,
+          },
+          attachments: [],
+          metadata: {
+            runtime: 'codex_worker',
+            worker_job_id: jobId,
+            worker_job_progress: true,
+            worker_progress_kind: 'error',
+          },
+        }])
+      } finally {
+        closed = true
+        window.clearInterval(pollInterval)
       }
     }
 
-    const fallbackResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/chat`), buildHeaders(payloadWithAttachment))
-    if (!fallbackResponse.ok) {
-      throw new Error(await responseDetail(fallbackResponse))
+    if (!chatStreamUnavailable) {
+      try {
+        const workerResponse = await fetch(apiUrl(apiBase, `/api/design-threads/${threadId}/worker-jobs`), buildHeaders(payloadWithAttachment))
+        if (workerResponse.ok) {
+          const workerPayload = await workerResponse.json() as DesignThreadWorkerJobResponse
+          if (workerPayload.thread) {
+            syncThreadState(workerPayload.thread)
+          }
+          appendThreadEvents(threadId, workerPayload.messages ?? [])
+          const jobId = workerPayload.job?.job_id
+          if (!jobId) {
+            throw new Error('Worker job response did not include a job id')
+          }
+          void followWorkerJob(jobId)
+          await loadThreadSummaries()
+          return {
+            thread_id: threadId,
+            messages: workerPayload.thread?.messages ?? workerPayload.messages ?? [],
+            thread: workerPayload.thread ?? {
+              thread_id: threadId,
+              title: '',
+              status: 'active',
+              created_at: '',
+              updated_at: '',
+              messages: workerPayload.messages ?? [],
+            },
+          } as DesignThreadChatResponse
+        }
+
+        if (workerResponse.status === 404 || workerResponse.status === 405 || workerResponse.status === 501) {
+          setChatStreamUnavailable(true)
+        } else {
+          throw new Error(await responseDetail(workerResponse))
+        }
+      } catch (error) {
+        console.warn('Worker chat request failed:', error instanceof Error ? error.message : error)
+        throw error
+      }
     }
-    const chat = await fallbackResponse.json() as DesignThreadChatResponse
-    syncThreadState(chat.thread)
-    appendThreadEvents(threadId, chat.messages)
-    await loadThreadSummaries()
-    return chat
-  }, [apiBase, appendThreadEvents, chatStreamUnavailable, latestAttachmentId, loadThread, loadThreadSummaries, syncThreadFromPayload])
+
+    return requestDraftChatJson()
+  }, [apiBase, appendThreadEvents, chatStreamUnavailable, latestAttachmentId, loadThread, loadThreadSummaries, loadViewerState, syncThreadFromPayload])
 
   const viewerParts = useMemo(
     () => parts.map((part) => mergePartDraft(part, partMetadataDrafts[part.id])),
@@ -2240,6 +2461,7 @@ export default function App() {
           onActivateThread={loadThread}
           onPatchThread={patchThread}
           onSendChatMessage={sendThreadChatMessage}
+          onCommitWorkerJob={commitWorkerJob}
           onCreateViewportAttachment={createViewportAttachment}
           onRequestVisualEvidence={createVisualEvidence}
           visualEvidenceView={visualEvidenceView}

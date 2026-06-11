@@ -29,6 +29,7 @@ from flow_cad.viewer.threads import (
     ThreadStorageError,
 )
 from flow_cad.viewer.service import ArtifactNotFoundError, ViewerError, ViewerService
+from flow_cad.viewer.worker_jobs import CodexWorkerJobManager, WorkerJobError
 
 
 def _project_root_from_env() -> Path | None:
@@ -1062,6 +1063,7 @@ def create_app(
     project_root: Path | None = None,
     thread_service: DesignThreadService | None = None,
     agent_runtime_client: AgentRuntimeClient | None = None,
+    worker_job_manager: CodexWorkerJobManager | None = None,
     config: FlowCadConfig | None = None,
 ) -> FastAPI:
     viewer_service = service or ViewerService(project_root or _project_root_from_env())
@@ -1069,10 +1071,16 @@ def create_app(
     flow_config = config or viewer_service.project.config
     agent_profile = flow_config.active_agent_profile()
     agent_runtime = agent_runtime_client or _agent_runtime_from_config(viewer_service.project_root, flow_config)
+    worker_jobs = worker_job_manager or CodexWorkerJobManager(
+        viewer_service,
+        design_threads,
+        agent_profile=agent_profile,
+    )
     app = FastAPI(title="Flow CAD Viewer API")
     app.state.viewer_service = viewer_service
     app.state.design_threads = design_threads
     app.state.agent_runtime = agent_runtime
+    app.state.worker_jobs = worker_jobs
     app.state.flow_config = flow_config
     app.state.agent_profile = agent_profile
 
@@ -1152,6 +1160,51 @@ def create_app(
         try:
             return design_threads.append_validator_event(thread_id, payload)
         except (ThreadStorageError, ThreadNotFoundError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/worker-jobs")
+    def create_design_thread_worker_job(thread_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return worker_jobs.start_job(thread_id, payload)
+        except (ThreadStorageError, ThreadNotFoundError, WorkerJobError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/design-threads/{thread_id}/worker-jobs/{job_id}")
+    def get_design_thread_worker_job(thread_id: str, job_id: str) -> dict[str, object]:
+        try:
+            return worker_jobs.get_job(thread_id, job_id)
+        except (ThreadStorageError, ThreadNotFoundError, WorkerJobError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/design-threads/{thread_id}/worker-jobs/{job_id}/stream")
+    def stream_design_thread_worker_job(thread_id: str, job_id: str) -> StreamingResponse:
+        try:
+            worker_jobs.get_job(thread_id, job_id)
+        except (ThreadStorageError, ThreadNotFoundError, WorkerJobError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        return StreamingResponse(worker_jobs.stream_events(thread_id, job_id), media_type="text/event-stream")
+
+    @app.post("/api/design-threads/{thread_id}/worker-jobs/{job_id}/cancel")
+    def cancel_design_thread_worker_job(thread_id: str, job_id: str) -> dict[str, object]:
+        try:
+            return worker_jobs.cancel_job(thread_id, job_id)
+        except (ThreadStorageError, ThreadNotFoundError, WorkerJobError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/design-threads/{thread_id}/worker-jobs/{job_id}/commit")
+    def commit_design_thread_worker_job(
+        thread_id: str,
+        job_id: str,
+        payload: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        try:
+            return worker_jobs.commit_job(thread_id, job_id, payload if isinstance(payload, dict) else {})
+        except (ThreadStorageError, ThreadNotFoundError, WorkerJobError) as exc:
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 

@@ -395,9 +395,32 @@ export interface DesignThreadRecord {
   visual_evidence?: ThreadVisualEvidenceArtifact[]
   visual_evidence_request_count?: number
   visual_evidence_requests?: ThreadVisualEvidenceRequest[]
+  worker_job_count?: number
+  worker_jobs?: DesignThreadWorkerJobRecord[]
   messages: DesignThreadEvent[]
   context_snapshots?: ThreadContextSnapshot[]
   attachments?: ViewportAttachmentRecord[]
+}
+
+export type WorkerJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'committed'
+
+export interface DesignThreadWorkerJobRecord {
+  schema_version?: number
+  job_id: string
+  thread_id: string
+  status: WorkerJobStatus
+  created_at?: string
+  updated_at?: string
+  started_at?: string | null
+  completed_at?: string | null
+  committed_at?: string | null
+  commit_hash?: string | null
+  codex_session_id?: string | null
+  changed_paths?: string[]
+  diff_summary?: string
+  validation_evidence?: Array<Record<string, unknown>>
+  commit_ready?: boolean
+  error?: string | null
 }
 
 export interface DesignThreadSummary {
@@ -437,6 +460,16 @@ export interface DesignThreadChatResponse {
   messages: DesignThreadEvent[]
   context_snapshot?: ThreadContextSnapshot | null
   thread: DesignThreadRecord
+}
+
+export interface DesignThreadWorkerJobResponse {
+  ok?: boolean
+  thread_id: string
+  job: DesignThreadWorkerJobRecord
+  messages?: DesignThreadEvent[]
+  message?: DesignThreadEvent
+  context_snapshot?: ThreadContextSnapshot | null
+  thread?: DesignThreadRecord
 }
 
 export interface ModelData {
