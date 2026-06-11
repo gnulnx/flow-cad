@@ -57,6 +57,49 @@ def test_draft_panel_operations_return_facts_and_isolated_preview_step(tmp_path:
     assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
 
 
+def test_draft_profile_operations_return_non_rectangular_profile_facts_and_step(tmp_path: Path) -> None:
+    store = _draft_store(tmp_path)
+
+    profile_points = [
+        [-50.0, -12.0],
+        [-20.0, -32.5],
+        [0.0, -18.0],
+        [20.0, -32.5],
+        [50.0, -12.0],
+        [34.0, 12.0],
+        [0.0, 32.5],
+        [-34.0, 12.0],
+        [-50.0, -12.0],
+    ]
+    created = store.create_profile_part(
+        part_id="sketch_profile",
+        length=100.0,
+        width=65.0,
+        height=10.0,
+        profile_points=profile_points,
+    )
+    draft_token = created["draft_token"]
+
+    assert created["ok"] is True
+    assert created["part_id"] == "sketch_profile"
+    assert created["profile_points"] == profile_points
+    assert created["bounding_box"]["size"] == pytest.approx([100.0, 65.0, 10.0])
+    assert created["profile_points"][:4] != [
+        [-50.0, -32.5],
+        [50.0, -32.5],
+        [50.0, 32.5],
+        [-50.0, 32.5],
+    ]
+
+    store.add_hole(draft_token, face="top", x=25.0, y=32.5, diameter=4.0)
+    with_hole = store.add_counterbore(draft_token, face="top", x=75.0, y=32.5, diameter=7.2, depth=2.5)
+
+    assert [feature["kind"] for feature in with_hole["feature_list"]] == ["hole", "counterbore"]
+    assert with_hole["hole_centers"][0]["center"] == [-25.0, 0.0, 0.0]
+    exported = store.export_draft_step(draft_token)
+    assert Path(str(exported["preview_step_path"])).exists()
+
+
 def test_draft_features_can_be_mirrored_to_opposing_face(tmp_path: Path) -> None:
     store = _draft_store(tmp_path)
     created = store.create_box_part(part_id="mirrored_panel", length=40.0, width=20.0, height=3.0)

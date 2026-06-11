@@ -5,7 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flow_cad.viewer.agent_runtime import FakeAgentRuntimeClient
-from flow_cad.viewer.app import create_app
+from flow_cad.viewer.app import (
+    create_app,
+)
 from flow_cad.viewer.service import ViewerService
 
 
@@ -21,6 +23,37 @@ def _tiny_png_data_url() -> str:
         "data:image/png;base64,"
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X9nSAAAAAASUVORK5CYII="
     )
+
+
+def _lobed_sketch_annotations() -> list[dict[str, object]]:
+    return [
+        {
+            "kind": "freehand",
+            "points": [
+                {"x": 0.18, "y": 0.50},
+                {"x": 0.25, "y": 0.27},
+                {"x": 0.44, "y": 0.16},
+                {"x": 0.57, "y": 0.19},
+                {"x": 0.72, "y": 0.32},
+                {"x": 0.90, "y": 0.50},
+                {"x": 0.72, "y": 0.68},
+                {"x": 0.58, "y": 0.86},
+                {"x": 0.43, "y": 0.82},
+                {"x": 0.24, "y": 0.66},
+            ],
+        },
+        {"kind": "circle", "x": 0.30, "y": 0.36, "radius": 0.03},
+        {"kind": "circle", "x": 0.74, "y": 0.62, "radius": 0.03},
+        {
+            "kind": "freehand",
+            "points": [
+                {"x": 0.50, "y": 0.72},
+                {"x": 0.53, "y": 0.76},
+                {"x": 0.56, "y": 0.72},
+                {"x": 0.53, "y": 0.68},
+            ],
+        },
+    ]
 
 
 def test_viewer_design_threads_crud_and_list(tmp_path) -> None:
@@ -305,6 +338,7 @@ def test_viewer_design_threads_chat_creates_deterministic_base_plate_draft(tmp_p
         return stl_path
 
     service = ViewerService(tmp_path, converter=fake_converter)
+
     runtime = FakeAgentRuntimeClient(
         [
             {"type": "assistant_delta", "text": "This should not be used."},
@@ -416,6 +450,11 @@ def test_viewer_design_threads_chat_annotated_draft_plan_requests_visual_evidenc
         return stl_path
 
     service = ViewerService(tmp_path, converter=fake_converter)
+
+    def fail_preview_command_proposal(_payload: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("annotated sketch planning must request visual evidence before preview commands")
+
+    service.preview_command_proposal = fail_preview_command_proposal  # type: ignore[method-assign]
     runtime = FakeAgentRuntimeClient(
         [
             {"type": "assistant_delta", "text": "This should not be used."},
@@ -435,10 +474,7 @@ def test_viewer_design_threads_chat_annotated_draft_plan_requests_visual_evidenc
             "context_snapshot": {
                 "visible_part_ids": ["example_block"],
                 "selected_part_ids": ["example_block"],
-                "annotations": [
-                    {"kind": "circle", "x": 0.25, "y": 0.25, "radius": 0.04},
-                    {"kind": "freehand", "points": [{"x": 0.1, "y": 0.2}, {"x": 0.8, "y": 0.75}]},
-                ],
+                "annotations": _lobed_sketch_annotations(),
             },
         },
     )
@@ -483,10 +519,20 @@ def test_viewer_design_threads_chat_annotated_draft_plan_requests_visual_evidenc
     assert completed_payload["continuation"]["draft_result"]["ok"] is True
     assert completed_payload["continuation"]["draft_result"]["part_id"] == "sketch_plate"
     operations = completed_payload["continuation"]["draft_result"]["applied_operations"]
-    assert operations[0]["name"] == "create_box"
+    assert operations[0]["name"] == "create_sketch_profile"
+    assert operations[0]["endpoint"] == "profile"
     assert operations[0]["parameters"]["height"] == 10.0
+    profile_points = operations[0]["parameters"]["profile_points"]
+    assert len(profile_points) > 6
+    assert profile_points[0] == profile_points[-1]
+    assert any(
+        abs(profile_points[index][0] - profile_points[index - 1][0]) > 1e-6
+        and abs(profile_points[index][1] - profile_points[index - 1][1]) > 1e-6
+        for index in range(1, len(profile_points))
+    )
     assert any(operation["name"] == "add_counterbore" for operation in operations)
     assert completed_payload["continuation"]["draft_preview_model"]["part_id"] == "sketch_plate"
+    assert completed_payload["continuation"]["draft_preview_model"]["draft"]["profile_points"] == profile_points
 
     reloaded = client.get(f"/api/design-threads/{thread_id}").json()
     message_types = [message["type"] for message in reloaded["messages"]]

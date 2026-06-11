@@ -13,12 +13,13 @@ def test_draft_operation_registry_ids_are_unique() -> None:
 
     ids = [operation.operation_id for operation in operations]
     assert len(ids) == len(set(ids))
-    assert len(operations) == 13
+    assert len(operations) == 14
 
 
 def test_draft_operation_registry_includes_required_operations() -> None:
     required_operation_ids = {
         "create_box",
+        "create_sketch_profile",
         "set_panel_thickness",
         "add_hole",
         "add_counterbore",

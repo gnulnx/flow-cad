@@ -59,11 +59,12 @@ def test_build_server_registers_default_agent_toolset(monkeypatch) -> None:
     assert server.name == "Flow CAD MCP"
     assert "draft-only CAD geometry operations" in server.instructions
     assert set(server.tools) == mcp_server.DEFAULT_TOOL_NAMES
-    assert len(server.tools) == 21
+    assert len(server.tools) == 22
     assert "draft_create_box" not in server.tools
     assert "visual_evidence_create" not in server.tools
     assert "draft_begin_transaction" in server.tools
     assert "draft_transaction_create_box" in server.tools
+    assert "draft_transaction_create_profile" in server.tools
     assert "request_visual_evidence" in server.tools
     assert mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME in server.tools
     assert "draft_transaction_add_raised_wall" in server.tools
@@ -76,9 +77,11 @@ def test_build_server_registers_advanced_toolset(monkeypatch) -> None:
     server = mcp_server.build_server()
 
     assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["advanced"]
-    assert len(server.tools) == 33
+    assert len(server.tools) == 35
     assert "draft_create_box" in server.tools
+    assert "draft_create_profile" in server.tools
     assert "draft_add_raised_wall" in server.tools
+    assert "draft_transaction_create_profile" in server.tools
     assert "draft_transaction_add_raised_wall" in server.tools
     assert "visual_evidence_create" in server.tools
     assert mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME in server.tools
@@ -103,8 +106,9 @@ def test_build_server_registers_transactions_toolset(monkeypatch) -> None:
     server = mcp_server.build_server()
 
     assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["transactions"]
-    assert len(server.tools) == 17
+    assert len(server.tools) == 18
     assert "draft_begin_transaction" in server.tools
+    assert "draft_transaction_create_profile" in server.tools
     assert "draft_transaction_add_raised_wall" in server.tools
     assert "validator_run" in server.tools
     assert "request_visual_evidence" not in server.tools
@@ -231,6 +235,60 @@ def test_mcp_draft_transaction_tools_create_review_artifacts_only(monkeypatch, t
     assert source_patch_path.is_relative_to(tmp_path / ".flow" / "draft-transactions")
     assert "flow/parts/mcp_transaction_panel.py" in source_patch_path.read_text(encoding="utf-8")
     assert not (tmp_path / "flow" / "parts" / "mcp_transaction_panel.py").exists()
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
+
+
+def test_mcp_draft_transaction_profile_tool_creates_profile_review_artifacts_only(monkeypatch, tmp_path: Path) -> None:
+    install_fake_fastmcp(monkeypatch)
+    init_project(tmp_path)
+    monkeypatch.setenv("FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS", str(tmp_path))
+
+    server = mcp_server.build_server()
+    begun = server.tools["draft_begin_transaction"](
+        project_root=str(tmp_path),
+        part_id="mcp_sketch_profile",
+    )
+    transaction_token = begun["transaction_token"]
+    profile_points = [
+        [-50.0, -12.0],
+        [-20.0, -32.5],
+        [0.0, -18.0],
+        [20.0, -32.5],
+        [50.0, -12.0],
+        [34.0, 12.0],
+        [0.0, 32.5],
+        [-34.0, 12.0],
+        [-50.0, -12.0],
+    ]
+
+    created = server.tools["draft_transaction_create_profile"](
+        transaction_token,
+        100.0,
+        65.0,
+        10.0,
+        profile_points,
+        project_root=str(tmp_path),
+    )
+    server.tools["draft_transaction_add_counterbore"](
+        transaction_token,
+        "top",
+        25.0,
+        32.5,
+        8.0,
+        2.0,
+        project_root=str(tmp_path),
+    )
+    previewed = server.tools["draft_transaction_preview"](transaction_token, project_root=str(tmp_path))
+    accepted = server.tools["draft_transaction_accept"](transaction_token, project_root=str(tmp_path))
+    source_patch_path = Path(str(accepted["source_patch_path"]))
+
+    assert created["draft"]["profile_points"] == profile_points
+    assert Path(str(previewed["preview_step_path"])).is_relative_to(tmp_path / ".flow" / "drafts")
+    assert source_patch_path.is_relative_to(tmp_path / ".flow" / "draft-transactions")
+    source_patch = source_patch_path.read_text(encoding="utf-8")
+    assert "Polyline" in source_patch
+    assert "make_face" in source_patch
+    assert not (tmp_path / "flow" / "parts" / "mcp_sketch_profile.py").exists()
     assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
 
 

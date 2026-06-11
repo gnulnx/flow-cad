@@ -683,6 +683,10 @@ class ViewerService:
             payload.setdefault("part_id", part_id)
             result = self.draft_transaction_create_box(transaction_token, payload)
             endpoint = "box"
+        elif operation.name in {"create_profile", "create_sketch_profile", "create_extruded_profile"}:
+            payload.setdefault("part_id", part_id)
+            result = self.draft_transaction_create_profile(transaction_token, payload)
+            endpoint = "profile"
         elif operation.name == "set_panel_thickness":
             result = self.draft_transaction_set_panel_thickness(transaction_token, payload)
             endpoint = "thickness"
@@ -757,6 +761,18 @@ class ViewerService:
             length=payload["length"],
             width=payload["width"],
             height=payload["height"],
+            material=payload.get("material", "draft"),
+            role=payload.get("role", "draft"),
+        )
+
+    def draft_create_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.create_profile_part(
+            id=payload.get("id"),
+            part_id=payload.get("part_id"),
+            length=payload["length"],
+            width=payload["width"],
+            height=payload["height"],
+            profile_points=payload["profile_points"],
             material=payload.get("material", "draft"),
             role=payload.get("role", "draft"),
         )
@@ -845,6 +861,18 @@ class ViewerService:
             length=payload["length"],
             width=payload["width"],
             height=payload["height"],
+            material=payload.get("material", "draft"),
+            role=payload.get("role", "draft"),
+        )
+
+    def draft_transaction_create_profile(self, transaction_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.drafts.transaction_create_profile(
+            transaction_token,
+            part_id=payload.get("part_id"),
+            length=payload["length"],
+            width=payload["width"],
+            height=payload["height"],
+            profile_points=payload["profile_points"],
             material=payload.get("material", "draft"),
             role=payload.get("role", "draft"),
         )

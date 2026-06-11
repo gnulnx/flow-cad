@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from build123d import Box, Cylinder, Location, export_step
+from build123d import Box, Cylinder, Location, Polyline, export_step, extrude, make_face
 
 from flow_cad.project import FlowCadProject
 from flow_cad.step_io import normalize_step_file
@@ -115,6 +115,7 @@ class DraftPart:
     height: float
     material: str = "draft"
     role: str = "draft"
+    profile_points: list[tuple[float, float]] | None = None
     features: list[DraftFeature] = field(default_factory=list)
     preview_step_path: Path | None = None
 
@@ -142,6 +143,11 @@ class DraftPart:
             "dimensions": self.dimensions(),
             "material": self.material,
             "role": self.role,
+            "profile_points": (
+                [[float(x), float(y)] for x, y in self.profile_points]
+                if self.profile_points
+                else None
+            ),
             "features": [feature.to_state() for feature in self.features],
             "preview_step_path": preview_path,
             "preview_step_relative_path": preview_relative,
@@ -161,6 +167,7 @@ class DraftPart:
             height=float(dimensions["height"]),
             material=str(payload.get("material") or "draft"),
             role=str(payload.get("role") or "draft"),
+            profile_points=_profile_points_from_state(payload.get("profile_points")),
             features=[
                 DraftFeature.from_state(feature)
                 for feature in payload.get("features", [])
@@ -262,6 +269,40 @@ def _require_positive(name: str, value: float) -> float:
     if numeric <= 0:
         raise DraftGeometryError(f"{name} must be a positive number")
     return numeric
+
+
+def _profile_points_from_state(value: Any) -> list[tuple[float, float]] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise DraftGeometryError("profile_points must be a list")
+    points: list[tuple[float, float]] = []
+    for index, point in enumerate(value):
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            raise DraftGeometryError(f"profile point {index} must be a two-item coordinate")
+        points.append(
+            (
+                _float_value(f"profile_points[{index}].x", point[0]),
+                _float_value(f"profile_points[{index}].y", point[1]),
+            )
+        )
+    return _validate_profile_points(points)
+
+
+def _validate_profile_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    if len(points) < 3:
+        raise DraftGeometryError("profile_points must contain at least three points")
+    cleaned = [(float(x), float(y)) for x, y in points]
+    if cleaned[0] != cleaned[-1]:
+        cleaned.append(cleaned[0])
+    unique = {(round(x, 6), round(y, 6)) for x, y in cleaned[:-1]}
+    if len(unique) < 3:
+        raise DraftGeometryError("profile_points must contain at least three unique points")
+    xs = [point[0] for point in cleaned]
+    ys = [point[1] for point in cleaned]
+    if max(xs) - min(xs) <= 0 or max(ys) - min(ys) <= 0:
+        raise DraftGeometryError("profile_points must span a non-zero area")
+    return cleaned
 
 
 def _float_value(name: str, value: float) -> float:
@@ -436,6 +477,14 @@ def _bbox_payload(shape) -> dict[str, Any]:
     }
 
 
+def _profile_base_shape(draft: DraftPart):
+    if not draft.profile_points:
+        return Box(draft.length, draft.width, draft.height)
+    wire = Polyline(draft.profile_points)
+    face = make_face(wire)
+    return extrude(face, amount=draft.height).moved(Location((0.0, 0.0, -draft.height / 2.0)))
+
+
 def _copy_feature_to_face(feature: DraftFeature, *, feature_id: str, face: str) -> DraftFeature:
     return DraftFeature(
         id=feature_id,
@@ -463,9 +512,14 @@ def _source_for_draft(draft: DraftPart) -> str:
     needs_cylinder = any(feature.kind in {"hole", "counterbore"} for feature in draft.features)
     needs_slot = any(feature.kind == "slot" for feature in draft.features)
     needs_raised_wall = any(feature.kind == "raised_wall" for feature in draft.features)
+    needs_profile = bool(draft.profile_points)
     imports = "Box"
+    if needs_profile:
+        imports += ", Location, Polyline, extrude, make_face"
     if needs_cylinder or needs_slot or needs_raised_wall:
-        imports += ", Cylinder, Location"
+        imports += ", Cylinder"
+        if "Location" not in imports:
+            imports += ", Location"
 
     lines = [
         "from __future__ import annotations",
@@ -527,9 +581,18 @@ def _source_for_draft(draft: DraftPart) -> str:
     lines.extend(
         [
             f"def {function_name}(_params):",
-            f"    part = Box({draft.length!r}, {draft.width!r}, {draft.height!r})",
         ]
     )
+    if draft.profile_points:
+        lines.extend(
+            [
+                f"    profile_points = {json.dumps([[float(x), float(y)] for x, y in draft.profile_points])}",
+                "    part = extrude(make_face(Polyline(profile_points)), amount="
+                f"{draft.height!r}).moved(Location((0.0, 0.0, {-draft.height / 2.0!r})))",
+            ]
+        )
+    else:
+        lines.append(f"    part = Box({draft.length!r}, {draft.width!r}, {draft.height!r})")
     for feature in draft.features:
         spec = _face(feature.face)
         if feature.kind == "hole":
@@ -666,6 +729,34 @@ class DraftGeometryStore:
             height=_require_positive("height", height),
             material=str(material or "draft"),
             role=str(role or "draft"),
+        )
+        self._drafts[token] = draft
+        self._write_state(draft)
+        return self._payload(draft)
+
+    def create_profile_part(
+        self,
+        *,
+        id: str | None = None,
+        part_id: str | None = None,
+        length: float,
+        width: float,
+        height: float,
+        profile_points: list[tuple[float, float]] | list[list[float]],
+        material: str = "draft",
+        role: str = "draft",
+    ) -> dict[str, Any]:
+        name = _safe_slug(part_id or id or "sketch_profile", fallback="sketch_profile")
+        token = f"{name}-{uuid4().hex[:12]}"
+        draft = DraftPart(
+            token=token,
+            part_id=name,
+            length=_require_positive("length", length),
+            width=_require_positive("width", width),
+            height=_require_positive("height", height),
+            material=str(material or "draft"),
+            role=str(role or "draft"),
+            profile_points=_validate_profile_points([(float(x), float(y)) for x, y in profile_points]),
         )
         self._drafts[token] = draft
         self._write_state(draft)
@@ -920,6 +1011,50 @@ class DraftGeometryStore:
                 "length": float(length),
                 "width": float(width),
                 "height": float(height),
+                "material": str(material or "draft"),
+                "role": str(role or "draft"),
+            },
+        )
+        return self._transaction_payload(transaction, draft_payload=draft_payload)
+
+    def transaction_create_profile(
+        self,
+        transaction_token: str,
+        *,
+        length: float,
+        width: float,
+        height: float,
+        profile_points: list[tuple[float, float]] | list[list[float]],
+        part_id: str | None = None,
+        material: str = "draft",
+        role: str = "draft",
+    ) -> dict[str, Any]:
+        transaction = self._require_open_transaction(transaction_token)
+        if transaction.draft_token is not None:
+            raise DraftGeometryError(f"Draft transaction already has a draft part: {transaction.token}")
+        draft_payload = self.create_profile_part(
+            part_id=part_id or transaction.part_id,
+            length=length,
+            width=width,
+            height=height,
+            profile_points=profile_points,
+            material=material,
+            role=role,
+        )
+        transaction.part_id = str(draft_payload["part_id"])
+        transaction.draft_token = str(draft_payload["draft_token"])
+        self._record_transaction_operation(
+            transaction,
+            "create_profile",
+            {
+                "part_id": transaction.part_id,
+                "length": float(length),
+                "width": float(width),
+                "height": float(height),
+                "profile_points": [
+                    [float(x), float(y)]
+                    for x, y in draft_payload.get("profile_points", [])
+                ],
                 "material": str(material or "draft"),
                 "role": str(role or "draft"),
             },
@@ -1197,7 +1332,7 @@ class DraftGeometryStore:
         return payload
 
     def _build_shape(self, draft: DraftPart):
-        shape = Box(draft.length, draft.width, draft.height)
+        shape = _profile_base_shape(draft)
         warnings: list[str] = []
         for feature in draft.features:
             spec = _face(feature.face)

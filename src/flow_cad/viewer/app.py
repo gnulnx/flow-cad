@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from flow_cad.config import AgentProfile, FlowCadConfig, load_flow_config
 from flow_cad.design_planner import plan_design_turn
 from flow_cad.draft_geometry import DraftGeometryError
+from flow_cad.sketch_intent import build_sketch_intent_recipe
 from flow_cad.viewer.agent_runtime import (
     AgentRuntimeClient,
     AgentRuntimeError,
@@ -672,6 +673,15 @@ def _design_plan_needs_visual_evidence(plan_message: dict[str, Any], prepared: d
     return bool({"derive_footprint_from_annotations", "locate_hole_marks"} & step_ids)
 
 
+def _should_request_visual_evidence_before_deterministic_draft(
+    plan_message: dict[str, Any],
+    prepared: dict[str, Any],
+) -> bool:
+    if not _design_plan_needs_visual_evidence(plan_message, prepared):
+        return False
+    return _draft_transaction_token_from_prepared(prepared) is None
+
+
 def _append_visual_evidence_request_for_plan(
     design_threads: DesignThreadService,
     thread_id: str,
@@ -891,24 +901,61 @@ def _continue_annotated_draft_after_visual_evidence(
     length, width, thickness = _sketch_dimensions_from_text(command)
     diameter = _hole_diameter_from_text(command)
     part_id = "sketch_plate"
+    sketch_recipe = build_sketch_intent_recipe(
+        annotations,
+        {"length": length, "width": width, "thickness": thickness},
+        options={"symmetry": "y" if "sym" in command.lower() else None},
+        part_id=part_id,
+    )
     transaction = viewer_service.draft_begin_transaction({"part_id": part_id})
     transaction_token = str(transaction["transaction_token"])
     applied_operations: list[dict[str, Any]] = []
-    create_payload = {"part_id": part_id, "length": length, "width": width, "height": thickness}
-    create_result = viewer_service.draft_transaction_create_box(transaction_token, create_payload)
-    applied_operations.append({"name": "create_box", "endpoint": "box", "parameters": create_payload, "result": create_result})
+    outline = sketch_recipe.get("outline") if isinstance(sketch_recipe.get("outline"), dict) else {}
+    profile_points = outline.get("points") if isinstance(outline, dict) else None
+    create_payload = {
+        "part_id": part_id,
+        "length": length,
+        "width": width,
+        "height": thickness,
+        "profile_points": profile_points,
+    }
+    create_result = viewer_service.draft_transaction_create_profile(transaction_token, create_payload)
+    applied_operations.append(
+        {
+            "name": "create_sketch_profile",
+            "endpoint": "profile",
+            "parameters": create_payload,
+            "result": create_result,
+        }
+    )
 
-    min_x, max_x, min_y, max_y = _annotation_bounds(annotations)
-    span_x = max(max_x - min_x, 0.01)
-    span_y = max(max_y - min_y, 0.01)
     wants_counterbore = "counter" in command.lower()
-    for center_x, center_y in _small_annotation_centers(annotations):
-        x = min(max(((center_x - min_x) / span_x) * length, 0.0), length)
-        y = min(max(((center_y - min_y) / span_y) * width, 0.0), width)
+    holes = sketch_recipe.get("holes") if isinstance(sketch_recipe.get("holes"), list) else []
+    for hole in holes:
+        if not isinstance(hole, dict):
+            continue
+        center = hole.get("center")
+        if not isinstance(center, (list, tuple)) or len(center) != 2:
+            continue
+        x = min(max(float(center[0]) + length / 2.0, 0.0), length)
+        y = min(max(float(center[1]) + width / 2.0, 0.0), width)
         if wants_counterbore:
-            payload = {"face": "top", "x": x, "y": y, "diameter": max(diameter * 1.8, diameter + 3.0), "depth": min(2.5, thickness / 2.0)}
+            payload = {
+                "face": "top",
+                "x": x,
+                "y": y,
+                "diameter": max(diameter * 1.8, diameter + 3.0),
+                "depth": min(2.5, thickness / 2.0),
+            }
             result = viewer_service.draft_transaction_add_counterbore(transaction_token, payload)
-            applied_operations.append({"name": "add_counterbore", "endpoint": "counterbores", "parameters": payload, "result": result})
+            applied_operations.append(
+                {
+                    "name": "add_counterbore",
+                    "endpoint": "counterbores",
+                    "parameters": payload,
+                    "result": result,
+                }
+            )
         else:
             payload = {"face": "top", "x": x, "y": y, "diameter": diameter, "through": True}
             result = viewer_service.draft_transaction_add_hole(transaction_token, payload)
@@ -934,9 +981,11 @@ def _continue_annotated_draft_after_visual_evidence(
                     "part_id": part_id,
                     "operations": applied_operations,
                     "assumptions": [
-                        "Approximated the sketched outline as a rectangular plate for V1.",
+                        "Interpreted the sketch outline as a cleaned draft profile; sketch geometry is not exact CAD.",
                         "Mapped small annotation marks onto the top face as hole/counterbore centers.",
+                        *sketch_recipe.get("assumptions", []),
                     ],
+                    "warnings": sketch_recipe.get("warnings", []),
                 },
                 "metadata": metadata_base,
             },
@@ -961,7 +1010,7 @@ def _continue_annotated_draft_after_visual_evidence(
                 "role": "assistant",
                 "content": (
                     f"Created draft `{part_id}` from the captured sketch evidence as "
-                    f"{length:g} x {width:g} x {thickness:g} mm with "
+                    f"an interpreted {length:g} x {width:g} x {thickness:g} mm profile with "
                     f"{max(len(applied_operations) - 1, 0)} approximate {'counterbores' if wants_counterbore else 'holes'}. "
                     "Inspect the preview, then accept or discard the draft."
                 ),
@@ -1130,6 +1179,21 @@ def create_app(
                     "messages": [prepared["user_message"], design_plan_message, assistant_message],
                     "events": [],
                     "context_snapshot": prepared.get("context_snapshot"),
+                    "thread": design_threads.get_thread(thread_id),
+                }
+            if _should_request_visual_evidence_before_deterministic_draft(design_plan_message, prepared):
+                evidence_request = _append_visual_evidence_request_for_plan(
+                    design_threads,
+                    thread_id,
+                    prepared,
+                    design_plan_message,
+                )
+                return {
+                    "thread_id": thread_id,
+                    "messages": [prepared["user_message"], design_plan_message, *evidence_request["messages"]],
+                    "events": [],
+                    "context_snapshot": prepared.get("context_snapshot"),
+                    "visual_evidence_request": evidence_request["request"],
                     "thread": design_threads.get_thread(thread_id),
                 }
             deterministic = _deterministic_draft_chat_turn(design_threads, viewer_service, thread_id, prepared)
@@ -1521,6 +1585,14 @@ def create_app(
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
+    @app.post("/api/drafts/profile")
+    def draft_create_profile(payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_create_profile(payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
     @app.post("/api/drafts/{draft_token}/thickness")
     def draft_set_panel_thickness(draft_token: str, payload: dict[str, object]) -> dict[str, object]:
         try:
@@ -1609,6 +1681,14 @@ def create_app(
     def draft_transaction_create_box(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
         try:
             return viewer_service.draft_transaction_create_box(transaction_token, payload)
+        except (DraftGeometryError, KeyError) as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.post("/api/draft-transactions/{transaction_token}/profile")
+    def draft_transaction_create_profile(transaction_token: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.draft_transaction_create_profile(transaction_token, payload)
         except (DraftGeometryError, KeyError) as exc:
             status_code = getattr(exc, "status_code", 400)
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc

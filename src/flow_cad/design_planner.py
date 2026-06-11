@@ -37,6 +37,20 @@ _ANNOTATED_DRAFT_TERMS = ("plate", "panel", "part", "hole", "holes", "counterbor
 _BROAD_HEADROOM_TERMS = ("robot", "head", "housing", "enclosure", "chassis", "mount")
 _COUNTERBORE_TERMS = ("counterbore", "counter-bore", "counterbored", "counter bores", "counterbored")
 _HOLE_TERMS = ("hole", "holes", "hole mark", "pin")
+_SKETCH_OUTLINE_TERMS = ("sketch", "outline", "profile", "curve", "contour", "freehand", "drawing")
+_SKETCH_REVISION_PHRASE_TERMS = (
+    "not following",
+    "not matching",
+    "not match",
+    "not aligned",
+)
+_SKETCH_REVISION_CONTEXT_TERMS = (
+    "curve",
+    "curves",
+    "original sketch",
+    "sketch outline",
+    "draft sketch",
+)
 
 
 @dataclass(frozen=True)
@@ -396,6 +410,24 @@ def _is_annotation_intent(brief: DesignBrief) -> bool:
     )
 
 
+def _is_sketch_revision_intent(brief: DesignBrief) -> bool:
+    return (
+        brief.has_draft_transaction_token
+        and _contains_any(brief.normalized_text, _SKETCH_REVISION_PHRASE_TERMS)
+        and _contains_any(brief.normalized_text, _SKETCH_REVISION_CONTEXT_TERMS)
+    )
+
+
+def _should_build_sketch_profile(brief: DesignBrief, *, is_revision: bool) -> bool:
+    return is_revision or _contains_any(brief.normalized_text, _SKETCH_OUTLINE_TERMS)
+
+
+def _sketch_profile_operation_id(brief: DesignBrief) -> str:
+    if _contains_any(brief.normalized_text, ("sketch", "freehand", "drawing")):
+        return "create_sketch_profile"
+    return "create_extruded_profile"
+
+
 def _counterbore_ops_from_annotations(
     centers: list[tuple[float, float]],
     message_text: str,
@@ -448,7 +480,12 @@ def _hole_ops_from_annotations(centers: list[tuple[float, float]]) -> list[Desig
     return steps
 
 
-def _map_annotations_to_plan(message_text: str, context_snapshot: dict[str, Any] | None) -> DesignPlan:
+def _map_annotations_to_plan(
+    message_text: str,
+    context_snapshot: dict[str, Any] | None,
+    *,
+    is_revision: bool = False,
+) -> DesignPlan:
     annotations = _extract_annotations(context_snapshot)
     brief = _build_brief(message_text, context_snapshot)
     centers = _annotation_centers(annotations)
@@ -472,13 +509,27 @@ def _map_annotations_to_plan(message_text: str, context_snapshot: dict[str, Any]
     normalized = brief.normalized_text
     wants_counterbore = _contains_any(normalized, _COUNTERBORE_TERMS)
     wants_holes = _contains_any(normalized, _HOLE_TERMS)
+    wants_profile = _should_build_sketch_profile(brief, is_revision=is_revision)
+
+    if wants_profile:
+        profile_operation_id = _sketch_profile_operation_id(brief)
+        steps.append(
+            DesignPlanStep(
+                step_type="operation",
+                step_id="cleaned-sketch-profile",
+                summary="Create an interpreted sketch/profile outline before downstream edits.",
+                operation_id=profile_operation_id,
+                parameters={"source": "annotations" if brief.has_context_annotations else "draft_context"},
+                confidence=0.9,
+                source_evidence=("context_snapshot.annotations", "draft_context"),
+            )
+        )
 
     if wants_counterbore:
         steps.extend(_counterbore_ops_from_annotations(centers, normalized))
     elif wants_holes:
         steps.extend(_hole_ops_from_annotations(centers))
-
-    if not wants_counterbore and not wants_holes:
+    elif not wants_profile:
         steps.extend(_hole_ops_from_annotations(centers[:1]))
 
     steps.append(
@@ -505,7 +556,9 @@ def _map_annotations_to_plan(message_text: str, context_snapshot: dict[str, Any]
         ),
         missing_decisions=(
             "Final annotation-to-face projection assumptions",
-            "Exact hole depth/counterbore stack strategy per mark",
+            "Exact hole depth/counterbore stack strategy per mark"
+            if (wants_counterbore or wants_holes)
+            else "Profile interpretation tolerance and simplification strategy",
         ),
         assumptions=(
             "Assuming face default is top in the absence of explicit face hint.",
@@ -525,9 +578,10 @@ def plan_design_turn(
     Build a deterministic planning payload from a chat message.
     """
     brief = _build_brief(message_text, context_snapshot)
+    is_revision = _is_sketch_revision_intent(brief)
 
-    if _is_annotation_intent(brief):
-        return _map_annotations_to_plan(message_text, context_snapshot).to_payload()
+    if _is_annotation_intent(brief) or is_revision:
+        return _map_annotations_to_plan(message_text, context_snapshot, is_revision=is_revision).to_payload()
 
     parsed = parse_panel_command(brief.message_text)
     if parsed.ok and parsed.operations:

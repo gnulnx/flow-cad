@@ -50,6 +50,8 @@ def test_plan_design_turn_annotated_counterbore_prompt_includes_intent_steps_and
     assert "derive_footprint_from_annotations" in step_ids
     assert "locate_hole_marks" in step_ids
     operation_ids = [step["operation_id"] for step in payload["steps"] if step["operation_id"]]
+    assert "create_sketch_profile" in operation_ids
+    assert operation_ids.index("create_sketch_profile") < operation_ids.index("add_counterbore")
     assert "add_counterbore" in operation_ids
     assert "preview" in operation_ids
     assert json.dumps(payload)
@@ -73,3 +75,35 @@ def test_plan_design_turn_viewport_plate_prompt_with_annotations_is_draft_plan()
     step_ids = {step["step_id"] for step in payload["steps"]}
     assert "derive_footprint_from_annotations" in step_ids
     assert "locate_hole_marks" in step_ids
+
+
+def test_plan_design_turn_annotation_outline_prompt_is_profile_first_draft_plan() -> None:
+    payload = design_planner.plan_design_turn(
+        "Please cleanly follow this sketch outline",
+        context_snapshot={
+            "annotations": [
+                {"kind": "freehand", "points": [{"x": 0.1, "y": 0.2}, {"x": 0.9, "y": 0.8}]},
+            ],
+        },
+    )
+
+    assert payload["plan_type"] == "draft_plan"
+    operation_ids = [step["operation_id"] for step in payload["steps"] if step["operation_id"]]
+    assert operation_ids == ["create_sketch_profile", "preview"]
+    assert json.dumps(payload)
+
+
+def test_plan_design_turn_revise_sketch_following_curves_is_draft_plan_with_profile_step() -> None:
+    payload = design_planner.plan_design_turn(
+        "it is not following the curves from the original sketch",
+        context_snapshot={
+            "draft_transaction_token": "tx-789",
+        },
+    )
+
+    assert payload["plan_type"] == "draft_plan"
+    operation_ids = [step["operation_id"] for step in payload["steps"] if step["operation_id"]]
+    assert "create_sketch_profile" in operation_ids
+    assert "preview" in operation_ids
+    assert "add_hole" not in operation_ids
+    assert json.dumps(payload)

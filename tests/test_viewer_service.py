@@ -862,6 +862,53 @@ def test_viewer_backend_exposes_draft_transaction_workflow(tmp_path) -> None:
     assert any("--part api_transaction_panel" in cmd for cmd in status_payload["source_loop_commands"])
 
 
+def test_viewer_backend_exposes_draft_transaction_profile_workflow(tmp_path) -> None:
+    init_project(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    begun = client.post("/api/draft-transactions", json={"part_id": "api_sketch_profile"})
+    assert begun.status_code == 200
+    transaction_token = begun.json()["transaction_token"]
+    profile_points = [
+        [-50.0, -12.0],
+        [-20.0, -32.5],
+        [0.0, -18.0],
+        [20.0, -32.5],
+        [50.0, -12.0],
+        [34.0, 12.0],
+        [0.0, 32.5],
+        [-34.0, 12.0],
+        [-50.0, -12.0],
+    ]
+
+    created = client.post(
+        f"/api/draft-transactions/{transaction_token}/profile",
+        json={
+            "part_id": "api_sketch_profile",
+            "length": 100.0,
+            "width": 65.0,
+            "height": 10.0,
+            "profile_points": profile_points,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["draft"]["profile_points"] == profile_points
+
+    hole = client.post(
+        f"/api/draft-transactions/{transaction_token}/holes",
+        json={"face": "top", "x": 25.0, "y": 32.5, "diameter": 4.0},
+    )
+    assert hole.status_code == 200
+    preview = client.post(f"/api/draft-transactions/{transaction_token}/preview-model")
+    assert preview.status_code == 200
+    payload = preview.json()
+    assert payload["part_id"] == "api_sketch_profile"
+    assert payload["draft"]["profile_points"] == profile_points
+    assert payload["draft"]["feature_list"][0]["kind"] == "hole"
+    assert payload["dimensions"]["length_mm"] == 100.0
+
+
 def test_viewer_backend_exposes_draft_operation_registry(tmp_path) -> None:
     init_project(tmp_path)
     service = ViewerService(tmp_path)
@@ -876,6 +923,9 @@ def test_viewer_backend_exposes_draft_operation_registry(tmp_path) -> None:
     operations = {operation["id"]: operation for operation in api_payload["operations"]}
     assert api_payload["source"] == "flow_cad.draft_operations"
     assert operations["add_hole"]["endpoint_slug"] == "holes"
+    assert operations["create_sketch_profile"]["endpoint_slug"] == "profile"
+    assert operations["create_sketch_profile"]["transaction_tool_name"] == "draft_transaction_create_profile"
+    assert operations["create_sketch_profile"]["supports_source_emission"] is True
     assert operations["add_counterbore"]["transaction_tool_name"] == "draft_transaction_add_counterbore"
     assert operations["add_raised_wall"]["feature_kind"] == "raised_wall"
     assert operations["add_raised_wall"]["supports_preview"] is True

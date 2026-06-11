@@ -33,6 +33,7 @@ DRAFT_OPERATION_REGISTRY_TOOL_NAMES = {DRAFT_OPERATION_REGISTRY_TOOL_NAME}
 
 DIRECT_DRAFT_TOOL_NAMES = {
     "draft_create_box",
+    "draft_create_profile",
     "draft_set_panel_thickness",
     "draft_add_hole",
     "draft_add_counterbore",
@@ -47,6 +48,7 @@ DIRECT_DRAFT_TOOL_NAMES = {
 TRANSACTION_TOOL_NAMES = {
     "draft_begin_transaction",
     "draft_transaction_create_box",
+    "draft_transaction_create_profile",
     "draft_transaction_set_panel_thickness",
     "draft_transaction_add_hole",
     "draft_transaction_add_counterbore",
@@ -222,6 +224,36 @@ def build_server() -> FastMCP:
             length=length,
             width=width,
             height=height,
+            material=material,
+            role=role,
+        )
+
+    @tool(name="draft_create_profile", description="Create a draft-only interpreted sketch profile.")
+    def draft_create_profile_tool(
+        length: float,
+        width: float,
+        height: float,
+        profile_points: list[list[float]],
+        project_root: str | None = None,
+        part_id: str | None = None,
+        material: str = "draft",
+        role: str = "draft",
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "draft_create_profile called. project_root=%s part_id=%s length=%s width=%s height=%s points=%s",
+            project_root,
+            part_id,
+            length,
+            width,
+            height,
+            len(profile_points),
+        )
+        return draft_store(project_root).create_profile_part(
+            part_id=part_id,
+            length=length,
+            width=width,
+            height=height,
+            profile_points=profile_points,
             material=material,
             role=role,
         )
@@ -429,6 +461,37 @@ def build_server() -> FastMCP:
             length=length,
             width=width,
             height=height,
+            material=material,
+            role=role,
+        )
+
+    @tool(
+        name="draft_transaction_create_profile",
+        description="Create an interpreted sketch profile inside a draft transaction.",
+    )
+    def draft_transaction_create_profile_tool(
+        transaction_token: str,
+        length: float,
+        width: float,
+        height: float,
+        profile_points: list[list[float]],
+        project_root: str | None = None,
+        part_id: str | None = None,
+        material: str = "draft",
+        role: str = "draft",
+    ) -> dict[str, object]:
+        LOGGER.info(
+            "draft_transaction_create_profile called. project_root=%s transaction=%s",
+            project_root,
+            transaction_token,
+        )
+        return draft_store(project_root).transaction_create_profile(
+            transaction_token,
+            part_id=part_id,
+            length=length,
+            width=width,
+            height=height,
+            profile_points=profile_points,
             material=material,
             role=role,
         )
