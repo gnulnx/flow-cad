@@ -33,19 +33,62 @@ git ls-files --others --exclude-standard
 
 Treat this branch as a failed integration branch.
 
+Critical exception: preserve the agent screen capture path above every other
+chat/revert decision. The verified `agent_screen_*` feature is the current
+highest-value outcome from this work: an agent can request the active Flow CAD
+browser view, the browser fulfills the request, and the agent can inspect the
+actual project-local PNG under `.flow/agent-screen/`. Do not remove, bury, or
+"clean up" this path while reverting chat. If a revert conflicts with it, the
+revert loses.
+
 Do not merge `performance` wholesale. The branch mixes several separable ideas:
 
 - Useful runtime foundations: profiler, split build profiles, draft geometry, focused validators.
 - Possibly useful viewer interaction work: annotations, markup attachment capture.
-- Failed workbench/chat integration: design-thread chat, Codex worker jobs as chat default, visual-evidence loops, provider/runtime adapters, and LLM-source-edit UX.
+- Protected agent inspection work: explicit browser-fulfilled agent screen
+  capture through `agent_screen_request`, `agent_screen_latest`, and
+  `agent_screen_requests_list`.
+- Failed workbench/chat integration: design-thread chat, Codex worker jobs as
+  chat default, provider/runtime adapters, and LLM-source-edit UX.
 - Speculative or distracting docs: Gemini/provider/chat plan documents.
 
 The safest recovery path is:
 
 1. Start a clean branch from `main`.
 2. Reapply only the `KEEP` items below in small reviewed slices.
-3. Rebuild chat from a clean product contract, or integrate LlamaStudio's proven chat surface deliberately.
-4. Do not preserve the current chat/worker path as default behavior.
+3. Reapply the protected agent-screen capture path before any future chat work.
+4. Rebuild chat from a clean product contract, or integrate LlamaStudio's proven chat surface deliberately.
+5. Do not preserve the current chat/worker path as default behavior.
+
+## P0 Protected Feature: Agent Screen Capture
+
+This is the most important preserved feature in this audit.
+
+The `agent_screen_*` path solves the core failure that made prior CAD/viewer
+agent work unreliable: the agent can now see what is actually in the user's
+current Flow CAD browser workbench. The required behavior is:
+
+1. MCP creates a project-local pending request with `agent_screen_request`.
+2. The running browser workbench polls `/api/agent-screen/requests/latest`.
+3. The browser captures the currently visible Flow CAD model view.
+4. The backend stores the PNG and metadata under `.flow/agent-screen/`.
+5. MCP reads the result with `agent_screen_latest`, and the agent opens the
+   actual stored PNG before making visual claims.
+
+Preserve these artifacts as a unit:
+
+- `src/flow_cad/viewer/agent_screen.py`
+- the `/api/agent-screen/*` routes in `src/flow_cad/viewer/app.py`
+- the `agent_screen_*` MCP/tool-registry wrappers
+- the React browser poller and fulfillment worker in `viewer/stl-viewer/src/App.tsx`
+- the offscreen render fallback used by agent-screen fulfillment
+- tests proving request creation, browser fulfillment, backend storage, and MCP
+  metadata access
+- docs and project skill guidance that route agents to this feature first
+
+This path is not chat. It is not ambient desktop capture. It is not speculative
+LLM editing. It is explicit project-local viewport evidence, and it should
+survive even if all current design-thread chat code is removed.
 
 ## Keep / Toss Summary
 
@@ -53,6 +96,8 @@ The safest recovery path is:
 
 Keep these ideas, preferably by cherry-picking or reimplementing from clean commits:
 
+- Agent screen capture through `agent_screen_*`, including the browser poller,
+  backend storage, MCP wrappers, and `.flow/agent-screen/` artifacts.
 - Build profiling and profile reports.
 - Split build profiles such as `--part`, `--changed`, `--assembly-preview`, and `--handoff`.
 - Draft geometry transactions and isolated `.flow/drafts` preview artifacts.
@@ -69,7 +114,8 @@ Toss these from the branch unless redesigned from scratch:
 - `CodexWorkerJobManager` as the default chat implementation.
 - Design-thread chat UI as currently built.
 - LLM provider runtime adapters inside the viewer.
-- Visual-evidence worker loop as a prerequisite for basic chat.
+- Design-thread visual-evidence worker loops as a prerequisite for basic chat.
+  Do not confuse this with the protected `agent_screen_*` viewport evidence path.
 - Chat-specific roadmaps that justified the failed UX.
 - Gemini/OpenAI/provider comparison docs that are not tied to shipped runtime value.
 
@@ -79,7 +125,9 @@ Rebuild later only with a tighter product contract:
 
 - Persistent design threads, if they are event history for a good UI rather than the UI itself.
 - Source promotion from draft geometry, after draft preview works fast and visibly.
-- Offscreen visual evidence, only after the basic chat/draft loop is usable.
+- Design-thread offscreen visual evidence, only after the basic chat/draft loop
+  is usable. The agent-screen offscreen render fallback is already useful and
+  should stay protected.
 - LLM-backed editing, only behind an explicit action such as `Promote to source`, never normal `Send`.
 
 ## Branch Commit Inventory
@@ -96,8 +144,8 @@ Commits on `performance` over `main`, newest first:
 | `30fce01` | `Added httpx to project` | Toss unless a kept HTTP runtime path still requires it. |
 | `deb4209` | `Created proper menu an dhot keys for annotation` | Keep annotation/menu work if it is decoupled from chat. |
 | `0278c6d` | `Add Flow CAD MCP toolsets` | Keep if MCP surface remains useful and tested without chat dependency. |
-| `7579a47` | `Add agent requested visual evidence flow` | Toss for this revert. Consider later, not in basic chat path. |
-| `046cd2c` | `Render visual evidence in separate browser context` | Toss for this revert. Consider later if visual evidence is redesigned. |
+| `7579a47` | `Add agent requested visual evidence flow` | Split. Toss design-thread/chat request coupling, but preserve the explicit agent-request pattern if needed by `agent_screen_*`. |
+| `046cd2c` | `Render visual evidence in separate browser context` | Keep the offscreen render technique when used by `agent_screen_*`; toss only design-thread visual-evidence coupling. |
 | `015e3ea` | `Add design thread visual evidence artifacts` | Toss with visual-evidence/chat branch. |
 | `44257eb` | `Add first-class Flow CAD runtime config` | Keep if config model is still needed for runtime/provider settings. |
 | `22a9772` | `Autodetect Codex viewer chat runtime` | Toss. |
@@ -135,7 +183,7 @@ Legend:
 | A | `docs/CodexViewerReworkPlan.md` | TOSS | It rationalized the failed chat direction. Rebuild a shorter product contract later. |
 | A | `docs/DesignPlanner.md` | TOSS | Tied to failed planner/chat path. |
 | A | `docs/DraftGeometryAPI.md` | KEEP | Useful if draft geometry API is salvaged. |
-| A | `docs/FlowCadMCP.md` | SPLIT | Keep draft/MCP toolset facts; remove chat/agent overreach. |
+| A | `docs/FlowCadMCP.md` | KEEP | Keep draft/MCP toolset facts and the protected `agent_screen_*` docs; remove only failed chat overreach. |
 | A | `docs/FlowCadProfiler.md` | KEEP | Profiler documentation should survive. |
 | A | `docs/FocusedValidators.md` | KEEP | Validator docs should survive. |
 | A | `docs/GeminiDraftingProposal.md` | TOSS | Speculative provider/proposal doc, not runtime value. |
@@ -147,7 +195,7 @@ Legend:
 | A | `docs/ViewerChatTriage.md` | TOSS | Chat branch triage, not a kept product path. |
 | A | `docs/ViewerLLMInterfaceRework.md` | TOSS | Replace with a new LlamaStudio-informed design if revisited. |
 | A | `docs/ViewerPreview.md` | KEEP | Viewer preview/draft workflow is relevant. |
-| A | `docs/VisualEvidence.md` | TOSS | Too entangled with failed chat/agent flow for this revert. |
+| A | `docs/VisualEvidence.md` | SPLIT | Toss failed chat visual-evidence planning, but preserve any agent-screen ownership rule that says the browser must provide explicit viewport evidence. |
 | M | `pyproject.toml` | SPLIT | Keep dependencies only required by kept features; likely drop chat/provider deps. |
 | M | `skills/flow-cad-project/SKILL.md` | REVIEW | Keep only generic workflow updates that match the salvaged runtime. |
 | M | `src/flow_cad/cli.py` | KEEP | Keep CLI additions for profiler/build/validation if tested. |
@@ -174,7 +222,7 @@ Legend:
 | A | `src/flow_cad/validation/placement.py` | KEEP | Keep generic placement validation if independent. |
 | A | `src/flow_cad/validation/runner.py` | KEEP | Keep validator runner. |
 | A | `src/flow_cad/viewer/agent_runtime.py` | TOSS | Failed provider/chat adapter path. |
-| M | `src/flow_cad/viewer/app.py` | SPLIT | Keep draft/preview endpoints; toss chat/planner/visual-evidence/worker default plumbing. |
+| M | `src/flow_cad/viewer/app.py` | SPLIT | Keep draft/preview endpoints and all `/api/agent-screen/*` routes; toss chat/planner/design-thread visual-evidence/worker default plumbing. |
 | M | `src/flow_cad/viewer/cli.py` | REVIEW | Keep only unrelated viewer CLI improvements. |
 | M | `src/flow_cad/viewer/service.py` | SPLIT | Keep draft transaction and preview service methods; toss chat/visual evidence coupling. |
 | A | `src/flow_cad/viewer/threads.py` | TOSS | Current design-thread implementation is part of failed chat branch. Rebuild later if needed. |
@@ -186,7 +234,7 @@ Legend:
 | A | `tests/test_draft_geometry.py` | KEEP | Keep with draft geometry. |
 | A | `tests/test_draft_operations.py` | KEEP | Keep with draft operations. |
 | A | `tests/test_focused_validators.py` | KEEP | Keep with validators. |
-| A | `tests/test_mcp_server.py` | SPLIT | Keep if MCP server survives; trim chat/provider assumptions. |
+| A | `tests/test_mcp_server.py` | SPLIT | Keep MCP server coverage, especially `agent_screen_*`; trim chat/provider assumptions. |
 | A | `tests/test_profiler.py` | KEEP | Keep with profiler. |
 | M | `tests/test_project.py` | KEEP | Keep only project changes required by salvaged features. |
 | A | `tests/test_sketch_intent.py` | SPLIT | Keep only with annotation-to-draft salvage. |
@@ -196,9 +244,9 @@ Legend:
 | M | `tests/test_viewer_cli.py` | REVIEW | Keep only independent viewer CLI changes. |
 | A | `tests/test_viewer_design_threads.py` | TOSS | Toss with current design-thread/chat implementation. |
 | A | `tests/test_viewer_preview_commands.py` | KEEP | Keep deterministic preview command tests. |
-| M | `tests/test_viewer_service.py` | SPLIT | Keep draft/preview service coverage; remove chat/visual-evidence/worker coverage. |
-| M | `viewer/stl-viewer/src/App.test.tsx` | SPLIT | Keep annotation and preview tests; toss chat/worker/default composer changes. |
-| M | `viewer/stl-viewer/src/App.tsx` | SPLIT | Keep annotation/preview UI if decoupled; toss chat/worker/default composer implementation. |
+| M | `tests/test_viewer_service.py` | SPLIT | Keep draft/preview service coverage and agent-screen API/storage coverage; remove chat/design-thread visual-evidence/worker coverage. |
+| M | `viewer/stl-viewer/src/App.test.tsx` | SPLIT | Keep annotation, preview, and agent-screen fulfillment tests; toss chat/worker/default composer changes. |
+| M | `viewer/stl-viewer/src/App.tsx` | SPLIT | Keep annotation/preview UI and the agent-screen poller/fulfillment worker; toss chat/worker/default composer implementation. |
 | A | `viewer/stl-viewer/src/components/AnnotationToolbar.tsx` | KEEP | Best salvage from viewer work, if kept independent. |
 | A | `viewer/stl-viewer/src/components/CommandPane.tsx` | REVIEW | Keep only if preview command surface remains useful. |
 | A | `viewer/stl-viewer/src/components/DesignThreadDock.tsx` | TOSS | Current chat UI is not acceptable. |
@@ -211,8 +259,8 @@ Legend:
 | M | `viewer/stl-viewer/src/index.css` | SPLIT | Keep annotation/preview styles; toss chat-specific styling. |
 | A | `viewer/stl-viewer/src/shortcuts.ts` | KEEP | Keep if toolbar hotkeys survive. |
 | M | `viewer/stl-viewer/src/types.ts` | SPLIT | Keep draft/annotation types; toss chat/worker/provider types. |
-| A | `viewer/stl-viewer/src/visualEvidenceRender.test.ts` | TOSS | Toss with visual-evidence flow. |
-| A | `viewer/stl-viewer/src/visualEvidenceRender.ts` | TOSS | Toss with visual-evidence flow. |
+| A | `viewer/stl-viewer/src/visualEvidenceRender.test.ts` | SPLIT | Keep the offscreen render helper coverage required by agent-screen capture; toss design-thread visual-evidence-only behavior if removed. |
+| A | `viewer/stl-viewer/src/visualEvidenceRender.ts` | KEEP | Required by protected agent-screen capture so the PNG is not black/axis-only. Rename later only if the agent-screen dependency is preserved. |
 
 ## Live Worktree Divergences Not Yet Committed
 
@@ -220,11 +268,45 @@ These are on top of `performance` HEAD at audit time.
 
 | Status | Path | Decision | Notes |
 | --- | --- | --- | --- |
-| M | `viewer/stl-viewer/src/App.tsx` | TOSS | Emergency patch removing worker jobs from composer. Correct direction, but it belongs in a clean rewrite, not this branch. |
-| M | `viewer/stl-viewer/src/App.test.tsx` | TOSS | Tests for emergency chat routing patch. Do not preserve as-is. |
+| M | `viewer/stl-viewer/src/App.tsx` | SPLIT | Toss emergency chat routing patches, but keep any agent-screen poller/fulfillment code. |
+| M | `viewer/stl-viewer/src/App.test.tsx` | SPLIT | Toss emergency chat routing tests, but keep agent-screen fulfillment tests. |
 | ?? | `docs/GEMINI_PERFORMANCE_REVIEW.md` | TOSS | Untracked review/proposal artifact. Not part of runtime recovery. |
 
 ## What To Keep In A Clean Rebuild
+
+### Slice 0: Agent Screen Capture
+
+Keep first:
+
+- `src/flow_cad/viewer/agent_screen.py`
+- `/api/agent-screen/*` routes in `src/flow_cad/viewer/app.py`
+- `agent_screen_request`, `agent_screen_latest`, and
+  `agent_screen_requests_list` in MCP/tool registry surfaces
+- the browser poller and fulfillment worker in `viewer/stl-viewer/src/App.tsx`
+- `viewer/stl-viewer/src/visualEvidenceRender.ts` or an equivalent offscreen
+  renderer that can produce nonblank PNGs from loaded models
+- docs in `docs/FlowCadMCP.md` and `skills/flow-cad-project/SKILL.md`
+- focused tests in `tests/test_mcp_server.py`, `tests/test_viewer_service.py`,
+  `tests/test_tool_registry.py`, and `viewer/stl-viewer/src/App.test.tsx`
+
+Completion condition:
+
+```bash
+.venv/bin/python -m pytest tests/test_viewer_service.py tests/test_mcp_server.py tests/test_tool_registry.py
+npm --prefix viewer/stl-viewer test -- --run App.test.tsx
+npm --prefix viewer/stl-viewer run build
+```
+
+Manual proof condition:
+
+Use MCP against a real downstream project such as `/home/gnulnx/b3_robot`:
+
+1. Call `agent_screen_request`.
+2. Wait for the existing browser workbench to fulfill it.
+3. Call `agent_screen_latest`.
+4. Open the stored `.flow/agent-screen/<capture-id>.png`.
+5. Confirm the image shows actual model geometry, not a black canvas or only the
+   axis triad.
 
 ### Slice 1: Performance Foundation
 
@@ -302,7 +384,8 @@ Throw away the current implementation of:
 - Design-thread chat dock.
 - Codex worker jobs as chat engine.
 - Agent runtime/provider adapters.
-- Visual evidence as part of chat turn execution.
+- Design-thread visual evidence as part of chat turn execution. This does not
+  include the protected `agent_screen_*` viewport capture path.
 - Design planner as a mandatory chat step.
 - Chat-specific docs and Gemini/provider proposal docs.
 
@@ -342,11 +425,12 @@ the relevant runtime code.
 
 Suggested order:
 
-1. Profiler and build profiles.
-2. Draft geometry and preview commands.
-3. Focused validators.
-4. MCP draft surface if still wanted.
-5. Annotation UI decoupled from chat.
+1. Agent screen capture.
+2. Profiler and build profiles.
+3. Draft geometry and preview commands.
+4. Focused validators.
+5. MCP draft surface if still wanted.
+6. Annotation UI decoupled from chat.
 
 Do not bring over current `DesignThreadDock`, `worker_jobs.py`, or
 `agent_runtime.py` unless the product direction changes and they are rebuilt
