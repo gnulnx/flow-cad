@@ -19,6 +19,7 @@ from flow_cad.profiler import format_profile_summary, load_latest_build_profile
 from flow_cad.validation.runner import FocusedValidatorRunner
 from flow_cad.viewer.service import ViewerService
 from flow_cad.viewer.threads import DesignThreadService
+from flow_cad.viewer.agent_screen import AgentScreenService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -78,6 +79,11 @@ def validation_runner(project_root: str | None = None) -> FocusedValidatorRunner
 def design_thread_service(project_root: str | None = None) -> DesignThreadService:
     root = enforce_project_root(project_root)
     return DesignThreadService(ViewerService(root))
+
+
+def agent_screen_service(project_root: str | None = None) -> AgentScreenService:
+    root = enforce_project_root(project_root)
+    return AgentScreenService(ViewerService(root))
 
 
 class ToolRegistry:
@@ -897,6 +903,45 @@ def visual_evidence_create_tool(
     return design_thread_service(project_root).add_visual_evidence(thread_id, payload)
 
 
+@registry.register(name="agent_screen_request")
+def agent_screen_request_tool(
+    project_root: str | None = None,
+    purpose: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    metadata: dict[str, object] | None = None,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    """Request the active Flow CAD browser workbench to capture its current viewport for agent review."""
+    LOGGER.info("agent_screen_request called. project_root=%s purpose=%s", project_root, purpose)
+    return agent_screen_service(project_root).request_capture(
+        {
+            "request_id": request_id,
+            "purpose": purpose,
+            "width": width,
+            "height": height,
+            "metadata": metadata or {},
+        }
+    )
+
+
+@registry.register(name="agent_screen_latest")
+def agent_screen_latest_tool(project_root: str | None = None) -> dict[str, object]:
+    """Read metadata for the latest captured Flow CAD agent screen."""
+    LOGGER.info("agent_screen_latest called. project_root=%s", project_root)
+    return {"ok": True, "screen": agent_screen_service(project_root).latest()}
+
+
+@registry.register(name="agent_screen_requests_list")
+def agent_screen_requests_list_tool(
+    project_root: str | None = None,
+    status: str | None = None,
+) -> dict[str, object]:
+    """List pending or completed Flow CAD agent screen requests."""
+    LOGGER.info("agent_screen_requests_list called. project_root=%s status=%s", project_root, status)
+    return agent_screen_service(project_root).list_requests(status=status)
+
+
 # --- Legacy Tool Wrappers for Compatibility ---
 
 @registry.register(name="read_viewer_context")
@@ -1016,4 +1061,3 @@ def summarize_acceptance_artifacts_tool(
             "ok": False,
             "error": f"Failed to read acceptance manifest: {exc}",
         }
-

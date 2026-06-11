@@ -23,6 +23,12 @@ from flow_cad.viewer.agent_runtime import (
     FakeAgentRuntimeClient,
     LlamaCppAgentRuntimeClient,
 )
+from flow_cad.viewer.agent_screen import (
+    AgentScreenError,
+    AgentScreenNotFoundError,
+    AgentScreenRequestNotFoundError,
+    AgentScreenService,
+)
 from flow_cad.viewer.threads import (
     DesignThreadService,
     VisualEvidenceNotFoundError,
@@ -1246,6 +1252,7 @@ def create_app(
 ) -> FastAPI:
     viewer_service = service or ViewerService(project_root or _project_root_from_env())
     design_threads = thread_service or DesignThreadService(viewer_service)
+    agent_screen = AgentScreenService(viewer_service)
     flow_config = config or viewer_service.project.config
     agent_profile = flow_config.active_agent_profile()
     agent_runtime = agent_runtime_client or _agent_runtime_from_config(viewer_service.project_root, flow_config)
@@ -1939,6 +1946,59 @@ def create_app(
     @app.get("/api/parts")
     def parts() -> dict[str, object]:
         return viewer_service.list_parts()
+
+    @app.post("/api/agent-screen/capture")
+    def capture_agent_screen(payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return agent_screen.capture(payload)
+        except AgentScreenError as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/agent-screen/latest")
+    def latest_agent_screen() -> dict[str, object]:
+        try:
+            return agent_screen.latest()
+        except AgentScreenNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/agent-screen/captures/{capture_id}/image")
+    def get_agent_screen_image(capture_id: str) -> FileResponse:
+        try:
+            path = agent_screen.image_path(capture_id)
+            return FileResponse(path, media_type="image/png", filename=path.name)
+        except AgentScreenNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/agent-screen/requests")
+    def request_agent_screen(payload: dict[str, object] | None = None) -> dict[str, object]:
+        try:
+            return agent_screen.request_capture(payload)
+        except AgentScreenError as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/agent-screen/requests")
+    def list_agent_screen_requests(status: str | None = None) -> dict[str, object]:
+        try:
+            return agent_screen.list_requests(status=status)
+        except AgentScreenError as exc:
+            status_code = getattr(exc, "status_code", 400)
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    @app.get("/api/agent-screen/requests/latest")
+    def latest_agent_screen_request(status: str | None = "pending") -> dict[str, object]:
+        try:
+            return agent_screen.latest_request(status=status)
+        except AgentScreenRequestNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/agent-screen/requests/{request_id}/fail")
+    def fail_agent_screen_request(request_id: str, payload: dict[str, object] | None = None) -> dict[str, object]:
+        try:
+            return agent_screen.fail_request(request_id, payload)
+        except AgentScreenRequestNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/api/imports/model")
     async def import_model(request: Request) -> dict[str, object]:

@@ -12,6 +12,7 @@ from flow_cad.draft_geometry import DraftGeometryStore
 from flow_cad.project import load_project
 from flow_cad.profiler import format_profile_summary, load_latest_build_profile
 from flow_cad.validation.runner import FocusedValidatorRunner
+from flow_cad.viewer.agent_screen import AgentScreenService
 from flow_cad.viewer.service import ViewerService
 from flow_cad.viewer.threads import DesignThreadService
 
@@ -71,6 +72,9 @@ DEFAULT_VISUAL_TOOL_NAMES = {
     "visual_evidence_get",
     "request_visual_evidence",
     "visual_evidence_requests_list",
+    "agent_screen_request",
+    "agent_screen_latest",
+    "agent_screen_requests_list",
 }
 ADVANCED_VISUAL_TOOL_NAMES = DEFAULT_VISUAL_TOOL_NAMES | {"visual_evidence_create"}
 DEFAULT_TOOL_NAMES = (
@@ -176,6 +180,11 @@ def validation_runner(project_root: str | None = None) -> FocusedValidatorRunner
 def design_thread_service(project_root: str | None = None) -> DesignThreadService:
     root = enforce_project_root(project_root)
     return DesignThreadService(ViewerService(root))
+
+
+def agent_screen_service(project_root: str | None = None) -> AgentScreenService:
+    root = enforce_project_root(project_root)
+    return AgentScreenService(ViewerService(root))
 
 
 def build_server() -> FastMCP:
@@ -796,6 +805,42 @@ def build_server() -> FastMCP:
             status,
         )
         return design_thread_service(project_root).list_visual_evidence_requests(thread_id, status=status)
+
+    @tool(
+        name="agent_screen_request",
+        description="Request the active Flow CAD browser workbench to capture its current viewport for agent review.",
+    )
+    def agent_screen_request_tool(
+        project_root: str | None = None,
+        purpose: str | None = None,
+        width: int | None = None,
+        height: int | None = None,
+        metadata: dict[str, object] | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("agent_screen_request called. project_root=%s purpose=%s", project_root, purpose)
+        return agent_screen_service(project_root).request_capture(
+            {
+                "request_id": request_id,
+                "purpose": purpose,
+                "width": width,
+                "height": height,
+                "metadata": metadata or {},
+            }
+        )
+
+    @tool(name="agent_screen_latest", description="Read metadata for the latest captured Flow CAD agent screen.")
+    def agent_screen_latest_tool(project_root: str | None = None) -> dict[str, object]:
+        LOGGER.info("agent_screen_latest called. project_root=%s", project_root)
+        return {"ok": True, "screen": agent_screen_service(project_root).latest()}
+
+    @tool(name="agent_screen_requests_list", description="List pending or completed Flow CAD agent screen requests.")
+    def agent_screen_requests_list_tool(
+        project_root: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("agent_screen_requests_list called. project_root=%s status=%s", project_root, status)
+        return agent_screen_service(project_root).list_requests(status=status)
 
     @tool(name="visual_evidence_create", description="Store a PNG visual evidence artifact for a design thread.")
     def visual_evidence_create_tool(

@@ -59,13 +59,15 @@ def test_build_server_registers_default_agent_toolset(monkeypatch) -> None:
     assert server.name == "Flow CAD MCP"
     assert "draft-only CAD geometry operations" in server.instructions
     assert set(server.tools) == mcp_server.DEFAULT_TOOL_NAMES
-    assert len(server.tools) == 22
+    assert len(server.tools) == 25
     assert "draft_create_box" not in server.tools
     assert "visual_evidence_create" not in server.tools
     assert "draft_begin_transaction" in server.tools
     assert "draft_transaction_create_box" in server.tools
     assert "draft_transaction_create_profile" in server.tools
     assert "request_visual_evidence" in server.tools
+    assert "agent_screen_request" in server.tools
+    assert "agent_screen_latest" in server.tools
     assert mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME in server.tools
     assert "draft_transaction_add_raised_wall" in server.tools
 
@@ -77,13 +79,14 @@ def test_build_server_registers_advanced_toolset(monkeypatch) -> None:
     server = mcp_server.build_server()
 
     assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["advanced"]
-    assert len(server.tools) == 35
+    assert len(server.tools) == 38
     assert "draft_create_box" in server.tools
     assert "draft_create_profile" in server.tools
     assert "draft_add_raised_wall" in server.tools
     assert "draft_transaction_create_profile" in server.tools
     assert "draft_transaction_add_raised_wall" in server.tools
     assert "visual_evidence_create" in server.tools
+    assert "agent_screen_request" in server.tools
     assert mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME in server.tools
 
 
@@ -95,6 +98,7 @@ def test_build_server_registers_visual_toolset(monkeypatch) -> None:
 
     assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["visual"]
     assert set(server.tools) == mcp_server.ADVANCED_VISUAL_TOOL_NAMES
+    assert "agent_screen_request" in server.tools
     assert "draft_begin_transaction" not in server.tools
     assert mcp_server.DRAFT_OPERATION_REGISTRY_TOOL_NAME not in server.tools
 
@@ -421,4 +425,54 @@ def test_mcp_request_visual_evidence_writes_thread_local_request(monkeypatch, tm
     assert listed["visual_evidence_requests"][0]["request_id"] == requested["request_id"]
     assert request_path.exists()
     assert request_path.is_relative_to(request_root)
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
+
+
+def test_mcp_agent_screen_tools_request_and_read_latest(monkeypatch, tmp_path: Path) -> None:
+    install_fake_fastmcp(monkeypatch)
+    init_project(tmp_path)
+    monkeypatch.setenv("FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS", str(tmp_path))
+
+    server = mcp_server.build_server()
+    requested = server.tools["agent_screen_request"](
+        project_root=str(tmp_path),
+        request_id="../agent/screen",
+        purpose="look at current viewer",
+        metadata={"agent": "mcp-test"},
+    )
+    listed = server.tools["agent_screen_requests_list"](
+        project_root=str(tmp_path),
+        status="pending",
+    )
+
+    assert requested["request_id"] == "agent-screen"
+    assert requested["status"] == "pending"
+    assert listed["ok"] is True
+    assert listed["count"] == 1
+    assert listed["requests"][0]["request_id"] == "agent-screen"
+
+    service = mcp_server.agent_screen_service(str(tmp_path))
+    captured = service.capture(
+        {
+            "request_id": requested["request_id"],
+            "capture_id": "../latest/view",
+            "data_url": tiny_png_data_url(),
+            "width": 1,
+            "height": 1,
+            "selected_ids": ["example_block"],
+            "visible_ids": ["example_block"],
+            "metadata": {"source": "test"},
+        }
+    )
+    latest = server.tools["agent_screen_latest"](project_root=str(tmp_path))
+
+    screen_root = tmp_path / ".flow" / "agent-screen"
+    image_path = screen_root / "latest-view.png"
+
+    assert captured["capture_id"] == "latest-view"
+    assert latest["ok"] is True
+    assert latest["screen"]["capture_id"] == "latest-view"
+    assert latest["screen"]["image_url"] == "/api/agent-screen/captures/latest-view/image"
+    assert image_path.exists()
+    assert image_path.is_relative_to(screen_root)
     assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))

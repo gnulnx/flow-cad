@@ -727,6 +727,7 @@ export default function App() {
   const [visualEvidenceFollowMode, setVisualEvidenceFollowMode] = useState(false)
   const visualEvidenceFollowModeRef = useRef(false)
   const fulfillingVisualEvidenceRequestsRef = useRef<Set<string>>(new Set())
+  const fulfillingAgentScreenRequestsRef = useRef<Set<string>>(new Set())
   const activatedDraftPreviewTokensRef = useRef<Set<string>>(new Set())
   const [latestAttachmentId, setLatestAttachmentId] = useState<string | null>(null)
   const [chatStreamUnavailable, setChatStreamUnavailable] = useState(false)
@@ -1319,6 +1320,95 @@ export default function App() {
   useEffect(() => {
     visualEvidenceFollowModeRef.current = visualEvidenceFollowMode
   }, [visualEvidenceFollowMode])
+
+  const failAgentScreenRequest = useCallback(async (requestId: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error)
+    try {
+      await fetch(
+        apiUrl(apiBase, `/api/agent-screen/requests/${requestId}/fail`),
+        buildHeaders({ error: message }),
+      )
+    } catch (failError) {
+      console.warn('Failed to record agent screen request failure:', failError)
+    }
+  }, [apiBase])
+
+  const fulfillAgentScreenRequest = useCallback(async (request: {
+    request_id?: unknown
+    purpose?: unknown
+    width?: unknown
+    height?: unknown
+    metadata?: unknown
+  }) => {
+    const requestId = typeof request.request_id === 'string' ? request.request_id : ''
+    if (!requestId || fulfillingAgentScreenRequestsRef.current.has(requestId)) return
+    fulfillingAgentScreenRequestsRef.current.add(requestId)
+    try {
+      const renderModels = visibleModelsRef.current
+      const capture = renderModels.length
+        ? await renderVisualEvidenceCapture({
+          models: renderModels,
+          view: 'iso',
+          width: typeof request.width === 'number' ? request.width : undefined,
+          height: typeof request.height === 'number' ? request.height : undefined,
+        })
+        : captureViewportVisualEvidence(viewportAnnotations, 'iso')
+      const payload = {
+        request_id: requestId,
+        content_type: 'image/png',
+        data_url: capture.dataUrl,
+        width: capture.width,
+        height: capture.height,
+        selected_ids: selectedIds,
+        visible_ids: visiblePartIdsRef.current.length ? visiblePartIdsRef.current : selectedIds,
+        active_part_id: activeName,
+        backend_revision: backendRevisionRef.current,
+        viewport: capture.viewport,
+        metadata: {
+          purpose: typeof request.purpose === 'string' ? request.purpose : 'agent-screen',
+          ...(request.metadata && typeof request.metadata === 'object' ? request.metadata : {}),
+          capture_source: visualEvidenceCaptureSource(capture.viewport.render_context),
+          fulfillment_source: 'agent-screen-request-worker',
+          render_context: capture.viewport.render_context,
+        },
+      }
+      const response = await fetch(apiUrl(apiBase, '/api/agent-screen/capture'), buildHeaders(payload))
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+    } catch (error) {
+      await failAgentScreenRequest(requestId, error)
+    } finally {
+      fulfillingAgentScreenRequestsRef.current.delete(requestId)
+    }
+  }, [activeName, apiBase, failAgentScreenRequest, selectedIds, viewportAnnotations])
+
+  useEffect(() => {
+    let cancelled = false
+    const pollAgentScreenRequest = async () => {
+      try {
+        const response = await fetch(apiUrl(apiBase, '/api/agent-screen/requests/latest?status=pending'))
+        if (cancelled || response.status === 404) return
+        if (!response.ok) {
+          throw new Error(await responseDetail(response))
+        }
+        const request = await response.json()
+        if (!cancelled) {
+          void fulfillAgentScreenRequest(request)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Agent screen request poll failed:', error instanceof Error ? error.message : error)
+        }
+      }
+    }
+    void pollAgentScreenRequest()
+    const intervalId = window.setInterval(pollAgentScreenRequest, 1500)
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [apiBase, fulfillAgentScreenRequest])
 
   useEffect(() => {
     if (!activeThreadId) return undefined

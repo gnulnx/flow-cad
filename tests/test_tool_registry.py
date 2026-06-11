@@ -15,6 +15,8 @@ def test_tool_registry_contains_registered_tools() -> None:
     assert "draft_operation_registry" in tools
     assert "validator_run" in tools
     assert "request_visual_evidence" in tools
+    assert "agent_screen_request" in tools
+    assert "agent_screen_latest" in tools
 
 
 def test_tool_registry_get_tool() -> None:
@@ -56,5 +58,4 @@ def test_tool_registry_get_schemas_with_filter() -> None:
     schemas = registry.get_schemas(["draft_create_box"])
     assert len(schemas) == 1
     assert schemas[0]["name"] == "draft_create_box"
-
 

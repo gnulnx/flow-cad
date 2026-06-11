@@ -372,7 +372,71 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
     assert "/api/design-threads/{thread_id}/visual-evidence-requests/{request_id}/fail" in route_paths
     assert "/api/design-threads/{thread_id}/visual-evidence/{artifact_id}" in route_paths
     assert "/api/design-threads/{thread_id}/visual-evidence/{artifact_id}/image" in route_paths
+    assert "/api/agent-screen/capture" in route_paths
+    assert "/api/agent-screen/latest" in route_paths
+    assert "/api/agent-screen/captures/{capture_id}/image" in route_paths
+    assert "/api/agent-screen/requests" in route_paths
+    assert "/api/agent-screen/requests/latest" in route_paths
+    assert "/api/agent-screen/requests/{request_id}/fail" in route_paths
     assert "/api/reload" in route_paths
+
+
+def test_viewer_app_stores_agent_screen_capture(tmp_path) -> None:
+    init_project(tmp_path)
+    service = ViewerService(tmp_path)
+    client = TestClient(create_app(service=service))
+
+    missing = client.get("/api/agent-screen/latest")
+    assert missing.status_code == 404
+
+    request = client.post(
+        "/api/agent-screen/requests",
+        json={"request_id": "../screen/request", "purpose": "agent review"},
+    )
+    assert request.status_code == 200
+    assert request.json()["request_id"] == "screen-request"
+
+    capture = client.post(
+        "/api/agent-screen/capture",
+        json={
+            "request_id": request.json()["request_id"],
+            "capture_id": "../screen/capture",
+            "data_url": (
+                "data:image/png;base64,"
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X9nSAAAAAASUVORK5CYII="
+            ),
+            "width": 1,
+            "height": 1,
+            "selected_ids": ["example_block"],
+            "visible_ids": ["example_block"],
+            "active_part_id": "example_block",
+            "backend_revision": 7,
+            "viewport": {"render_context": "viewport-canvas"},
+            "metadata": {"source": "test"},
+        },
+    )
+    assert capture.status_code == 200
+    payload = capture.json()
+    assert payload["capture_id"] == "screen-capture"
+    assert payload["kind"] == "agent_screen_capture"
+    assert payload["image_url"] == "/api/agent-screen/captures/screen-capture/image"
+    assert payload["metadata"]["source"] == "test"
+
+    latest = client.get("/api/agent-screen/latest")
+    assert latest.status_code == 200
+    assert latest.json()["capture_id"] == "screen-capture"
+
+    image = client.get(payload["image_url"])
+    assert image.status_code == 200
+    assert image.headers["content-type"] == "image/png"
+    assert image.content.startswith(b"\x89PNG")
+
+    listed = client.get("/api/agent-screen/requests?status=fulfilled")
+    assert listed.status_code == 200
+    assert listed.json()["count"] == 1
+    assert listed.json()["requests"][0]["capture_id"] == "screen-capture"
+    assert (tmp_path / ".flow" / "agent-screen" / "screen-capture.png").exists()
+    assert not any(path.is_file() for path in (tmp_path / "exports").rglob("*"))
 
 
 def test_viewer_app_imports_step_and_serves_display_model(tmp_path, monkeypatch) -> None:

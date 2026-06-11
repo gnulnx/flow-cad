@@ -21,12 +21,19 @@ vi.mock('./components/Viewer', () => ({
 }))
 
 vi.mock('./visualEvidenceRender', () => ({
-  renderVisualEvidenceCapture: vi.fn(async (options: { models: Array<Record<string, unknown>>; view: string }) => {
+  renderVisualEvidenceCapture: vi.fn(async (options: {
+    models: Array<Record<string, unknown>>
+    view: string
+    width?: number
+    height?: number
+  }) => {
     visualEvidenceRenderCalls.push(options)
+    const width = options.width ?? 960
+    const height = options.height ?? 720
     return {
       dataUrl: 'data:image/png;base64,T0ZGU0NSRUV4=',
-      width: 960,
-      height: 720,
+      width,
+      height,
       camera: {
         view: options.view,
         position: [1, 2, 3],
@@ -34,8 +41,8 @@ vi.mock('./visualEvidenceRender', () => ({
         up: [0, 0, 1],
       },
       viewport: {
-        width: 960,
-        height: 720,
+        width,
+        height,
         render_context: 'offscreen-browser',
       },
     }
@@ -289,6 +296,7 @@ let activeParts = partsPayload.parts
 let designThreads: MockDesignThread[] = []
 let snapshotCounter = 0
 let attachmentCounter = 0
+let pendingAgentScreenRequest: Record<string, unknown> | null = null
 let snapFeaturesPayload = {
   component_id: 'wheel_box_test_body',
   artifact_path: 'b3/exports/step/wheel_box/b3_wheel_box_test_body.step',
@@ -516,6 +524,7 @@ describe('App source loading', () => {
     designThreads = []
     snapshotCounter = 0
     attachmentCounter = 0
+    pendingAgentScreenRequest = null
     snapFeaturesPayload = {
       ...snapFeaturesPayload,
       features: [...snapFeaturesPayload.features],
@@ -528,6 +537,43 @@ describe('App source loading', () => {
         partsRevision += 1
         healthRevision = partsRevision
         return jsonResponse({ ok: true, revision: partsRevision })
+      }
+      if (url.endsWith('/api/agent-screen/requests/latest?status=pending') && method === 'GET') {
+        return pendingAgentScreenRequest
+          ? jsonResponse(pendingAgentScreenRequest)
+          : Promise.resolve(new Response('not found', { status: 404 }))
+      }
+      const agentScreenFailMatch = url.match(/\/api\/agent-screen\/requests\/([^/]+)\/fail$/)
+      if (agentScreenFailMatch && method === 'POST') {
+        if (pendingAgentScreenRequest?.request_id === agentScreenFailMatch[1]) {
+          pendingAgentScreenRequest = {
+            ...pendingAgentScreenRequest,
+            status: 'failed',
+            error: String(jsonBody(init).error ?? 'failed'),
+          }
+        }
+        return jsonResponse(pendingAgentScreenRequest ?? { ok: true })
+      }
+      if (url.endsWith('/api/agent-screen/capture') && method === 'POST') {
+        const body = jsonBody(init)
+        if (pendingAgentScreenRequest?.request_id === body.request_id) {
+          pendingAgentScreenRequest = {
+            ...pendingAgentScreenRequest,
+            status: 'fulfilled',
+            capture_id: 'screen-01',
+          }
+        }
+        return jsonResponse({
+          schema_version: 1,
+          capture_id: 'screen-01',
+          kind: 'agent_screen_capture',
+          content_type: 'image/png',
+          width: body.width,
+          height: body.height,
+          selected_ids: body.selected_ids,
+          visible_ids: body.visible_ids,
+          metadata: body.metadata,
+        })
       }
       if (url.endsWith('/api/parts')) return jsonResponse({ ...partsPayload, revision: partsRevision, parts: activeParts })
       if (url.endsWith('/api/design-threads')) {
@@ -1982,6 +2028,59 @@ describe('App source loading', () => {
     await screen.findByText('status: fulfilled')
     await screen.findByText('artifact: ve-01')
     await waitFor(() => expect(screen.getByLabelText('Visual evidence view')).toHaveValue('top'))
+  })
+
+  it('fulfills pending agent screen requests through the offscreen render worker', async () => {
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    pendingAgentScreenRequest = {
+      request_id: 'screen-agent',
+      status: 'pending',
+      purpose: 'agent needs active viewer image',
+      width: 1280,
+      height: 900,
+      metadata: { caller: 'mcp' },
+    }
+
+    const captureCall = await waitFor(() => {
+      const value = findFetchCall('/api/agent-screen/capture')
+      expect(value).toBeDefined()
+      return value
+    }, { timeout: 3500 })
+    const captureBody = jsonBody(captureCall![1] as RequestInit)
+
+    expect(visualEvidenceRenderCalls).toHaveLength(1)
+    expect(visualEvidenceRenderCalls[0]).toMatchObject({
+      view: 'iso',
+      width: 1280,
+      height: 900,
+    })
+    expect(visualEvidenceRenderCalls[0].models).toHaveLength(1)
+    expect(captureBody).toMatchObject({
+      request_id: 'screen-agent',
+      content_type: 'image/png',
+      data_url: 'data:image/png;base64,T0ZGU0NSRUV4=',
+      width: 1280,
+      height: 900,
+      selected_ids: ['wheel_box_test_body'],
+      visible_ids: ['wheel_box_test_body'],
+      active_part_id: null,
+      backend_revision: 0,
+      viewport: {
+        width: 1280,
+        height: 900,
+        render_context: 'offscreen-browser',
+      },
+      metadata: {
+        caller: 'mcp',
+        purpose: 'agent needs active viewer image',
+        capture_source: 'separate-render-context',
+        fulfillment_source: 'agent-screen-request-worker',
+        render_context: 'offscreen-browser',
+      },
+    })
+    expect(pendingAgentScreenRequest).toMatchObject({ status: 'fulfilled', capture_id: 'screen-01' })
   })
 
   it('fulfills sketch-only visual evidence requests from the viewport canvas when no model is visible', async () => {

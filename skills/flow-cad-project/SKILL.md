@@ -48,3 +48,17 @@ issue coordinates, expected/actual values, or profiler-visible focused checks.
 Keep robot-specific dimensions and hardware contracts inside project validators;
 Flow CAD supplies the reusable runner, fact providers, and generic panel/
 placement helpers.
+
+## Agent Screen Review
+
+When an agent needs to inspect the current Flow CAD browser view, use the
+project-local agent screen path instead of guessing from stale screenshots:
+
+1. Call MCP `agent_screen_request` for the active project.
+2. Wait briefly for the running browser workbench to fulfill the request.
+3. Call MCP `agent_screen_latest` and open the returned `image_url` or stored PNG
+   metadata.
+
+This is explicit viewport capture, not ambient desktop capture. It writes under
+`.flow/agent-screen/` and should not affect exports, reports, handoff bundles,
+or project source.

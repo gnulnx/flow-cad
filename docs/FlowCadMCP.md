@@ -97,7 +97,7 @@ hermes mcp add flow-cad \
 
 ## Default Tools
 
-The default toolset exposes 21 tools.
+The default toolset exposes 25 tools.
 
 Draft transaction tools:
 
@@ -127,6 +127,12 @@ Design-thread visual evidence tools:
 - `visual_evidence_get`
 - `request_visual_evidence`
 - `visual_evidence_requests_list`
+
+Agent screen tools:
+
+- `agent_screen_request`
+- `agent_screen_latest`
+- `agent_screen_requests_list`
 
 Read-only operation registry tool:
 
@@ -188,12 +194,20 @@ Visual evidence tools return or persist:
 - browser API image URL for viewer-backed inspection
 - caller metadata such as provider, render context, or test source
 
+Agent screen tools provide the simplest "show the agent what I am looking at"
+path. `agent_screen_request` writes a pending project-local request under
+`.flow/agent-screen/requests/`. A running browser workbench polls that endpoint,
+captures the current WebGL viewport canvas, and posts it to
+`/api/agent-screen/capture`. `agent_screen_latest` returns the latest capture
+metadata, including `/api/agent-screen/captures/<capture-id>/image`.
+
 Draft artifacts are isolated under:
 
 ```text
 .flow/drafts/<draft-token>/
 .flow/draft-transactions/<transaction-token>/
 .flow/design-threads/<thread-id>/visual-evidence/
+.flow/agent-screen/
 ```
 
 They must not write `flow/`, `exports/`, `reports/`, handoff bundles, source
@@ -299,6 +313,12 @@ already has PNG image data. MCP can also call `request_visual_evidence` to write
 a pending browser-render request under the design thread. The viewer fulfills
 that request with its offscreen render context and marks the request fulfilled
 or failed. MCP must not drive the user's live viewport directly.
+
+For immediate agent screen review, use the `agent_screen_*` tools instead of the
+design-thread visual-evidence tools. This path is intentionally explicit:
+agents request a capture, the active browser posts the current viewport image,
+and agents read the latest stored PNG metadata. It does not grant ambient desktop
+capture or arbitrary browser control.
 
 ## Readiness Checks
 
