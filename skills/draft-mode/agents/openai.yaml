@@ -1,0 +1,4 @@
+interface:
+  display_name: "Draft Mode"
+  short_description: "Rapid CAD previews before formal validation."
+  default_prompt: "Use $draft-mode to create or update a CAD draft, get it visible for review as fast as possible, and defer production validation until the direction is accepted."
