@@ -598,6 +598,46 @@ function drawMarkupOnCanvas(
   context.restore()
 }
 
+function analyzeCanvasContent(context: CanvasRenderingContext2D, width: number, height: number) {
+  try {
+    const stepX = Math.max(1, Math.floor(width / 96))
+    const stepY = Math.max(1, Math.floor(height / 72))
+    const pixels = context.getImageData(0, 0, width, height).data
+    let sampled = 0
+    let nonBackground = 0
+    let min = 255
+    let max = 0
+
+    for (let y = 0; y < height; y += stepY) {
+      for (let x = 0; x < width; x += stepX) {
+        const index = ((y * width) + x) * 4
+        const red = pixels[index] ?? 0
+        const green = pixels[index + 1] ?? 0
+        const blue = pixels[index + 2] ?? 0
+        const alpha = pixels[index + 3] ?? 0
+        if (alpha < 16) continue
+        const brightness = (red + green + blue) / 3
+        min = Math.min(min, brightness)
+        max = Math.max(max, brightness)
+        sampled += 1
+        if (Math.abs(red - 8) + Math.abs(green - 11) + Math.abs(blue - 20) > 40) {
+          nonBackground += 1
+        }
+      }
+    }
+
+    return {
+      sampled_pixels: sampled,
+      non_background_pixels: nonBackground,
+      non_background_ratio: sampled ? nonBackground / sampled : 0,
+      brightness_range: sampled ? max - min : 0,
+    }
+  } catch (error) {
+    console.warn('Could not analyze viewport screenshot:', error)
+    return null
+  }
+}
+
 function captureViewportScreenshot(annotations: ThreadViewportAnnotation[] = []) {
   const canvas = document.querySelector('.workspace-canvas canvas') as HTMLCanvasElement | null
   if (!canvas) return { viewportSize: null, screenshot: null }
@@ -610,22 +650,23 @@ function captureViewportScreenshot(annotations: ThreadViewportAnnotation[] = [])
   }
 
   try {
-    if (annotations.length) {
-      const compositeCanvas = document.createElement('canvas')
-      compositeCanvas.width = canvas.width
-      compositeCanvas.height = canvas.height
-      const context = compositeCanvas.getContext('2d')
-      if (context) {
-        context.drawImage(canvas, 0, 0, canvas.width, canvas.height)
+    const compositeCanvas = document.createElement('canvas')
+    compositeCanvas.width = canvas.width
+    compositeCanvas.height = canvas.height
+    const context = compositeCanvas.getContext('2d')
+    if (context) {
+      context.drawImage(canvas, 0, 0, canvas.width, canvas.height)
+      if (annotations.length) {
         drawMarkupOnCanvas(context, annotations, canvas.width, canvas.height)
-        return {
-          viewportSize,
-          screenshot: {
-            kind: 'viewport_screenshot',
-            content_type: 'image/png',
-            data_url: compositeCanvas.toDataURL('image/png'),
-          },
-        }
+      }
+      return {
+        viewportSize,
+        screenshot: {
+          kind: 'viewport_screenshot',
+          content_type: 'image/png',
+          data_url: compositeCanvas.toDataURL('image/png'),
+        },
+        quality: analyzeCanvasContent(context, canvas.width, canvas.height),
       }
     }
     return {
@@ -635,6 +676,7 @@ function captureViewportScreenshot(annotations: ThreadViewportAnnotation[] = [])
         content_type: 'image/png',
         data_url: canvas.toDataURL('image/png'),
       },
+      quality: null,
     }
   } catch (error) {
     console.warn('Could not capture viewport screenshot:', error)
@@ -643,7 +685,8 @@ function captureViewportScreenshot(annotations: ThreadViewportAnnotation[] = [])
 }
 
 function captureViewportVisualEvidence(annotations: ThreadViewportAnnotation[], view: VisualEvidenceViewPreset) {
-  const { viewportSize, screenshot } = captureViewportScreenshot(annotations)
+  const capture = captureViewportScreenshot(annotations)
+  const { viewportSize, screenshot } = capture
   if (!screenshot?.data_url) {
     throw new Error('No visible models or viewport canvas available for visual evidence capture')
   }
@@ -661,8 +704,48 @@ function captureViewportVisualEvidence(annotations: ThreadViewportAnnotation[], 
       ...(viewportSize ?? {}),
       render_context: 'viewport-canvas',
     },
+    quality: capture.quality ?? null,
   }
 }
+
+function viewportCaptureLooksUsable(capture: ReturnType<typeof captureViewportVisualEvidence>) {
+  const quality = capture.quality
+  if (!quality) return true
+  if (!quality.sampled_pixels) return false
+  return quality.non_background_ratio >= 0.015 && quality.brightness_range >= 16
+}
+
+async function overlayAnnotationsOnCapture(
+  capture: Awaited<ReturnType<typeof renderVisualEvidenceCapture>>,
+  annotations: ThreadViewportAnnotation[],
+) {
+  if (!annotations.length) return capture
+  const image = new Image()
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve()
+    image.onerror = () => reject(new Error('Could not load capture image for annotation overlay'))
+    image.src = capture.dataUrl
+  })
+  const canvas = document.createElement('canvas')
+  canvas.width = capture.width
+  canvas.height = capture.height
+  const context = canvas.getContext('2d')
+  if (!context) return capture
+  context.drawImage(image, 0, 0, capture.width, capture.height)
+  drawMarkupOnCanvas(context, annotations, capture.width, capture.height)
+  return {
+    ...capture,
+    dataUrl: canvas.toDataURL('image/png'),
+    viewport: {
+      ...capture.viewport,
+      markup_overlay: true,
+    },
+  }
+}
+
+type AgentScreenCapture =
+  | ReturnType<typeof captureViewportVisualEvidence>
+  | Awaited<ReturnType<typeof renderVisualEvidenceCapture>>
 
 async function responseDetail(response: Response) {
   try {
@@ -1345,14 +1428,32 @@ export default function App() {
     fulfillingAgentScreenRequestsRef.current.add(requestId)
     try {
       const renderModels = visibleModelsRef.current
-      const capture = renderModels.length
-        ? await renderVisualEvidenceCapture({
-          models: renderModels,
-          view: 'iso',
-          width: typeof request.width === 'number' ? request.width : undefined,
-          height: typeof request.height === 'number' ? request.height : undefined,
-        })
-        : captureViewportVisualEvidence(viewportAnnotations, 'iso')
+      let capture: AgentScreenCapture | null = null
+      let viewportError: unknown = null
+      try {
+        const viewportCapture = captureViewportVisualEvidence(viewportAnnotations, 'iso')
+        if (viewportCaptureLooksUsable(viewportCapture)) {
+          capture = viewportCapture
+        }
+      } catch (error) {
+        viewportError = error
+      }
+      if (!capture) {
+        if (!renderModels.length) {
+          throw viewportError instanceof Error
+            ? viewportError
+            : new Error('Live viewport screenshot is blank and no visible models are available for fallback rendering')
+        }
+        capture = await overlayAnnotationsOnCapture(
+          await renderVisualEvidenceCapture({
+            models: renderModels,
+            view: 'iso',
+            width: typeof request.width === 'number' ? request.width : undefined,
+            height: typeof request.height === 'number' ? request.height : undefined,
+          }),
+          viewportAnnotations,
+        )
+      }
       const payload = {
         request_id: requestId,
         content_type: 'image/png',

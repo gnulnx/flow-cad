@@ -2083,6 +2083,58 @@ describe('App source loading', () => {
     expect(pendingAgentScreenRequest).toMatchObject({ status: 'fulfilled', capture_id: 'screen-01' })
   })
 
+  it('fulfills pending agent screen requests from the live viewport canvas when available', async () => {
+    const restoreCanvas = mockViewportCanvas({ dataUrl: viewportCaptureDataUrl() })
+    try {
+      render(<App />)
+
+      await screen.findByText('wheel_box_test_body')
+      pendingAgentScreenRequest = {
+        request_id: 'screen-live',
+        status: 'pending',
+        purpose: 'agent needs annotated live viewer image',
+        width: 1280,
+        height: 900,
+        metadata: { caller: 'mcp' },
+      }
+
+      const captureCall = await waitFor(() => {
+        const value = findFetchCall('/api/agent-screen/capture')
+        expect(value).toBeDefined()
+        return value
+      }, { timeout: 3500 })
+      const captureBody = jsonBody(captureCall![1] as RequestInit)
+
+      expect(visualEvidenceRenderCalls).toHaveLength(0)
+      expect(captureBody).toMatchObject({
+        request_id: 'screen-live',
+        content_type: 'image/png',
+        data_url: viewportCaptureDataUrl(),
+        width: 640,
+        height: 480,
+        selected_ids: ['wheel_box_test_body'],
+        visible_ids: ['wheel_box_test_body'],
+        viewport: {
+          width: 640,
+          height: 480,
+          client_width: 640,
+          client_height: 480,
+          render_context: 'viewport-canvas',
+        },
+        metadata: {
+          caller: 'mcp',
+          purpose: 'agent needs annotated live viewer image',
+          capture_source: 'viewport-canvas',
+          fulfillment_source: 'agent-screen-request-worker',
+          render_context: 'viewport-canvas',
+        },
+      })
+      expect(pendingAgentScreenRequest).toMatchObject({ status: 'fulfilled', capture_id: 'screen-01' })
+    } finally {
+      restoreCanvas()
+    }
+  })
+
   it('fulfills sketch-only visual evidence requests from the viewport canvas when no model is visible', async () => {
     const user = userEvent.setup()
     const restoreCanvas = mockViewportCanvas({ dataUrl: viewportCaptureDataUrl() })
