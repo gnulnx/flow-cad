@@ -75,6 +75,7 @@ DEFAULT_VISUAL_TOOL_NAMES = {
     "agent_screen_request",
     "agent_screen_latest",
     "agent_screen_requests_list",
+    "viewer_refresh",
 }
 ADVANCED_VISUAL_TOOL_NAMES = DEFAULT_VISUAL_TOOL_NAMES | {"visual_evidence_create"}
 DEFAULT_TOOL_NAMES = (
@@ -841,6 +842,21 @@ def build_server() -> FastMCP:
     ) -> dict[str, object]:
         LOGGER.info("agent_screen_requests_list called. project_root=%s status=%s", project_root, status)
         return agent_screen_service(project_root).list_requests(status=status)
+
+    @tool(name="viewer_refresh", description="Refresh the active Flow CAD viewer and return rendered artifact identity.")
+    def viewer_refresh_tool(
+        project_root: str | None = None,
+        part_id: str | None = None,
+        force_model_refetch: bool = True,
+        backend_url: str | None = None,
+    ) -> dict[str, object]:
+        LOGGER.info("viewer_refresh called. project_root=%s part_id=%s backend_url=%s", project_root, part_id, backend_url)
+        return tool_registry.get("viewer_refresh")(
+            project_root=project_root,
+            part_id=part_id,
+            force_model_refetch=force_model_refetch,
+            backend_url=backend_url,
+        )
 
     @tool(name="visual_evidence_create", description="Store a PNG visual evidence artifact for a design thread.")
     def visual_evidence_create_tool(

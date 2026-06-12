@@ -67,6 +67,7 @@ Start and reload the project-local workbench:
 ```bash
 flow start
 flow reload
+flow refresh --part <part_id> --force-model-refetch
 ```
 
 Query generated project cache state:
@@ -260,7 +261,7 @@ For most tasks:
 - Add tests/validators around existing behavior before extracting modules.
 - Run the relevant test suite before reporting code changes as complete.
 - Keep public commands top-level: `flow init`, `flow cad build`, `flow start`,
-  `flow reload`, and `flow registry`.
+  `flow reload`, `flow refresh`, and `flow registry`.
 - Keep generated caches, local runtime state, and dependency folders out of
   commits.
 - Do not mix Flow CAD runtime changes and downstream project geometry changes in

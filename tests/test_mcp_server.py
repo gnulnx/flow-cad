@@ -59,7 +59,7 @@ def test_build_server_registers_default_agent_toolset(monkeypatch) -> None:
     assert server.name == "Flow CAD MCP"
     assert "draft-only CAD geometry operations" in server.instructions
     assert set(server.tools) == mcp_server.DEFAULT_TOOL_NAMES
-    assert len(server.tools) == 25
+    assert len(server.tools) == 26
     assert "draft_create_box" not in server.tools
     assert "visual_evidence_create" not in server.tools
     assert "draft_begin_transaction" in server.tools
@@ -79,7 +79,7 @@ def test_build_server_registers_advanced_toolset(monkeypatch) -> None:
     server = mcp_server.build_server()
 
     assert set(server.tools) == mcp_server.TOOLSET_TOOL_NAMES["advanced"]
-    assert len(server.tools) == 38
+    assert len(server.tools) == 39
     assert "draft_create_box" in server.tools
     assert "draft_create_profile" in server.tools
     assert "draft_add_raised_wall" in server.tools

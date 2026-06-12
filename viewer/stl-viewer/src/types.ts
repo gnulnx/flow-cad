@@ -43,6 +43,12 @@ export interface ViewerPart {
   is_printable: boolean
   artifact_format: 'step' | 'stl' | null
   artifact_path: string | null
+  source_step_path?: string | null
+  display_stl_cache_path?: string | null
+  artifact_mtime_ns?: number | null
+  artifact_size?: number | null
+  artifact_hash?: string | null
+  artifact_identity?: string | null
   direct_stl_path: string | null
   source_kind: 'flow_python' | 'step' | 'stl' | 'missing'
   geometry_authority: 'step_kernel' | 'mesh' | 'missing'
@@ -485,6 +491,7 @@ export interface DesignThreadActionResponse {
 export interface ModelData {
   name: string
   partId: string
+  modelIdentity: string
   geometry: BufferGeometry
   color: string
   wireframeColor: string
@@ -494,6 +501,12 @@ export interface ModelData {
   qualityLabel: ViewerPart['quality_label']
   capabilities: GeometryCapabilities
   warnings: string[]
+  artifactPath?: string | null
+  artifactMtimeNs?: number | null
+  artifactSize?: number | null
+  artifactHash?: string | null
+  artifactIdentity?: string | null
+  modelUrl?: string | null
   occurrences: ViewerOccurrence[]
   bounds: {
     min: Vector3

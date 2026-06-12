@@ -17,6 +17,7 @@ from flow_cad.draft_geometry import DraftGeometryStore
 from flow_cad.project import load_project
 from flow_cad.profiler import format_profile_summary, load_latest_build_profile
 from flow_cad.validation.runner import FocusedValidatorRunner
+from flow_cad.viewer.cli import refresh_viewer
 from flow_cad.viewer.service import ViewerService
 from flow_cad.viewer.threads import DesignThreadService
 from flow_cad.viewer.agent_screen import AgentScreenService
@@ -940,6 +941,24 @@ def agent_screen_requests_list_tool(
     """List pending or completed Flow CAD agent screen requests."""
     LOGGER.info("agent_screen_requests_list called. project_root=%s status=%s", project_root, status)
     return agent_screen_service(project_root).list_requests(status=status)
+
+
+@registry.register(name="viewer_refresh")
+def viewer_refresh_tool(
+    project_root: str | None = None,
+    part_id: str | None = None,
+    force_model_refetch: bool = True,
+    backend_url: str | None = None,
+) -> dict[str, object]:
+    """Refresh the active Flow CAD viewer process and return rendered artifact identity."""
+    root = enforce_project_root(project_root)
+    LOGGER.info("viewer_refresh called. project_root=%s part_id=%s backend_url=%s", root, part_id, backend_url)
+    return refresh_viewer(
+        project_root=root,
+        backend_url=backend_url,
+        part_id=part_id,
+        force_model_refetch=force_model_refetch,
+    )
 
 
 # --- Legacy Tool Wrappers for Compatibility ---

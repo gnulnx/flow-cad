@@ -122,6 +122,7 @@ class AgentScreenService:
             "visible_ids": _as_string_list(payload.get("visible_ids")),
             "active_part_id": str(payload.get("active_part_id") or "").strip() or None,
             "backend_revision": payload.get("backend_revision"),
+            "rendered_artifacts": payload.get("rendered_artifacts") if isinstance(payload.get("rendered_artifacts"), list) else [],
             "viewport": payload.get("viewport") if isinstance(payload.get("viewport"), dict) else {},
             "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
             "request_id": request_id,

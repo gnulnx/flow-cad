@@ -533,6 +533,41 @@ function apiUrl(baseUrl: string, path: string) {
   return new URL(path, `${baseUrl}/`).toString()
 }
 
+function occurrenceSignature(occurrences: ViewerOccurrence[]) {
+  return JSON.stringify(
+    occurrences.map((occurrence) => ({
+      name: occurrence.name,
+      assembly_id: occurrence.assembly_id ?? null,
+      location: occurrence.location,
+      rotation: occurrence.rotation,
+    })),
+  )
+}
+
+function partModelIdentity(part: ViewerPart, backendRevision: number | null) {
+  return [
+    backendRevision ?? 'unknown-revision',
+    part.model_url,
+    part.artifact_path ?? '',
+    part.artifact_mtime_ns ?? '',
+    part.artifact_size ?? '',
+    part.artifact_hash ?? part.artifact_identity ?? '',
+    occurrenceSignature(part.occurrences.length ? part.occurrences : [IDENTITY_OCCURRENCE]),
+  ].join('|')
+}
+
+function renderedArtifactIdentities(models: ModelData[]) {
+  return models.map((model) => ({
+    part_id: model.partId,
+    artifact_path: model.artifactPath ?? null,
+    artifact_mtime_ns: model.artifactMtimeNs ?? null,
+    artifact_size: model.artifactSize ?? null,
+    artifact_hash: model.artifactHash ?? null,
+    artifact_identity: model.artifactIdentity ?? model.modelIdentity,
+    model_url: model.modelUrl ?? null,
+  }))
+}
+
 function _uniqueModelPartIds(partIds: string[]) {
   const result: string[] = []
   const seen = new Set<string>()
@@ -852,12 +887,20 @@ export default function App() {
       qualityLabel: ModelData['qualityLabel']
       capabilities: GeometryCapabilities
       warnings: string[]
+      modelIdentity?: string
+      artifactPath?: string | null
+      artifactMtimeNs?: number | null
+      artifactSize?: number | null
+      artifactHash?: string | null
+      artifactIdentity?: string | null
+      modelUrl?: string | null
     } = {
       sourceKind: 'client_stl',
       geometryAuthority: 'mesh',
       qualityLabel: 'approximate',
       capabilities: MESH_ONLY_CAPABILITIES,
       warnings: [CLIENT_STL_WARNING],
+      modelIdentity: partId,
     },
     targetModelState: ModelStateWriter = setModels,
   ) => {
@@ -871,6 +914,7 @@ export default function App() {
     const model: ModelData = {
       name,
       partId,
+      modelIdentity: geometryMetadata.modelIdentity ?? partId,
       geometry,
       color: '#5ec4ff',
       wireframeColor: '#f4d35e',
@@ -906,6 +950,7 @@ export default function App() {
   const loadPartModel = useCallback(async (part: ViewerPart) => {
     if (!part.artifact_format) return null
 
+    const modelIdentity = partModelIdentity(part, backendRevisionRef.current)
     const response = await fetch(apiUrl(apiBase, part.model_url))
     if (!response.ok) {
       throw new Error(`${part.id}: ${await responseDetail(response)}`)
@@ -924,6 +969,13 @@ export default function App() {
         qualityLabel: part.quality_label,
         capabilities: part.capabilities,
         warnings: part.warnings,
+        modelIdentity,
+        artifactPath: part.artifact_path,
+        artifactMtimeNs: part.artifact_mtime_ns,
+        artifactSize: part.artifact_size,
+        artifactHash: part.artifact_hash,
+        artifactIdentity: part.artifact_identity,
+        modelUrl: part.model_url,
       },
     )
     return part.id
@@ -1464,6 +1516,7 @@ export default function App() {
         visible_ids: visiblePartIdsRef.current.length ? visiblePartIdsRef.current : selectedIds,
         active_part_id: activeName,
         backend_revision: backendRevisionRef.current,
+        rendered_artifacts: renderedArtifactIdentities(renderModels),
         viewport: capture.viewport,
         metadata: {
           purpose: typeof request.purpose === 'string' ? request.purpose : 'agent-screen',
@@ -1832,13 +1885,14 @@ export default function App() {
   useEffect(() => {
     if (!viewerParts.length || !selectedIds.length) return
 
-    const loadedIds = new Set(models.map((model) => model.partId))
+    const loadedById = new Map(models.map((model) => [model.partId, model]))
     const selectedParts = selectedIds
       .map((id) => viewerParts.find((part) => part.id === id))
       .filter((part): part is ViewerPart => Boolean(part))
     const missingParts = selectedParts.filter((part) => {
       if (!part.artifact_format) return false
-      if (loadedIds.has(part.id)) return false
+      const loaded = loadedById.get(part.id)
+      if (loaded?.modelIdentity === partModelIdentity(part, backendRevisionRef.current)) return false
       return !loadingPartIdsRef.current.has(part.id)
     })
     if (!missingParts.length) return

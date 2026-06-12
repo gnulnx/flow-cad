@@ -58,7 +58,7 @@ def _write_build123d_step(project_root: Path, shape) -> Path:
 
 
 def test_viewer_service_lists_example_parts_and_prefers_step(tmp_path) -> None:
-    _write_step(tmp_path)
+    step_path = _write_step(tmp_path)
     _write_stl(tmp_path)
 
     service = ViewerService(tmp_path)
@@ -69,6 +69,13 @@ def test_viewer_service_lists_example_parts_and_prefers_step(tmp_path) -> None:
     assert part["id"] == "example_block"
     assert part["artifact_format"] == "step"
     assert part["artifact_path"] == "example/exports/step/example/example_block.step"
+    assert part["source_step_path"] == "example/exports/step/example/example_block.step"
+    assert part["display_stl_cache_path"].endswith("viewer-cache/stl-from-step/example/example_block.stl")
+    assert part["artifact_mtime_ns"] == step_path.stat().st_mtime_ns
+    assert part["artifact_size"] > 0
+    assert len(part["artifact_hash"]) == 64
+    assert part["model_url"].startswith("/api/parts/example_block/model?v=")
+    assert part["artifact_hash"] in part["model_url"]
     assert part["direct_stl_path"] == "example/exports/stl/example/example_block.stl"
     assert part["source_kind"] == "flow_python"
     assert part["geometry_authority"] == "step_kernel"
@@ -79,7 +86,8 @@ def test_viewer_service_lists_example_parts_and_prefers_step(tmp_path) -> None:
     assert part["metadata_status"] == "todo"
     assert part["metadata_notes"] == ""
     assert part["warnings"] == []
-    assert part["snap_features_url"] == "/api/parts/example_block/snap-features"
+    assert part["snap_features_url"].startswith("/api/parts/example_block/snap-features?v=")
+    assert part["artifact_hash"] in part["snap_features_url"]
     assert part["in_assembly"] is True
     assert part["default_visible"] is True
     assert part["occurrences"] == [
@@ -89,6 +97,20 @@ def test_viewer_service_lists_example_parts_and_prefers_step(tmp_path) -> None:
             "rotation": [0.0, 0.0, 0.0],
         }
     ]
+
+
+def test_viewer_service_model_url_changes_when_artifact_identity_changes(tmp_path) -> None:
+    step_path = _write_step(tmp_path)
+    service = ViewerService(tmp_path)
+
+    before = service.list_parts()["parts"][0]
+    step_path.write_text("ISO-10303-21;\n/* changed */\nEND-ISO-10303-21;\n", encoding="utf-8")
+    after = service.list_parts()["parts"][0]
+
+    assert before["id"] == after["id"] == "example_block"
+    assert before["artifact_hash"] != after["artifact_hash"]
+    assert before["model_url"] != after["model_url"]
+    assert before["snap_features_url"] != after["snap_features_url"]
 
 
 def test_viewer_service_reports_active_version_and_hides_references_by_default(tmp_path) -> None:
@@ -462,11 +484,17 @@ def test_viewer_app_imports_step_and_serves_display_model(tmp_path, monkeypatch)
     payload = response.json()
     assert payload["filename"] == "loose.step"
     assert payload["source_kind"] == "step"
-    assert payload["model_url"] == f"/api/imports/{payload['import_id']}/model"
+    assert payload["model_url"].startswith(f"/api/imports/{payload['import_id']}/model?v=")
+    assert payload["artifact_hash"] in payload["model_url"]
+    assert payload["source_artifact_path"].endswith(f"viewer-cache/imports/{payload['import_id']}/loose.step")
+    assert payload["artifact_size"] == len(b"ISO-10303-21;\nEND-ISO-10303-21;\n")
 
     model_response = client.get(payload["model_url"])
     assert model_response.status_code == 200
     assert model_response.headers["x-flow-cad-source-format"] == "step"
+    assert model_response.headers["cache-control"] == "no-store"
+    assert model_response.headers["pragma"] == "no-cache"
+    assert model_response.headers["expires"] == "0"
     assert model_response.text == "solid imported\nendsolid imported\n"
 
 
@@ -797,9 +825,12 @@ def test_viewer_backend_exposes_draft_transaction_preview_model(tmp_path) -> Non
     assert preview_response.status_code == 200
     payload = preview_response.json()
     assert payload["transaction_token"] == transaction_token
-    assert payload["model_url"] == f"/api/draft-transactions/{transaction_token}/model"
+    assert payload["model_url"].startswith(f"/api/draft-transactions/{transaction_token}/model?v=")
+    assert payload["artifact_hash"] in payload["model_url"]
     assert payload["part_id"] == "api_transaction_panel"
     assert payload["source_format"] == "step"
+    assert payload["artifact_path"].endswith(".step")
+    assert payload["artifact_size"] > 0
     assert payload["geometry_authority"] == "step_kernel"
     assert payload["quality_label"] == "exact"
     assert payload["dimensions"] == {

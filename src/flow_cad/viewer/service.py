@@ -62,6 +62,23 @@ def _relative_path(path: Path, project_root: Path) -> str:
         return str(path)
 
 
+def _file_identity(path: Path, project_root: Path) -> dict[str, Any]:
+    stat = path.stat()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return {
+        "artifact_path": _relative_path(path, project_root),
+        "artifact_mtime_ns": stat.st_mtime_ns,
+        "artifact_size": stat.st_size,
+        "artifact_hash": digest,
+        "artifact_identity": f"{stat.st_mtime_ns}-{stat.st_size}-{digest[:16]}",
+    }
+
+
+def _cache_busted_url(path: str, identity: dict[str, Any] | None) -> str:
+    token = (identity.get("artifact_hash") or identity.get("artifact_identity")) if identity else None
+    return f"{path}?v={token}" if token else path
+
+
 def _as_float_tuple(values: tuple[float, float, float]) -> list[float]:
     return [float(values[0]), float(values[1]), float(values[2])]
 
@@ -224,6 +241,37 @@ class ViewerService:
         metadata_path.write_text(json.dumps(display_mesh_cache_metadata(artifact.path), indent=2, sort_keys=True))
         return converted, artifact.source_format
 
+    def part_artifact_identity(self, component_id: str) -> dict[str, Any]:
+        definition = self._definition(component_id)
+        artifact = self._require_artifact(component_id)
+        return self._artifact_identity_payload(definition, artifact)
+
+    def refresh(self, *, part_id: str | None = None, force_model_refetch: bool = False) -> dict[str, Any]:
+        reload_payload = self.reload()
+        parts_payload = self.list_parts()
+        parts = parts_payload["parts"]
+        selected_part = None
+        if part_id:
+            selected_part = next((part for part in parts if part["id"] == part_id), None)
+            if selected_part is None:
+                raise ArtifactNotFoundError(f"Component is not registered: {part_id}")
+        rendered_artifacts = [
+            self._rendered_artifact_summary(part)
+            for part in parts
+            if not part_id or part["id"] == part_id
+        ]
+        return {
+            "ok": True,
+            "project_root": str(self.project_root),
+            "revision": reload_payload["revision"],
+            "reloaded_at": reload_payload["reloaded_at"],
+            "force_model_refetch": force_model_refetch,
+            "part_id": part_id,
+            "part_refetched": bool(part_id and selected_part is not None),
+            "rendered_artifacts": rendered_artifacts,
+            "part": selected_part,
+        }
+
     def snap_features(self, component_id: str) -> dict[str, Any]:
         artifact = self._artifact(self._definition(component_id))
         if artifact is None:
@@ -296,13 +344,19 @@ class ViewerService:
         }
         metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True))
 
+        source_identity = _file_identity(source_path, self.project_root)
         return {
             "import_id": import_id,
             "part_id": f"file:{source_filename.name}",
             "name": source_filename.name,
             "filename": source_filename.name,
             "source_format": "step",
-            "model_url": f"/api/imports/{import_id}/model",
+            "model_url": _cache_busted_url(f"/api/imports/{import_id}/model", source_identity),
+            **{
+                f"source_{key}" if key == "artifact_path" else key: value
+                for key, value in source_identity.items()
+            },
+            "display_stl_cache_path": _relative_path(converted, self.project_root),
             "snap_features": snap_features,
             **geometry,
             "warnings": warnings,
@@ -569,13 +623,22 @@ class ViewerService:
             "ok": True,
             "transaction_token": transaction_token,
             "part_id": part_id,
-            "model_url": f"/api/draft-transactions/{transaction_token}/model",
+            "model_url": _cache_busted_url(
+                f"/api/draft-transactions/{transaction_token}/model",
+                _file_identity(step_path, self.project_root) if step_path is not None and step_path.exists() else None,
+            ),
             "draft": draft_payload or preview_payload.get("draft"),
             "preview_step_path": preview_step_path,
             "preview_step_relative_path": _relative_path(step_path, self.project_root) if step_path is not None else None,
             "source_step_path": preview_step_path,
             "display_stl_path": str(display_stl_path),
             "display_stl_relative_path": _relative_path(display_stl_path, self.project_root),
+            "display_stl_cache_path": _relative_path(display_stl_path, self.project_root),
+            **(
+                _file_identity(step_path, self.project_root)
+                if step_path is not None and step_path.exists()
+                else {}
+            ),
             "geometry_authority": geometry["geometry_authority"],
             "quality_label": geometry["quality_label"],
             "source_format": "step",
@@ -958,7 +1021,8 @@ class ViewerService:
     def _part_payload(self, definition: PartDefinition, occurrences: list[dict[str, Any]], *, default_visible: bool) -> dict[str, Any]:
         artifact = self._artifact(definition)
         source_format = artifact.source_format if artifact is not None else None
-        artifact_path = _relative_path(artifact.path, self.project_root) if artifact is not None else None
+        artifact_identity = self._artifact_identity_payload(definition, artifact) if artifact is not None else {}
+        artifact_path = artifact_identity.get("artifact_path")
         direct_stl_path = (
             _relative_path(artifact.direct_stl_path, self.project_root)
             if artifact is not None and artifact.direct_stl_path is not None
@@ -984,19 +1048,59 @@ class ViewerService:
             "is_printable": definition.is_printable,
             "artifact_format": source_format,
             "artifact_path": artifact_path,
+            "source_step_path": artifact_identity.get("source_step_path"),
+            "display_stl_cache_path": artifact_identity.get("display_stl_cache_path"),
+            "artifact_mtime_ns": artifact_identity.get("artifact_mtime_ns"),
+            "artifact_size": artifact_identity.get("artifact_size"),
+            "artifact_hash": artifact_identity.get("artifact_hash"),
+            "artifact_identity": artifact_identity.get("artifact_identity"),
             "direct_stl_path": direct_stl_path,
             "source_kind": geometry["source_kind"],
             "geometry_authority": geometry["geometry_authority"],
             "quality_label": geometry["quality_label"],
             "capabilities": geometry["capabilities"],
             "warnings": geometry["warnings"],
-            "model_url": f"/api/parts/{definition.id}/model",
+            "model_url": _cache_busted_url(f"/api/parts/{definition.id}/model", artifact_identity),
             "source_url": f"/api/parts/{definition.id}/source",
-            "snap_features_url": f"/api/parts/{definition.id}/snap-features",
+            "snap_features_url": _cache_busted_url(f"/api/parts/{definition.id}/snap-features", artifact_identity),
             "occurrences": occurrences or [self._identity_occurrence(definition.id)],
             "in_assembly": bool(occurrences),
             "default_visible": default_visible,
         }
+
+    def _artifact_identity_payload(self, definition: PartDefinition, artifact: Artifact) -> dict[str, Any]:
+        identity = _file_identity(artifact.path, self.project_root)
+        display_path: Path | None = None
+        if artifact.source_format == "step":
+            display_path = self._cached_stl_path(artifact.path)
+        elif artifact.source_format == "stl":
+            display_path = artifact.path
+        identity.update(
+            {
+                "source_step_path": _relative_path(artifact.path, self.project_root) if artifact.source_format == "step" else None,
+                "display_stl_cache_path": _relative_path(display_path, self.project_root) if display_path is not None else None,
+                "component_id": definition.id,
+                "source_format": artifact.source_format,
+            }
+        )
+        return identity
+
+    @staticmethod
+    def _rendered_artifact_summary(part: dict[str, Any]) -> dict[str, Any]:
+        keys = (
+            "id",
+            "artifact_format",
+            "artifact_path",
+            "source_step_path",
+            "display_stl_cache_path",
+            "artifact_mtime_ns",
+            "artifact_size",
+            "artifact_hash",
+            "artifact_identity",
+            "model_url",
+            "snap_features_url",
+        )
+        return {key: part.get(key) for key in keys}
 
     def _part_source_context_payload(self, definition: PartDefinition) -> dict[str, Any]:
         try:

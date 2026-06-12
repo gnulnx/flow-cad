@@ -96,6 +96,7 @@ flow --help
 flow init [--force]
 flow start [options]
 flow reload [--backend-url <url>]
+flow refresh [--project-root <path>] [--part <part_id>] [--force-model-refetch]
 flow registry list|show <component_id>
 flow cad --help
 flow cad build [options]
@@ -113,6 +114,10 @@ flow cad profile [options]
 
 - `flow reload [--backend-url http://127.0.0.1:8000]`
   Ask the running viewer to refresh project state.
+
+- `flow refresh [--project-root PATH] [--part PART_ID] [--force-model-refetch]`
+  Refresh the project-aware live viewer process and print rendered artifact
+  identity for the selected part or all parts.
 
 - `flow registry list`
   Print active cache entries.

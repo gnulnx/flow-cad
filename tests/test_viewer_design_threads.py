@@ -442,7 +442,9 @@ def test_viewer_design_threads_chat_creates_deterministic_base_plate_draft(tmp_p
     assert [event["content"]["action"] for event in draft_events] == ["propose", "apply", "preview"]
     transaction_token = payload["draft_result"]["transaction_token"]
     assert draft_events[-1]["content"]["draft_transaction_token"] == transaction_token
-    assert draft_events[-1]["content"]["preview_model"]["model_url"] == f"/api/draft-transactions/{transaction_token}/model"
+    assert draft_events[-1]["content"]["preview_model"]["model_url"].startswith(
+        f"/api/draft-transactions/{transaction_token}/model?v="
+    )
     assert payload["messages"][-1]["content"].startswith("Created draft `base_plate` as 100 x 100 x 10 mm.")
     assert "This should not be used." not in payload["messages"][-1]["content"]
 

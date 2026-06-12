@@ -40,6 +40,13 @@ from flow_cad.viewer.service import ArtifactNotFoundError, ViewerError, ViewerSe
 from flow_cad.viewer.worker_jobs import CodexWorkerJobManager, WorkerJobError
 
 
+NO_STORE_HEADERS = {
+    "Cache-Control": "no-store",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
 def _project_root_from_env() -> Path | None:
     value = os.environ.get("FLOW_CAD_PROJECT_ROOT")
     return Path(value).resolve() if value else None
@@ -2019,7 +2026,7 @@ def create_app(
             path,
             media_type="model/stl",
             filename=path.name,
-            headers={"X-Flow-CAD-Source-Format": "step"},
+            headers={"X-Flow-CAD-Source-Format": "step", **NO_STORE_HEADERS},
         )
 
     @app.get("/api/parts/{component_id}/model")
@@ -2032,7 +2039,7 @@ def create_app(
             path,
             media_type="model/stl",
             filename=path.name,
-            headers={"X-Flow-CAD-Source-Format": source_format},
+            headers={"X-Flow-CAD-Source-Format": source_format, **NO_STORE_HEADERS},
         )
 
     @app.get("/api/parts/{component_id}/source")
@@ -2272,7 +2279,7 @@ def create_app(
             path,
             media_type="model/stl",
             filename=path.name,
-            headers={"X-Flow-CAD-Source-Format": "stl"},
+            headers={"X-Flow-CAD-Source-Format": "stl", **NO_STORE_HEADERS},
         )
 
     @app.get("/api/draft-transactions/{transaction_token}/status")
@@ -2299,6 +2306,16 @@ def create_app(
     @app.post("/api/reload")
     def reload_viewer() -> dict[str, object]:
         return viewer_service.reload()
+
+    @app.post("/api/refresh")
+    def refresh_viewer(payload: dict[str, object] | None = None) -> dict[str, object]:
+        data = payload if isinstance(payload, dict) else {}
+        part_id = str(data.get("part_id") or "").strip() or None
+        force_model_refetch = bool(data.get("force_model_refetch"))
+        try:
+            return viewer_service.refresh(part_id=part_id, force_model_refetch=force_model_refetch)
+        except ViewerError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     return app
 

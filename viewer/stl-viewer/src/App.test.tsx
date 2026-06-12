@@ -110,15 +110,19 @@ const partsPayload = {
       is_printable: true,
       artifact_format: 'step',
       artifact_path: 'b3/exports/step/b3_v2/wheel_box/b3_wheel_box_test_body.step',
+      artifact_mtime_ns: 100,
+      artifact_size: 200,
+      artifact_hash: 'hash-initial',
+      artifact_identity: '100-200-hash-initial',
       direct_stl_path: null,
       source_kind: 'flow_python',
       geometry_authority: 'step_kernel',
       quality_label: 'exact',
       capabilities: STEP_CAPABILITIES,
       warnings: [],
-      model_url: '/api/parts/wheel_box_test_body/model',
+      model_url: '/api/parts/wheel_box_test_body/model?v=hash-initial',
       source_url: '/api/parts/wheel_box_test_body/source',
-      snap_features_url: '/api/parts/wheel_box_test_body/snap-features',
+      snap_features_url: '/api/parts/wheel_box_test_body/snap-features?v=hash-initial',
       occurrences: [
         {
           name: 'wheel_box_test_body',
@@ -1345,15 +1349,16 @@ describe('App source loading', () => {
       if (url.includes('/api/draft-transactions/') && init.method === 'DELETE') {
         return jsonResponse({})
       }
-      if (url.endsWith('/source')) return jsonResponse(sourcePayload)
-      if (url.endsWith('/snap-features')) return jsonResponse(snapFeaturesPayload)
-      if (url.endsWith('/model')) {
+      const requestPath = new URL(url).pathname
+      if (requestPath.endsWith('/source')) return jsonResponse(sourcePayload)
+      if (requestPath.endsWith('/snap-features')) return jsonResponse(snapFeaturesPayload)
+      if (requestPath.endsWith('/model')) {
         return mockArrayBufferResponse()
       }
-      if (url.endsWith('/preview-model.stl')) {
+      if (requestPath.endsWith('/preview-model.stl')) {
         return mockArrayBufferResponse()
       }
-      if (url.endsWith('/api/health')) return jsonResponse({ revision: healthRevision })
+      if (requestPath.endsWith('/api/health')) return jsonResponse({ revision: healthRevision })
       return Promise.resolve(new Response('not found', { status: 404 }))
     }))
   })
@@ -1436,6 +1441,33 @@ describe('App source loading', () => {
     })
   })
 
+  it('refetches the same part id when artifact identity changes', async () => {
+    vi.useFakeTimers()
+    render(<App />)
+
+    await vi.waitFor(() => expect(screen.getByText('1 selected model loaded')).toBeInTheDocument())
+    expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/parts/wheel_box_test_body/model?v=hash-initial')
+
+    activeParts = [
+      {
+        ...partsPayload.parts[0],
+        artifact_mtime_ns: 101,
+        artifact_size: 240,
+        artifact_hash: 'hash-changed',
+        artifact_identity: '101-240-hash-changed',
+        model_url: '/api/parts/wheel_box_test_body/model?v=hash-changed',
+        snap_features_url: '/api/parts/wheel_box_test_body/snap-features?v=hash-changed',
+      },
+    ]
+    partsRevision = 1
+    healthRevision = 1
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/parts/wheel_box_test_body/model?v=hash-changed')
+    })
+  })
+
   it('passes exact backend snap features through to the viewer model contract', async () => {
     render(<App />)
 
@@ -1445,7 +1477,7 @@ describe('App source loading', () => {
       expect(model?.capabilities).toEqual(STEP_CAPABILITIES)
       expect(model?.geometryAuthority).toBe('step_kernel')
     })
-    expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/parts/wheel_box_test_body/snap-features')
+    expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/parts/wheel_box_test_body/snap-features?v=hash-initial')
   })
 
   it('passes model color mode and part color edits through to viewer models', async () => {
