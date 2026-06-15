@@ -1,4 +1,4 @@
-import type { PartMetadataDraft, ViewerPart } from './types'
+import type { PartMetadataDraft, PartMetadataPayload, ViewerPart } from './types'
 
 export type ViewerColorMode = 'workbench' | 'model'
 
@@ -57,6 +57,21 @@ function parseOptionalTuple<T extends number>(
   })
 }
 
+function parseDraftNumber(value: string): number | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseDraftTuple<T extends number>(values: readonly string[], size: T): number[] | null {
+  if (!values.some((value) => value.trim() !== '')) return null
+  return Array.from({ length: size }, (_, index) => {
+    const parsed = Number(values[index] ?? '')
+    return Number.isFinite(parsed) ? parsed : 0
+  })
+}
+
 export function colorForMaterial(material: string) {
   const normalized = material.trim().toLowerCase()
   return MATERIAL_COLORS[normalized] ?? DEFAULT_MODEL_COLOR
@@ -92,6 +107,17 @@ export function mergePartDraft(part: ViewerPart, draft?: PartMetadataDraft): Vie
     mass_kg: parseOptionalNumber(draft.mass_kg, part.mass_kg),
     center_of_mass_mm: centerOfMass as [number, number, number] | null,
     inertia_kg_m2: inertia as [number, number, number, number, number, number] | null,
+    mass_source: draft.mass_source,
+  }
+}
+
+export function metadataPayloadFromDraft(draft: PartMetadataDraft): PartMetadataPayload {
+  return {
+    material: draft.material,
+    display_color: draft.display_color.trim() ? draft.display_color : null,
+    mass_kg: parseDraftNumber(draft.mass_kg),
+    center_of_mass_mm: parseDraftTuple(draft.center_of_mass_mm, 3) as [number, number, number] | null,
+    inertia_kg_m2: parseDraftTuple(draft.inertia_kg_m2, 6) as [number, number, number, number, number, number] | null,
     mass_source: draft.mass_source,
   }
 }

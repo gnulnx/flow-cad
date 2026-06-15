@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { draftFromPart, type ViewerColorMode } from '../partMetadata'
-import type { PartMetadataDraft, ViewerPart } from '../types'
+import type { AssemblyMassProperties, PartMetadataDraft, UrdfExportTarget, ViewerPart } from '../types'
 
 interface ModelListProps {
   parts: ViewerPart[]
@@ -11,8 +11,23 @@ interface ModelListProps {
   metadataDrafts?: Record<string, PartMetadataDraft>
   onMetadataChange?: (partId: string, patch: Partial<PartMetadataDraft>) => void
   onMetadataReset?: (partId: string) => void
+  onMetadataSave?: (partId: string) => void
+  metadataSaveBusy?: Record<string, boolean>
   colorMode?: ViewerColorMode
   onColorModeChange?: (mode: ViewerColorMode) => void
+  assemblyMassProperties?: AssemblyMassProperties | null
+  showComMarker?: boolean
+  onShowComMarkerChange?: (show: boolean) => void
+  urdfTargets?: UrdfExportTarget[]
+  urdfTargetName?: string
+  urdfOutputPath?: string
+  urdfOverwrite?: boolean
+  urdfExportBusy?: boolean
+  urdfExportStatus?: string
+  onUrdfTargetNameChange?: (name: string) => void
+  onUrdfOutputPathChange?: (path: string) => void
+  onUrdfOverwriteChange?: (overwrite: boolean) => void
+  onUrdfExport?: () => void
   collapsed: boolean
   onToggle: () => void
   width?: number
@@ -42,6 +57,14 @@ const DEFAULT_ROLE_VISIBILITY: Record<RoleKey, boolean> = {
 const MASS_SOURCE_OPTIONS = ['unset', 'estimated_material', 'cad_density', 'measured_scale', 'vendor_datasheet']
 const COM_LABELS = ['X', 'Y', 'Z'] as const
 const INERTIA_LABELS = ['IXX', 'IXY', 'IXZ', 'IYY', 'IYZ', 'IZZ'] as const
+
+function formatKg(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(3)} kg` : 'unknown'
+}
+
+function formatCom(value: [number, number, number] | null | undefined) {
+  return value ? value.map((item) => item.toFixed(1)).join(', ') : 'unknown'
+}
 
 interface FamilyGroup {
   family: string
@@ -127,11 +150,17 @@ function PartDetails({
   draft,
   onChange,
   onReset,
+  onSave,
+  hasDraft,
+  saveBusy,
 }: {
   part: ViewerPart
   draft: PartMetadataDraft
   onChange?: (patch: Partial<PartMetadataDraft>) => void
   onReset?: () => void
+  onSave?: () => void
+  hasDraft?: boolean
+  saveBusy?: boolean
 }) {
   const editable = Boolean(onChange)
   return (
@@ -271,12 +300,136 @@ function PartDetails({
           <dd>{part.occurrences.map((occurrence) => occurrence.name).join(', ') || 'none'}</dd>
         </div>
       </dl>
-      {editable && onReset ? (
+      {editable && (onReset || onSave) ? (
         <div className="part-detail-actions">
-          <button type="button" className="part-detail-reset" onClick={onReset}>Reset</button>
+          <button
+            type="button"
+            className="part-detail-save"
+            onClick={onSave}
+            disabled={!hasDraft || saveBusy}
+          >
+            {saveBusy ? 'Saving' : 'Save'}
+          </button>
+          <button
+            type="button"
+            className="part-detail-reset"
+            onClick={onReset}
+            disabled={!hasDraft || saveBusy}
+          >
+            Reset
+          </button>
         </div>
       ) : null}
     </div>
+  )
+}
+
+function AssemblyExportPanel({
+  mass,
+  showComMarker,
+  onShowComMarkerChange,
+  urdfTargets,
+  urdfTargetName,
+  urdfOutputPath,
+  urdfOverwrite,
+  urdfExportBusy,
+  urdfExportStatus,
+  onUrdfTargetNameChange,
+  onUrdfOutputPathChange,
+  onUrdfOverwriteChange,
+  onUrdfExport,
+}: {
+  mass?: AssemblyMassProperties | null
+  showComMarker?: boolean
+  onShowComMarkerChange?: (show: boolean) => void
+  urdfTargets: UrdfExportTarget[]
+  urdfTargetName: string
+  urdfOutputPath: string
+  urdfOverwrite: boolean
+  urdfExportBusy?: boolean
+  urdfExportStatus?: string
+  onUrdfTargetNameChange?: (name: string) => void
+  onUrdfOutputPathChange?: (path: string) => void
+  onUrdfOverwriteChange?: (overwrite: boolean) => void
+  onUrdfExport?: () => void
+}) {
+  const selectedTarget = urdfTargets.find((target) => target.name === urdfTargetName)
+  const missingMassCount = mass?.missing_mass_occurrences.length ?? 0
+  const missingComCount = mass?.missing_com_occurrences.length ?? 0
+  return (
+    <section className="assembly-export-panel" aria-label="Assembly export">
+      <div className="assembly-summary">
+        <div className="assembly-summary-row">
+          <span>Mass</span>
+          <strong>{formatKg(mass?.total_mass_kg)}</strong>
+        </div>
+        <div className="assembly-summary-row">
+          <span>COM mm</span>
+          <strong>{formatCom(mass?.center_of_mass_mm)}</strong>
+        </div>
+        <div className="assembly-summary-row">
+          <span>Status</span>
+          <strong>{mass?.center_of_mass_complete ? 'complete' : 'partial'}</strong>
+        </div>
+        <label className="assembly-com-toggle">
+          <input
+            type="checkbox"
+            checked={Boolean(showComMarker && mass?.center_of_mass_mm)}
+            disabled={!mass?.center_of_mass_mm}
+            onChange={(event) => onShowComMarkerChange?.(event.target.checked)}
+          />
+          <span>COM marker</span>
+        </label>
+        {missingMassCount || missingComCount ? (
+          <div className="assembly-metadata-warning">
+            Missing mass {missingMassCount}; missing COM {missingComCount}
+          </div>
+        ) : null}
+      </div>
+      <div className="urdf-export-controls">
+        <label className="urdf-field">
+          <span>URDF target</span>
+          <select
+            aria-label="URDF target"
+            value={urdfTargetName}
+            disabled={!urdfTargets.length || urdfExportBusy}
+            onChange={(event) => onUrdfTargetNameChange?.(event.target.value)}
+          >
+            {urdfTargets.length ? null : <option value="">No targets</option>}
+            {urdfTargets.map((target) => (
+              <option key={target.name} value={target.name}>{target.label || target.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="urdf-field urdf-output-field">
+          <span>Output path</span>
+          <input
+            aria-label="URDF output path"
+            value={urdfOutputPath}
+            disabled={!selectedTarget || urdfExportBusy}
+            onChange={(event) => onUrdfOutputPathChange?.(event.target.value)}
+          />
+        </label>
+        <label className="urdf-overwrite-toggle">
+          <input
+            type="checkbox"
+            checked={urdfOverwrite}
+            disabled={!selectedTarget || urdfExportBusy}
+            onChange={(event) => onUrdfOverwriteChange?.(event.target.checked)}
+          />
+          <span>Overwrite</span>
+        </label>
+        <button
+          type="button"
+          className="urdf-export-button"
+          disabled={!selectedTarget || !urdfOutputPath.trim() || urdfExportBusy}
+          onClick={onUrdfExport}
+        >
+          {urdfExportBusy ? 'Exporting' : 'Export URDF'}
+        </button>
+        {urdfExportStatus ? <div className="urdf-export-status">{urdfExportStatus}</div> : null}
+      </div>
+    </section>
   )
 }
 
@@ -289,8 +442,23 @@ export default function ModelList({
   metadataDrafts = {},
   onMetadataChange,
   onMetadataReset,
+  onMetadataSave,
+  metadataSaveBusy = {},
   colorMode = 'workbench',
   onColorModeChange,
+  assemblyMassProperties,
+  showComMarker = false,
+  onShowComMarkerChange,
+  urdfTargets = [],
+  urdfTargetName = '',
+  urdfOutputPath = '',
+  urdfOverwrite = false,
+  urdfExportBusy = false,
+  urdfExportStatus = '',
+  onUrdfTargetNameChange,
+  onUrdfOutputPathChange,
+  onUrdfOverwriteChange,
+  onUrdfExport,
   collapsed,
   onToggle,
   width,
@@ -359,6 +527,21 @@ export default function ModelList({
         {collapsed ? null : (
           <>
             <div className="parts-controls">
+              <AssemblyExportPanel
+                mass={assemblyMassProperties}
+                showComMarker={showComMarker}
+                onShowComMarkerChange={onShowComMarkerChange}
+                urdfTargets={urdfTargets}
+                urdfTargetName={urdfTargetName}
+                urdfOutputPath={urdfOutputPath}
+                urdfOverwrite={urdfOverwrite}
+                urdfExportBusy={urdfExportBusy}
+                urdfExportStatus={urdfExportStatus}
+                onUrdfTargetNameChange={onUrdfTargetNameChange}
+                onUrdfOutputPathChange={onUrdfOutputPathChange}
+                onUrdfOverwriteChange={onUrdfOverwriteChange}
+                onUrdfExport={onUrdfExport}
+              />
               <label className="parts-version-field">
                 <span>Version</span>
                 <select
@@ -441,6 +624,7 @@ export default function ModelList({
                               const isSelected = selectedIds.includes(part.id)
                               const isActive = part.id === activeId
                               const isExpanded = expandedIds.includes(part.id)
+                              const hasDraft = part.id in metadataDrafts
                               const draft = metadataDrafts[part.id] ?? draftFromPart(part)
                               return (
                                 <li
@@ -477,6 +661,9 @@ export default function ModelList({
                                       draft={draft}
                                       onChange={(patch) => onMetadataChange?.(part.id, patch)}
                                       onReset={() => onMetadataReset?.(part.id)}
+                                      onSave={() => onMetadataSave?.(part.id)}
+                                      hasDraft={hasDraft}
+                                      saveBusy={Boolean(metadataSaveBusy[part.id])}
                                     />
                                   ) : null}
                                 </li>

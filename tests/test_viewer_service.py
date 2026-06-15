@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from flow_cad.viewer.agent_runtime import CodexExecAgentRuntimeClient
 from flow_cad.viewer.app import create_app
-from flow_cad.viewer.service import ConversionUnavailableError, ViewerService
+from flow_cad.viewer.service import ConversionUnavailableError, InvalidPartMetadataError, ViewerService
 from flow_cad.viewer.geometry_authority import DISPLAY_MESH_CONTRACT_VERSION, SNAP_EXTRACTOR_CONTRACT_VERSION
 from flow_cad.core.metadata import PartDefinition, PartRole
 from flow_cad.project import FlowCadProject, ProjectDocs, ProjectPaths, init_project
@@ -111,6 +111,52 @@ def test_viewer_service_model_url_changes_when_artifact_identity_changes(tmp_pat
     assert before["artifact_hash"] != after["artifact_hash"]
     assert before["model_url"] != after["model_url"]
     assert before["snap_features_url"] != after["snap_features_url"]
+
+
+def test_viewer_service_persists_part_metadata_overrides(tmp_path) -> None:
+    _write_step(tmp_path)
+    service = ViewerService(tmp_path)
+
+    response = service.update_part_metadata(
+        "example_block",
+        {
+            "material": "TPU",
+            "display_color": "#ff0000",
+            "mass_kg": 0.125,
+            "center_of_mass_mm": [1, 2, 3],
+            "inertia_kg_m2": [0.1, 0.0, 0.0, 0.2, 0.0, 0.3],
+            "mass_source": "measured_scale",
+            "metadata_status": "partial",
+            "metadata_notes": "entered in viewer",
+        },
+    )
+
+    part = response["part"]
+    assert part["material"] == "TPU"
+    assert part["display_color"] == "#ff0000"
+    assert part["mass_kg"] == pytest.approx(0.125)
+    assert part["center_of_mass_mm"] == [1.0, 2.0, 3.0]
+    assert part["inertia_kg_m2"] == [0.1, 0.0, 0.0, 0.2, 0.0, 0.3]
+    assert part["mass_source"] == "measured_scale"
+    assert part["metadata_status"] == "partial"
+    assert part["metadata_notes"] == "entered in viewer"
+    assert response["metadata_path"] == "example/part-metadata-overrides.json"
+
+    persisted = json.loads((tmp_path / "example" / "part-metadata-overrides.json").read_text())
+    assert persisted["schema_version"] == 1
+    assert persisted["parts"]["example_block"]["mass_kg"] == 0.125
+
+    reloaded_part = ViewerService(tmp_path).list_parts()["parts"][0]
+    assert reloaded_part["mass_kg"] == pytest.approx(0.125)
+    assert reloaded_part["metadata_notes"] == "entered in viewer"
+
+
+def test_viewer_service_rejects_invalid_part_metadata(tmp_path) -> None:
+    _write_step(tmp_path)
+    service = ViewerService(tmp_path)
+
+    with pytest.raises(InvalidPartMetadataError, match="mass_kg must be at least 0.0"):
+        service.update_part_metadata("example_block", {"mass_kg": -1})
 
 
 def test_viewer_service_reports_active_version_and_hides_references_by_default(tmp_path) -> None:
@@ -350,6 +396,9 @@ def test_viewer_app_registers_v1_routes(tmp_path) -> None:
 
     assert "/api/health" in route_paths
     assert "/api/parts" in route_paths
+    assert "/api/exports/urdf/targets" in route_paths
+    assert "/api/exports/urdf" in route_paths
+    assert "/api/parts/{component_id}/metadata" in route_paths
     assert "/api/imports/model" in route_paths
     assert "/api/imports/{import_id}/model" in route_paths
     assert "/api/parts/{component_id}/model" in route_paths

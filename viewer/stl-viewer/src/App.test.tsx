@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { renderVisualEvidenceCapture } from './visualEvidenceRender'
 
-const viewerRenderProps = vi.hoisted(() => [] as Array<{ clearMeasurementsRequest: number; models: Array<Record<string, unknown>> }>)
+const viewerRenderProps = vi.hoisted(() => [] as Array<{
+  clearMeasurementsRequest: number
+  models: Array<Record<string, unknown>>
+  comMarker?: Record<string, unknown> | null
+}>)
 const visualEvidenceRenderCalls = vi.hoisted(() => [] as Array<{
   models: Array<Record<string, unknown>>
   view: string
@@ -14,7 +18,11 @@ const visualEvidenceRenderCalls = vi.hoisted(() => [] as Array<{
 }>)
 
 vi.mock('./components/Viewer', () => ({
-  default: (props: { clearMeasurementsRequest: number; models: Array<Record<string, unknown>> }) => {
+  default: (props: {
+    clearMeasurementsRequest: number
+    models: Array<Record<string, unknown>>
+    comMarker?: Record<string, unknown> | null
+  }) => {
     viewerRenderProps.push(props)
     return <div data-testid="viewer">viewer</div>
   },
@@ -90,6 +98,18 @@ const partsPayload = {
   active_version: 'b3_v2',
   active_assembly_id: 'b3_v2_wheel_box',
   versions: ['b3_v2'],
+  assembly_mass_properties: {
+    profile: 'active',
+    assembly_id: 'b3_v2_wheel_box',
+    total_mass_kg: 0.125,
+    center_of_mass_mm: [1.5, 2.5, 3.5],
+    known_mass_occurrence_count: 1,
+    total_occurrence_count: 2,
+    missing_mass_occurrences: ['wheel_box_test_top_lid'],
+    missing_com_occurrences: [],
+    mass_complete: false,
+    center_of_mass_complete: false,
+  },
   parts: [
     {
       id: 'wheel_box_test_body',
@@ -578,6 +598,55 @@ describe('App source loading', () => {
           visible_ids: body.visible_ids,
           metadata: body.metadata,
         })
+      }
+      if (url.endsWith('/api/exports/urdf/targets') && method === 'GET') {
+        return jsonResponse({
+          ok: true,
+          project_id: 'b3_robot',
+          targets: [
+            {
+              name: 'b2_v2',
+              label: 'B2 v2 Dojo',
+              description: 'Dojo template',
+              profile: 'active',
+              kind: 'dojo_balance_bot',
+              include_references: true,
+              assembly_id: 'b3_v2_robot',
+              robot_name: 'B2_v2',
+              default_output_path: '/home/gnulnx/BLR/DojoV2/src/dojo/assets/B2_v2.urdf',
+              metadata: {},
+            },
+          ],
+        })
+      }
+      if (url.endsWith('/api/exports/urdf') && method === 'POST') {
+        const body = jsonBody(init)
+        return jsonResponse({
+          ok: true,
+          target: body.target,
+          profile: body.profile,
+          output_path: body.output_path,
+          report_path: `${body.output_path}.report.json`,
+          wheel_radius_m: 0.13,
+          wheel_base_m: 0.48,
+        })
+      }
+      const partMetadataMatch = url.match(/\/api\/parts\/([^/]+)\/metadata$/)
+      if (partMetadataMatch && method === 'PATCH') {
+        const partId = partMetadataMatch[1]
+        const body = jsonBody(init)
+        let savedPart = activeParts.find((part) => part.id === partId)
+        activeParts = activeParts.map((part) => {
+          if (part.id !== partId) return part
+          savedPart = {
+            ...part,
+            ...body,
+          }
+          return savedPart
+        })
+        return savedPart
+          ? jsonResponse({ ok: true, part: savedPart, metadata_path: '.flow/part-metadata-overrides.json' })
+          : Promise.resolve(new Response('not found', { status: 404 }))
       }
       if (url.endsWith('/api/parts')) return jsonResponse({ ...partsPayload, revision: partsRevision, parts: activeParts })
       if (url.endsWith('/api/design-threads')) {
@@ -1499,6 +1568,60 @@ describe('App source loading', () => {
 
     await vi.waitFor(() => {
       expect(viewerRenderProps.at(-1)?.models[0]?.color).toBe('#ff0000')
+    })
+  })
+
+  it('saves edited part metadata through the backend', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('wheel_box_test_body')
+    await user.click(screen.getByRole('button', { name: 'Show details for wheel_box_test_body' }))
+    await user.clear(screen.getByLabelText('wheel_box_test_body mass kg'))
+    await user.type(screen.getByLabelText('wheel_box_test_body mass kg'), '0.125')
+    await user.selectOptions(screen.getByLabelText('wheel_box_test_body mass source'), 'measured_scale')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await screen.findByText('Saved metadata for wheel_box_test_body')
+    const saveCall = findFetchCall('/api/parts/wheel_box_test_body/metadata')
+    expect(saveCall).toBeTruthy()
+    expect(saveCall?.[1]).toMatchObject({ method: 'PATCH' })
+    expect(JSON.parse(String(saveCall?.[1].body))).toMatchObject({
+      mass_kg: 0.125,
+      mass_source: 'measured_scale',
+    })
+    expect((screen.getByLabelText('wheel_box_test_body mass kg') as HTMLInputElement).value).toBe('0.125')
+  })
+
+  it('shows assembly mass properties and exports a URDF target', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByLabelText('URDF output path')
+    expect(screen.getByText('0.125 kg')).toBeInTheDocument()
+    expect(screen.getByText('1.5, 2.5, 3.5')).toBeInTheDocument()
+    expect(viewerRenderProps.at(-1)?.comMarker).toMatchObject({
+      center: [1.5, 2.5, 3.5],
+      totalMassKg: 0.125,
+      complete: false,
+    })
+
+    const output = screen.getByLabelText('URDF output path') as HTMLInputElement
+    await user.clear(output)
+    await user.type(output, '/home/gnulnx/BLR/DojoV2/src/dojo/assets/B2_v2.urdf')
+    await user.click(screen.getByLabelText('Overwrite'))
+    await user.click(screen.getByRole('button', { name: 'Export URDF' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Wrote URDF .*B2_v2\.urdf/)).toHaveLength(2)
+    })
+    const exportCall = findFetchCall('/api/exports/urdf')
+    expect(exportCall?.[1]).toMatchObject({ method: 'POST' })
+    expect(JSON.parse(String(exportCall?.[1].body))).toMatchObject({
+      target: 'b2_v2',
+      profile: 'active',
+      output_path: '/home/gnulnx/BLR/DojoV2/src/dojo/assets/B2_v2.urdf',
+      overwrite: true,
     })
   })
 

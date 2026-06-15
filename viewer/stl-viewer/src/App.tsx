@@ -24,6 +24,7 @@ import {
   WORKBENCH_WIREFRAME_COLOR,
   displayColorForPart,
   draftFromPart,
+  metadataPayloadFromDraft,
   mergePartDraft,
   type ViewerColorMode,
 } from './partMetadata'
@@ -32,6 +33,11 @@ import type {
   ModelData,
   PreviewContext,
   PartMetadataDraft,
+  PartMetadataSaveResponse,
+  AssemblyMassProperties,
+  UrdfExportResponse,
+  UrdfExportTarget,
+  UrdfTargetsPayload,
   BackendPreviewOperation,
   DraftPreviewModelPayload,
   DraftAcceptanceArtifacts,
@@ -813,9 +819,18 @@ export default function App() {
   const [projectName, setProjectName] = useState<string | null>(null)
   const [activeVersion, setActiveVersion] = useState<string | null>(null)
   const [activeAssemblyId, setActiveAssemblyId] = useState<string | null>(null)
+  const [assemblyMassProperties, setAssemblyMassProperties] = useState<AssemblyMassProperties | null>(null)
+  const [showComMarker, setShowComMarker] = useState(true)
+  const [urdfTargets, setUrdfTargets] = useState<UrdfExportTarget[]>([])
+  const [urdfTargetName, setUrdfTargetName] = useState('')
+  const [urdfOutputPath, setUrdfOutputPath] = useState('')
+  const [urdfOverwrite, setUrdfOverwrite] = useState(false)
+  const [urdfExportBusy, setUrdfExportBusy] = useState(false)
+  const [urdfExportStatus, setUrdfExportStatus] = useState('')
   const [colorMode, setColorMode] = useState<ViewerColorMode>('workbench')
   const [leftDockTab, setLeftDockTab] = useState<'source' | 'chat'>('chat')
   const [partMetadataDrafts, setPartMetadataDrafts] = useState<Record<string, PartMetadataDraft>>({})
+  const [partMetadataSaveBusy, setPartMetadataSaveBusy] = useState<Record<string, boolean>>({})
   const [previewContext, setPreviewContext] = useState<PreviewContext | null>(null)
   const [previewCommand, setPreviewCommand] = useState('')
   const [proposedOperations, setProposedOperations] = useState<ProposedPreviewOperation[]>([])
@@ -993,6 +1008,7 @@ export default function App() {
     }
     setActiveVersion(payload.active_version ?? null)
     setActiveAssemblyId(payload.active_assembly_id ?? null)
+    setAssemblyMassProperties(payload.assembly_mass_properties ?? null)
     const previousRevision = backendRevisionRef.current
     if (previousRevision !== null && payload.revision !== previousRevision) {
       setModels((prev) => prev.filter((model) => model.partId.startsWith('file:') || model.partId.startsWith('url:')))
@@ -1016,6 +1032,15 @@ export default function App() {
       return assembledIds.length ? assembledIds : payload.parts.map((part) => part.id)
     })
     setStatusMessage(`${payload.parts.length} parts indexed`)
+  }, [apiBase])
+
+  const loadUrdfTargets = useCallback(async () => {
+    const response = await fetch(apiUrl(apiBase, '/api/exports/urdf/targets'))
+    if (!response.ok) {
+      throw new Error(await responseDetail(response))
+    }
+    const payload = await response.json() as UrdfTargetsPayload
+    setUrdfTargets(payload.targets ?? [])
   }, [apiBase])
 
   const loadThread = useCallback(async (threadId: string) => {
@@ -1882,6 +1907,97 @@ export default function App() {
     })
   }, [])
 
+  const handlePartMetadataSave = useCallback(async (partId: string) => {
+    const part = parts.find((candidate) => candidate.id === partId)
+    if (!part) return
+    const draft = partMetadataDrafts[partId] ?? draftFromPart(part)
+    setPartMetadataSaveBusy((current) => ({ ...current, [partId]: true }))
+    setStatusMessage(`Saving metadata for ${partId}...`)
+    try {
+      const response = await fetch(apiUrl(apiBase, `/api/parts/${partId}/metadata`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(metadataPayloadFromDraft(draft)),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      const payload = await response.json() as PartMetadataSaveResponse
+      setParts((current) => current.map((candidate) => (
+        candidate.id === partId ? payload.part : candidate
+      )))
+      setPartMetadataDrafts((current) => {
+        if (!(partId in current)) return current
+        const next = { ...current }
+        delete next[partId]
+        return next
+      })
+      setStatusMessage(`Saved metadata for ${partId}`)
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setPartMetadataSaveBusy((current) => {
+        const next = { ...current }
+        delete next[partId]
+        return next
+      })
+    }
+  }, [apiBase, partMetadataDrafts, parts])
+
+  useEffect(() => {
+    if (!urdfTargets.length) {
+      setUrdfTargetName('')
+      setUrdfOutputPath('')
+      return
+    }
+    if (urdfTargets.some((target) => target.name === urdfTargetName)) return
+    const first = urdfTargets[0]
+    setUrdfTargetName(first.name)
+    setUrdfOutputPath(first.default_output_path)
+  }, [urdfTargetName, urdfTargets])
+
+  const handleUrdfTargetNameChange = useCallback((name: string) => {
+    setUrdfTargetName(name)
+    const target = urdfTargets.find((candidate) => candidate.name === name)
+    if (target) {
+      setUrdfOutputPath(target.default_output_path)
+      setUrdfOverwrite(false)
+    }
+  }, [urdfTargets])
+
+  const handleUrdfExport = useCallback(async () => {
+    const target = urdfTargets.find((candidate) => candidate.name === urdfTargetName)
+    if (!target) return
+    setUrdfExportBusy(true)
+    setUrdfExportStatus('')
+    setStatusMessage(`Exporting ${target.label || target.name}...`)
+    try {
+      const response = await fetch(apiUrl(apiBase, '/api/exports/urdf'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target: target.name,
+          profile: target.profile,
+          output_path: urdfOutputPath,
+          overwrite: urdfOverwrite,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await responseDetail(response))
+      }
+      const payload = await response.json() as UrdfExportResponse
+      const message = `Wrote URDF ${payload.output_path}; report ${payload.report_path}`
+      setUrdfExportStatus(message)
+      setStatusMessage(message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setUrdfExportStatus(message)
+      setStatusMessage(message)
+    } finally {
+      setUrdfExportBusy(false)
+    }
+  }, [apiBase, urdfOutputPath, urdfOverwrite, urdfTargetName, urdfTargets])
+
   useEffect(() => {
     if (!viewerParts.length || !selectedIds.length) return
 
@@ -2027,6 +2143,12 @@ export default function App() {
       setStatusMessage(`Viewer API unavailable: ${err.message}`)
     })
   }, [loadViewerState])
+
+  useEffect(() => {
+    loadUrdfTargets().catch((err) => {
+      console.warn('Failed to load URDF export targets:', err)
+    })
+  }, [loadUrdfTargets])
 
   useEffect(() => {
     loadThreadSummaries({ autoSelect: true }).catch((err) => {
@@ -2705,6 +2827,11 @@ export default function App() {
             <Viewer
               models={visibleModels}
               activeName={activeName}
+              comMarker={showComMarker && assemblyMassProperties?.center_of_mass_mm ? {
+                center: assemblyMassProperties.center_of_mass_mm,
+                totalMassKg: assemblyMassProperties.total_mass_kg,
+                complete: assemblyMassProperties.center_of_mass_complete,
+              } : null}
               onActiveNameChange={setActiveName}
               onModelActivate={handleViewerModelActivate}
               fitRequest={fitRequest}
@@ -2781,8 +2908,23 @@ export default function App() {
           metadataDrafts={partMetadataDrafts}
           onMetadataChange={handlePartMetadataChange}
           onMetadataReset={handlePartMetadataReset}
+          onMetadataSave={handlePartMetadataSave}
+          metadataSaveBusy={partMetadataSaveBusy}
           colorMode={colorMode}
           onColorModeChange={setColorMode}
+          assemblyMassProperties={assemblyMassProperties}
+          showComMarker={showComMarker}
+          onShowComMarkerChange={setShowComMarker}
+          urdfTargets={urdfTargets}
+          urdfTargetName={urdfTargetName}
+          urdfOutputPath={urdfOutputPath}
+          urdfOverwrite={urdfOverwrite}
+          urdfExportBusy={urdfExportBusy}
+          urdfExportStatus={urdfExportStatus}
+          onUrdfTargetNameChange={handleUrdfTargetNameChange}
+          onUrdfOutputPathChange={setUrdfOutputPath}
+          onUrdfOverwriteChange={setUrdfOverwrite}
+          onUrdfExport={handleUrdfExport}
           collapsed={partsCollapsed}
           onToggle={() => {
             setPartsCollapsed((value) => !value)

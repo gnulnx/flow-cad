@@ -18,6 +18,7 @@ from flow_cad.core.metadata import definition_export_subdir
 from flow_cad.core.report import write_report
 from flow_cad.core.bundler import create_bundle
 from flow_cad.project import _call_with_supported_kwargs, load_project
+from flow_cad.urdf_export import UrdfExportError, UrdfExportService
 from flow_cad.validation.contracts import GeometryAuthority, ValidatorMetadata, coerce_validator_result
 from flow_cad.validation.facts import ValidationFactProvider
 from flow_cad.viewer.service import ConversionUnavailableError, ViewerService
@@ -904,6 +905,33 @@ def build(
         profiler.finish("ok")
         profile_paths = write_build_profile(profiler, project.paths.local_state)
         click.echo(click.style(f"Wrote build profile to {profile_paths.latest_path}", fg="blue"))
+
+
+@cli.command("urdf")
+@click.option("--target", required=True, help="URDF export target name, such as b2_v2.")
+@click.option("--profile", default=None, help="Export profile override. Defaults to the target profile.")
+@click.option("--output", "output_path", type=click.Path(path_type=Path), default=None, help="Output .urdf path.")
+@click.option("--overwrite", is_flag=True, default=False, help="Overwrite an existing .urdf file.")
+@click.option("--json", "json_output", is_flag=True, default=False, help="Print the export result as JSON.")
+def urdf(target: str, profile: str | None, output_path: Path | None, overwrite: bool, json_output: bool) -> None:
+    """Export a project URDF target."""
+    project = load_project(Path.cwd(), fallback_to_bundled=False)
+    service = UrdfExportService(project)
+    try:
+        result = service.export(
+            target_name=target,
+            profile=profile,
+            output_path=output_path,
+            overwrite=overwrite,
+        )
+    except UrdfExportError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if json_output:
+        click.echo(json.dumps(result, indent=2, sort_keys=True))
+        return
+    click.echo(click.style(f"Wrote URDF to {result['output_path']}", fg="green"))
+    click.echo(click.style(f"Wrote URDF report to {result['report_path']}", fg="blue"))
 
 
 @cli.command("profile")

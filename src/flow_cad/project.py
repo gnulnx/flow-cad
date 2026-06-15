@@ -53,6 +53,7 @@ class FlowCadProject:
     validators: dict[str, Callable[..., Any]]
     config: FlowCadConfig = field(default_factory=default_flow_config)
     assembly_definition_factory: Callable[[], Any] | None = None
+    urdf_targets_factory: Callable[..., Iterable[Any]] | None = None
     source_wrapper_files: tuple[Path, ...] = ()
 
     def make_params(self) -> Any:
@@ -212,6 +213,16 @@ class FlowCadProject:
     def iter_validators(self) -> Iterable[tuple[str, Callable[..., Any]]]:
         yield from self.validators.items()
 
+    def iter_urdf_targets(self, *, params: Any | None = None) -> Iterable[Any]:
+        if self.urdf_targets_factory is None:
+            return ()
+        resolved_params = params or self.make_params()
+        return _call_with_supported_kwargs(
+            self.urdf_targets_factory,
+            project=self,
+            params=resolved_params,
+        )
+
 
 class ExampleParams:
     project_id = "flow_example"
@@ -307,6 +318,11 @@ def load_project_manifest(path: Path) -> FlowCadProject:
         if python_section.get("assembly_definition")
         else None
     )
+    urdf_targets_factory = (
+        _load_symbol(str(python_section["urdf_targets"]))
+        if python_section.get("urdf_targets")
+        else None
+    )
     validators = {
         name: _load_symbol(str(spec))
         for name, spec in validators_section.items()
@@ -333,6 +349,7 @@ def load_project_manifest(path: Path) -> FlowCadProject:
         docs=_docs_from_manifest(root, manifest),
         validators=validators,
         config=load_flow_config(root, project_path=config_path),
+        urdf_targets_factory=urdf_targets_factory,
         source_wrapper_files=(Path(registry_source).resolve(),) if registry_source else (),
     )
 

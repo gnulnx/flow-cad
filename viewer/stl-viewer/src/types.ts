@@ -70,7 +70,53 @@ export interface ViewerPartsPayload {
   active_version?: string | null
   active_assembly_id?: string | null
   versions?: string[]
+  assembly_mass_properties?: AssemblyMassProperties | null
   parts: ViewerPart[]
+}
+
+export interface AssemblyMassProperties {
+  profile: string
+  assembly_id?: string | null
+  total_mass_kg: number
+  center_of_mass_mm: [number, number, number] | null
+  known_mass_occurrence_count: number
+  total_occurrence_count: number
+  missing_mass_occurrences: string[]
+  missing_com_occurrences: string[]
+  missing_inertia_occurrences?: string[]
+  mass_complete: boolean
+  center_of_mass_complete: boolean
+}
+
+export interface UrdfExportTarget {
+  name: string
+  label: string
+  description?: string
+  profile: string
+  kind: string
+  include_references: boolean
+  assembly_id?: string | null
+  robot_name?: string
+  default_output_path: string
+  metadata?: Record<string, unknown>
+}
+
+export interface UrdfTargetsPayload {
+  ok: boolean
+  project_id?: string
+  targets: UrdfExportTarget[]
+}
+
+export interface UrdfExportResponse {
+  ok: boolean
+  target: string
+  profile: string
+  output_path: string
+  report_path: string
+  wheel_radius_m?: number
+  wheel_base_m?: number
+  mass_properties?: AssemblyMassProperties
+  recommended_dojo_config?: Record<string, unknown>
 }
 
 export interface SnapFeature {
@@ -524,6 +570,21 @@ export interface PartMetadataDraft {
   center_of_mass_mm: [string, string, string]
   inertia_kg_m2: [string, string, string, string, string, string]
   mass_source: string
+}
+
+export interface PartMetadataPayload {
+  material: string
+  display_color: string | null
+  mass_kg: number | null
+  center_of_mass_mm: [number, number, number] | null
+  inertia_kg_m2: [number, number, number, number, number, number] | null
+  mass_source: string
+}
+
+export interface PartMetadataSaveResponse {
+  ok: boolean
+  part: ViewerPart
+  metadata_path?: string
 }
 
 export interface PreviewContext {

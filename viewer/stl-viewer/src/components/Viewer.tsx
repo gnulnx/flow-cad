@@ -27,6 +27,11 @@ import * as THREE from 'three'
 interface ViewerProps {
   models: ModelData[]
   activeName: string | null
+  comMarker?: {
+    center: [number, number, number]
+    totalMassKg: number
+    complete: boolean
+  } | null
   onActiveNameChange: (name: string | null) => void
   onModelActivate: (name: string, additive: boolean) => void
   fitRequest: number
@@ -265,6 +270,32 @@ function FeatureHighlight({ target, subtle = false }: { target: MeasurementTarge
   }
 
   return null
+}
+
+function ComMarker({
+  center,
+  totalMassKg,
+  complete,
+}: {
+  center: [number, number, number]
+  totalMassKg: number
+  complete: boolean
+}) {
+  return (
+    <group position={center}>
+      <mesh>
+        <sphereGeometry args={[7, 24, 16]} />
+        <meshBasicMaterial color={complete ? '#10b981' : '#f59e0b'} transparent opacity={0.88} depthTest={false} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[11, 24, 16]} />
+        <meshBasicMaterial color={complete ? '#10b981' : '#f59e0b'} wireframe transparent opacity={0.5} depthTest={false} />
+      </mesh>
+      <Html center className="com-marker-label">
+        <span>COM {totalMassKg.toFixed(2)} kg</span>
+      </Html>
+    </group>
+  )
 }
 
 function MeasurementLabel({
@@ -644,7 +675,7 @@ function MeasurementLayer({
 }
 
 function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode }) {
-  const { models, activeName, onModelActivate, fitRequest, frameSelectedRequest, rotationMode, measurementMode, clearMeasurementsRequest } = props
+  const { models, activeName, comMarker, onModelActivate, fitRequest, frameSelectedRequest, rotationMode, measurementMode, clearMeasurementsRequest } = props
   return (
     <>
       <ambientLight intensity={0.55} />
@@ -661,6 +692,7 @@ function SceneContent(props: ViewerProps & { measurementMode: MeasurementMode })
           onClick={onModelActivate}
         />
       ))}
+      {comMarker ? <ComMarker center={comMarker.center} totalMassKg={comMarker.totalMassKg} complete={comMarker.complete} /> : null}
       <MeasurementLayer models={models} mode={measurementMode} clearMeasurementsRequest={clearMeasurementsRequest} />
       <ViewportControls
         models={models}

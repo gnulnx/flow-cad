@@ -14,6 +14,7 @@ from flow_cad.draft_geometry import DraftGeometryError, DraftGeometryStore
 from flow_cad.draft_operations import draft_operation_payloads
 from flow_cad.preview_commands import PreviewCommandContext, parse_panel_command
 from flow_cad.project import FlowCadProject, load_project
+from flow_cad.urdf_export import UrdfExportService
 from flow_cad.viewer.geometry_authority import (
     GeometryAuthorityError,
     cache_metadata_matches,
@@ -45,6 +46,10 @@ class InvalidViewerImportError(ViewerError):
     status_code = 400
 
 
+class InvalidPartMetadataError(ViewerError):
+    status_code = 400
+
+
 @dataclass(frozen=True)
 class Artifact:
     path: Path
@@ -53,6 +58,107 @@ class Artifact:
 
 
 Converter = Callable[[Path, Path], Path]
+
+PART_METADATA_OVERRIDE_SCHEMA_VERSION = 1
+PART_METADATA_OVERRIDE_FILENAME = "part-metadata-overrides.json"
+PART_METADATA_OVERRIDE_FIELDS = {
+    "material",
+    "display_color",
+    "mass_kg",
+    "center_of_mass_mm",
+    "inertia_kg_m2",
+    "mass_source",
+    "metadata_status",
+    "metadata_notes",
+}
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _metadata_string(payload: dict[str, Any], field: str) -> str | None:
+    if field not in payload:
+        return None
+    value = payload[field]
+    if not isinstance(value, str):
+        raise InvalidPartMetadataError(f"{field} must be a string.")
+    return value
+
+
+def _metadata_optional_string(payload: dict[str, Any], field: str) -> str | None:
+    if field not in payload:
+        return None
+    value = payload[field]
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise InvalidPartMetadataError(f"{field} must be a string or null.")
+    return value
+
+
+def _metadata_optional_float(payload: dict[str, Any], field: str, *, minimum: float | None = None) -> float | None:
+    if field not in payload:
+        return None
+    value = payload[field]
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise InvalidPartMetadataError(f"{field} must be a number or null.")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise InvalidPartMetadataError(f"{field} must be a number or null.") from exc
+    if minimum is not None and parsed < minimum:
+        raise InvalidPartMetadataError(f"{field} must be at least {minimum}.")
+    return parsed
+
+
+def _metadata_optional_float_list(payload: dict[str, Any], field: str, size: int) -> list[float] | None:
+    if field not in payload:
+        return None
+    value = payload[field]
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != size:
+        raise InvalidPartMetadataError(f"{field} must be a {size}-item number list or null.")
+    parsed: list[float] = []
+    for item in value:
+        if isinstance(item, bool):
+            raise InvalidPartMetadataError(f"{field} must contain only numbers.")
+        try:
+            parsed.append(float(item))
+        except (TypeError, ValueError) as exc:
+            raise InvalidPartMetadataError(f"{field} must contain only numbers.") from exc
+    return parsed
+
+
+def _coerce_part_metadata_override(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise InvalidPartMetadataError("Part metadata payload must be an object.")
+    unknown_fields = set(payload) - PART_METADATA_OVERRIDE_FIELDS
+    if unknown_fields:
+        raise InvalidPartMetadataError(f"Unsupported metadata fields: {', '.join(sorted(unknown_fields))}")
+
+    override: dict[str, Any] = {}
+    for field in ("material", "mass_source", "metadata_status", "metadata_notes"):
+        value = _metadata_string(payload, field)
+        if value is not None:
+            override[field] = value
+
+    if "display_color" in payload:
+        override["display_color"] = _metadata_optional_string(payload, "display_color")
+    if "mass_kg" in payload:
+        override["mass_kg"] = _metadata_optional_float(payload, "mass_kg", minimum=0.0)
+    if "center_of_mass_mm" in payload:
+        override["center_of_mass_mm"] = _metadata_optional_float_list(payload, "center_of_mass_mm", 3)
+    if "inertia_kg_m2" in payload:
+        override["inertia_kg_m2"] = _metadata_optional_float_list(payload, "inertia_kg_m2", 6)
+
+    return override
 
 
 def _relative_path(path: Path, project_root: Path) -> str:
@@ -168,6 +274,10 @@ class ViewerService:
     def viewer_cache_dir(self) -> Path:
         return self.project.paths.local_state / "viewer-cache"
 
+    @property
+    def part_metadata_override_path(self) -> Path:
+        return self.project.paths.local_state / PART_METADATA_OVERRIDE_FILENAME
+
     def reload(self) -> dict[str, Any]:
         self.project = load_project(self.project_root)
         self.project_root = self.project.root
@@ -186,15 +296,26 @@ class ViewerService:
         default_visible_ids = self._default_visible_part_keys()
         active_version = self._active_version(default_visible_ids)
         active_assembly_id = self._active_assembly_id()
+        metadata_overrides = self._read_part_metadata_overrides()
         parts = [
             self._part_payload(
                 definition,
                 placement_map.get(definition.id, []),
                 default_visible=definition.id in default_visible_ids,
+                metadata_overrides=metadata_overrides,
             )
             for definition in self.project.iter_part_definitions()
         ]
         versions = self._versions(parts, active_version)
+        mass_properties = UrdfExportService(
+            self.project,
+            params=self.params,
+            metadata_overrides_path=self.part_metadata_override_path,
+        ).compute_mass_properties(
+            profile="active",
+            assembly_id=active_assembly_id,
+            include_references=True,
+        )
         return {
             "project_id": self.project.project_id,
             "project_name": self.project.name,
@@ -202,6 +323,7 @@ class ViewerService:
             "active_version": active_version,
             "active_assembly_id": active_assembly_id,
             "versions": versions,
+            "assembly_mass_properties": mass_properties.to_payload(include_contributions=False),
             "parts": parts,
         }
 
@@ -211,7 +333,29 @@ class ViewerService:
             definition,
             self._placement_map().get(definition.id, []),
             default_visible=definition.id in self._default_visible_part_keys(),
+            metadata_overrides=self._read_part_metadata_overrides(),
         )
+
+    def update_part_metadata(self, component_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        definition = self._definition(component_id)
+        update = _coerce_part_metadata_override(payload)
+        overrides = self._read_part_metadata_overrides()
+        overrides[definition.id] = {
+            **overrides.get(definition.id, {}),
+            **update,
+        }
+        self._write_part_metadata_overrides(overrides)
+        part = self._part_payload(
+            definition,
+            self._placement_map().get(definition.id, []),
+            default_visible=definition.id in self._default_visible_part_keys(),
+            metadata_overrides=overrides,
+        )
+        return {
+            "ok": True,
+            "part": part,
+            "metadata_path": _relative_path(self.part_metadata_override_path, self.project_root),
+        }
 
     def part_source_context(self, component_id: str) -> dict[str, Any]:
         definition = self._definition(component_id)
@@ -1018,7 +1162,45 @@ class ViewerService:
     def draft_transaction_discard(self, transaction_token: str) -> dict[str, Any]:
         return self.drafts.discard_transaction(transaction_token)
 
-    def _part_payload(self, definition: PartDefinition, occurrences: list[dict[str, Any]], *, default_visible: bool) -> dict[str, Any]:
+    def _read_part_metadata_overrides(self) -> dict[str, dict[str, Any]]:
+        path = self.part_metadata_override_path
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        parts = payload.get("parts") if isinstance(payload, dict) else None
+        if not isinstance(parts, dict):
+            return {}
+        return {
+            str(part_id): {
+                key: value
+                for key, value in override.items()
+                if key in PART_METADATA_OVERRIDE_FIELDS
+            }
+            for part_id, override in parts.items()
+            if isinstance(override, dict)
+        }
+
+    def _write_part_metadata_overrides(self, overrides: dict[str, dict[str, Any]]) -> None:
+        _write_json_atomic(
+            self.part_metadata_override_path,
+            {
+                "schema_version": PART_METADATA_OVERRIDE_SCHEMA_VERSION,
+                "updated_at": datetime.now(UTC).isoformat(),
+                "parts": overrides,
+            },
+        )
+
+    def _part_payload(
+        self,
+        definition: PartDefinition,
+        occurrences: list[dict[str, Any]],
+        *,
+        default_visible: bool,
+        metadata_overrides: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         artifact = self._artifact(definition)
         source_format = artifact.source_format if artifact is not None else None
         artifact_identity = self._artifact_identity_payload(definition, artifact) if artifact is not None else {}
@@ -1029,7 +1211,7 @@ class ViewerService:
             else None
         )
         geometry = geometry_for_artifact(source_format).to_payload()
-        return {
+        payload = {
             "id": definition.id,
             "module_id": definition.module_id,
             "version": getattr(definition, "version", ""),
@@ -1039,6 +1221,7 @@ class ViewerService:
             "filename": definition.filename,
             "role": str(definition.role),
             "material": definition.material,
+            "display_color": getattr(definition, "display_color", None),
             "mass_kg": getattr(definition, "mass_kg", None),
             "center_of_mass_mm": getattr(definition, "center_of_mass_mm", None),
             "inertia_kg_m2": getattr(definition, "inertia_kg_m2", None),
@@ -1067,6 +1250,9 @@ class ViewerService:
             "in_assembly": bool(occurrences),
             "default_visible": default_visible,
         }
+        overrides = metadata_overrides if metadata_overrides is not None else self._read_part_metadata_overrides()
+        payload.update(overrides.get(definition.id, {}))
+        return payload
 
     def _artifact_identity_payload(self, definition: PartDefinition, artifact: Artifact) -> dict[str, Any]:
         identity = _file_identity(artifact.path, self.project_root)

@@ -16,6 +16,7 @@ from flow_cad.config import AgentProfile, FlowCadConfig, load_flow_config
 from flow_cad.design_planner import plan_design_turn
 from flow_cad.draft_geometry import DraftGeometryError
 from flow_cad.sketch_intent import build_sketch_intent_recipe
+from flow_cad.urdf_export import UrdfExportError, UrdfExportService
 from flow_cad.viewer.agent_runtime import (
     AgentRuntimeClient,
     AgentRuntimeError,
@@ -1953,6 +1954,40 @@ def create_app(
     @app.get("/api/parts")
     def parts() -> dict[str, object]:
         return viewer_service.list_parts()
+
+    @app.get("/api/exports/urdf/targets")
+    def urdf_export_targets() -> dict[str, object]:
+        try:
+            return UrdfExportService(
+                viewer_service.project,
+                params=viewer_service.params,
+                metadata_overrides_path=viewer_service.part_metadata_override_path,
+            ).list_targets()
+        except UrdfExportError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/exports/urdf")
+    def export_urdf(payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return UrdfExportService(
+                viewer_service.project,
+                params=viewer_service.params,
+                metadata_overrides_path=viewer_service.part_metadata_override_path,
+            ).export(
+                target_name=str(payload.get("target") or payload.get("target_name") or ""),
+                profile=str(payload.get("profile") or "") or None,
+                output_path=payload.get("output_path") if isinstance(payload.get("output_path"), str) else None,
+                overwrite=bool(payload.get("overwrite", False)),
+            )
+        except UrdfExportError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.patch("/api/parts/{component_id}/metadata")
+    def update_part_metadata(component_id: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            return viewer_service.update_part_metadata(component_id, payload)
+        except ViewerError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     @app.post("/api/agent-screen/capture")
     def capture_agent_screen(payload: dict[str, object]) -> dict[str, object]:
