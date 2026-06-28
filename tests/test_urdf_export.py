@@ -38,9 +38,17 @@ def _project(
             if include_references or definition.role != PartRole.REFERENCE:
                 yield definition
 
+    definitions_by_id = {definition.id: definition for definition in definitions}
+
     def get_assembly_placements(_params, *, include_references: bool = False, assembly_id: str | None = None):
-        _ = include_references, assembly_id
-        return list(placements)
+        _ = assembly_id
+        if include_references:
+            return list(placements)
+        return [
+            placement
+            for placement in placements
+            if definitions_by_id[str(placement["part_key"])].role != PartRole.REFERENCE
+        ]
 
     return FlowCadProject(
         root=tmp_path,
@@ -175,6 +183,23 @@ def test_urdf_export_writes_dojo_template_and_report(tmp_path: Path) -> None:
     assert report["wheel_base_m"] == pytest.approx(0.24)
     assert report["mass_properties"]["missing_inertia_occurrences"]
     assert report["recommended_dojo_config"]["embodiment"]["wheel_base_m"] == pytest.approx(0.24)
+    assert report["chassis_collision_geometry"]["mode"] == "assembly_occurrence_axis_aligned_boxes"
+    assert report["chassis_collision_geometry"]["primitive_count"] == 1
+    assert report["chassis_collision_geometry"]["visual_primitive_count"] == 1
+    assert report["chassis_collision_geometry"]["failures"] == []
+    assert report["chassis_collision_geometry"]["occurrences"][0]["occurrence_name"] == "body"
+    assert report["chassis_collision_geometry"]["occurrences"][0]["include_collision"] is True
+    assert root.find(".//link[@name='chassis_link']/flow_cad_chassis_box") is not None
+    assert root.find(".//link[@name='chassis_link']/visual[@name='mass_proxy']") is None
+    assert root.find(".//link[@name='chassis_link']/collision[@name='occ_body']/geometry/box") is not None
+    assert report["dojo_mass_model"]["wheel_link_mass_total_kg"] == pytest.approx(3.0)
+    assert report["dojo_mass_model"]["fixed_base_mass_kg"] == pytest.approx(0.1)
+    assert report["dojo_mass_model"]["recommended_collapsed_body_mass_kg"] == pytest.approx(3.9)
+    assert report["nominal_chassis_com_m"]["z"] == pytest.approx(0.001025641, abs=1e-9)
+    assert report["recommended_dojo_config"]["randomization"]["com_dz_range"] == pytest.approx([
+        0.001025641,
+        0.001025641,
+    ])
 
 
 def test_urdf_export_api_lists_targets_and_writes_file(tmp_path: Path) -> None:
