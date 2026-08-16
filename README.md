@@ -54,7 +54,7 @@ this repo's `skills/` directory are copied into the project.
 Run these commands from a Flow CAD project repo, not necessarily from this
 runtime repo.
 
-Build project exports, snapshots, reports, and active cache:
+Run a default build:
 
 ```bash
 flow cad build
@@ -68,7 +68,10 @@ flow start
 
 `flow start` runs the viewer API and frontend, scans for nearby free ports when
 the preferred ports are busy, and opens the browser by default. Use
-`--no-open-browser` for server-only startup.
+`--no-open-browser` for server-only startup. Agent/model defaults resolve from
+`~/.flow/config.toml` and project-local `.flow/config.toml`; if no runtime is
+configured and the local `codex` CLI is available, `flow start` selects Codex for
+the viewer process.
 
 Ask a running workbench to refresh project source, registry, geometry, and cache
 state:
@@ -83,6 +86,84 @@ Query generated project cache state:
 flow registry list
 flow registry show <component_id>
 ```
+
+## CLI Reference
+
+Flow CLI commands are available from a project checkout:
+
+```bash
+flow --help
+flow init [--force]
+flow start [options]
+flow reload [--backend-url <url>]
+flow refresh [--project-root <path>] [--part <part_id>] [--force-model-refetch]
+flow registry list|show <component_id>
+flow cad --help
+flow cad build [options]
+flow cad profile [options]
+```
+
+### Core `flow` commands
+
+- `flow init --force`
+  Initialize or overwrite starter files for a project.
+
+- `flow start [--backend-host HOST] [--backend-port PORT] [--frontend-host HOST]
+  [--frontend-port PORT] [--port-search-span N] [--open-browser/--no-open-browser]`
+  Start the workbench.
+
+- `flow reload [--backend-url http://127.0.0.1:8000]`
+  Ask the running viewer to refresh project state.
+
+- `flow refresh [--project-root PATH] [--part PART_ID] [--force-model-refetch]`
+  Refresh the project-aware live viewer process and print rendered artifact
+  identity for the selected part or all parts.
+
+- `flow registry list`
+  Print active cache entries.
+
+- `flow registry show <component_id>`
+  Print one cached component detail record.
+
+### `flow cad build` options
+
+- `--profile <all|active|<version-id>>`
+  Select which part profile to build. Default: `all`.
+
+- `--part <part_id>`
+  Build one part only (direct part exports).
+
+- `--changed`
+  Rebuild parts that changed since last build metadata.
+
+- `--assembly-preview`
+  Refresh assembly + placement artifacts for viewer updates without handoff packaging.
+
+- `--handoff`
+  Enforce strict release build behavior (bundle, cache update, reports, STL,
+  snapshots, and assembly enabled).
+
+- `--stl/--no-stl`, `--snapshots/--no-snapshots`, `--reports/--no-reports`,
+  `--bundle/--no-bundle`, `--cache/--no-cache`
+  - Control optional export/report/cache stages.
+
+- `--snapshots-only`
+  Regenerate only SVG snapshots.
+
+Important: `--part`, `--changed`, `--assembly-preview`, and `--handoff` are
+mutually exclusive. `--handoff` also enables `--bundle`, `--cache`, `--stl`,
+and `--reports` even if disabled in the same command.
+
+### `flow cad profile`
+
+- `flow cad profile --last`
+  Show the latest build profile summary.
+
+- `flow cad profile --json`
+  Emit raw profile JSON.
+
+- `flow cad profile --limit N`
+  Show only the top `N` slow profile events.
 
 ## Viewer
 

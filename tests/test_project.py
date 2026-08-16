@@ -28,8 +28,11 @@ def test_init_project_creates_native_project_layout(tmp_path: Path) -> None:
     assert (tmp_path / "flow" / "parts" / "example.py").exists()
     assert (tmp_path / "flow" / "assemblies" / "robot.py").exists()
     assert (tmp_path / "flow" / "validators" / "project.py").exists()
+    assert (tmp_path / "flow" / "validators" / "panel_example.py").exists()
     assert (tmp_path / "skills" / "flow-cad-project" / "SKILL.md").exists()
+    assert (tmp_path / "skills" / "draft-mode" / "SKILL.md").exists()
     assert (tmp_path / ".flow").is_dir()
+    assert (tmp_path / ".flow" / "config.toml").exists()
     assert ".flow/" in (tmp_path / ".gitignore").read_text()
 
 
@@ -59,9 +62,11 @@ def test_load_project_manifest_uses_project_local_flow_source(tmp_path: Path) ->
     assert placements[0]["part_key"] == "example_block"
     assert project.paths.exports == tmp_path / "exports"
     assert project.paths.cache == tmp_path / ".flow" / "registry.db"
+    assert project.paths.config == tmp_path / ".flow" / "config.toml"
+    assert project.config.project_config_path == (tmp_path / ".flow" / "config.toml").resolve()
     assert project.docs.print_manifest == tmp_path / "docs" / "PRINT_MANIFEST.md"
     assert project.docs.part_interfaces == tmp_path / "docs" / "PART_INTERFACES.md"
-    assert [name for name, _validator in project.iter_validators()] == ["project"]
+    assert [name for name, _validator in project.iter_validators()] == ["project", "project-panel-example"]
 
 
 def test_project_runtime_imports_do_not_load_external_project_modules() -> None:
@@ -150,6 +155,7 @@ def test_project_export_paths_can_include_version_and_family(tmp_path: Path) -> 
             reports=tmp_path / "reports",
             local_state=tmp_path / ".flow",
             cache=tmp_path / ".flow" / "registry.db",
+            config=tmp_path / ".flow" / "config.toml",
         ),
         docs=ProjectDocs(
             print_manifest=tmp_path / "docs" / "PRINT_MANIFEST.md",
@@ -237,6 +243,7 @@ def test_project_profiles_filter_by_active_and_explicit_versions(tmp_path: Path)
             reports=tmp_path / "reports",
             local_state=tmp_path / ".flow",
             cache=tmp_path / ".flow" / "registry.db",
+            config=tmp_path / ".flow" / "config.toml",
         ),
         docs=ProjectDocs(
             print_manifest=tmp_path / "docs" / "PRINT_MANIFEST.md",
@@ -297,6 +304,7 @@ def test_viewer_reload_reloads_project_placements(tmp_path: Path, monkeypatch) -
                 reports=tmp_path / "reports",
                 local_state=tmp_path / ".flow",
                 cache=tmp_path / ".flow" / "registry.db",
+                config=tmp_path / ".flow" / "config.toml",
             ),
             docs=ProjectDocs(
                 print_manifest=tmp_path / "docs" / "PRINT_MANIFEST.md",

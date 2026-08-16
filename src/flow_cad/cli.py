@@ -5,7 +5,8 @@ import rich_click as click
 from .main import cli as cad_cli
 from .project import PROJECT_MANIFEST, ProjectError, init_project, load_project
 from .registry_cli import registry as registry_cli
-from .viewer.cli import reload_viewer, start_viewer
+from .validation.cli import validate as validate_cli
+from .viewer.cli import refresh_viewer, reload_viewer, start_viewer
 
 @click.group()
 def flow():
@@ -57,16 +58,47 @@ def start(
 
 
 @flow.command("reload")
-@click.option("--backend-url", default="http://127.0.0.1:8000", show_default=True)
-def reload(backend_url: str) -> None:
+@click.option("--backend-url", default=None, help="Viewer backend URL. Defaults to this project's running flow start process.")
+def reload(backend_url: str | None) -> None:
     """Ask the running Flow CAD workbench to refresh project state."""
-    payload = reload_viewer(backend_url)
+    payload = reload_viewer(backend_url, project_root=Path.cwd())
     click.echo(f"Reloaded viewer revision {payload.get('revision')}")
+
+
+@flow.command("refresh")
+@click.option("--project-root", type=click.Path(path_type=Path), default=None, help="Flow CAD project root. Defaults to the current directory.")
+@click.option("--backend-url", default=None, help="Viewer backend URL. Defaults to the project's running flow start process.")
+@click.option("--part", "part_id", default=None, help="Part id to verify after refresh.")
+@click.option("--force-model-refetch", is_flag=True, default=False, help="Tell the live viewer refresh path to treat model bytes as stale.")
+def refresh(project_root: Path | None, backend_url: str | None, part_id: str | None, force_model_refetch: bool) -> None:
+    """Refresh the project-aware workbench and report rendered artifact identity."""
+    root = (project_root or Path.cwd()).resolve()
+    payload = refresh_viewer(
+        backend_url=backend_url,
+        project_root=root,
+        part_id=part_id,
+        force_model_refetch=force_model_refetch,
+    )
+    click.echo(f"Refreshed viewer revision {payload.get('revision')}")
+    artifacts = payload.get("rendered_artifacts")
+    if isinstance(artifacts, list):
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            click.echo(
+                "artifact "
+                f"{artifact.get('id')}: "
+                f"{artifact.get('artifact_path')} "
+                f"size={artifact.get('artifact_size')} "
+                f"hash={str(artifact.get('artifact_hash') or '')[:16]} "
+                f"url={artifact.get('model_url')}"
+            )
 
 
 # Nest the CAD CLI under flow
 flow.add_command(cad_cli, name="cad")
 flow.add_command(registry_cli, name="registry")
+flow.add_command(validate_cli, name="validate")
 
 if __name__ == "__main__":
     flow()

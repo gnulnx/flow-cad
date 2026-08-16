@@ -5,13 +5,14 @@ import inspect
 import shutil
 import sys
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from build123d import Box
 from build123d import Compound, Location
 
+from flow_cad.config import FLOW_CAD_CONFIG, FlowCadConfig, default_flow_config, load_flow_config
 from flow_cad.core.metadata import PartDefinition, PartRole, definition_export_subdir
 
 
@@ -30,6 +31,7 @@ class ProjectPaths:
     reports: Path
     local_state: Path
     cache: Path
+    config: Path
 
 
 @dataclass(frozen=True)
@@ -49,7 +51,9 @@ class FlowCadProject:
     paths: ProjectPaths
     docs: ProjectDocs
     validators: dict[str, Callable[..., Any]]
+    config: FlowCadConfig = field(default_factory=default_flow_config)
     assembly_definition_factory: Callable[[], Any] | None = None
+    urdf_targets_factory: Callable[..., Iterable[Any]] | None = None
     source_wrapper_files: tuple[Path, ...] = ()
 
     def make_params(self) -> Any:
@@ -209,6 +213,16 @@ class FlowCadProject:
     def iter_validators(self) -> Iterable[tuple[str, Callable[..., Any]]]:
         yield from self.validators.items()
 
+    def iter_urdf_targets(self, *, params: Any | None = None) -> Iterable[Any]:
+        if self.urdf_targets_factory is None:
+            return ()
+        resolved_params = params or self.make_params()
+        return _call_with_supported_kwargs(
+            self.urdf_targets_factory,
+            project=self,
+            params=resolved_params,
+        )
+
 
 class ExampleParams:
     project_id = "flow_example"
@@ -250,12 +264,14 @@ def bundled_example_project(project_root: Path | None = None) -> FlowCadProject:
             reports=root / "example" / "reports",
             local_state=root / "example",
             cache=root / "example" / "registry.db",
+            config=root / "example" / FLOW_CAD_CONFIG,
         ),
         docs=ProjectDocs(
             print_manifest=root / "docs" / "PRINT_MANIFEST.md",
             part_interfaces=root / "docs" / "PART_INTERFACES.md",
         ),
         validators={},
+        config=default_flow_config(project_path=root / "example" / FLOW_CAD_CONFIG),
     )
 
 
@@ -302,11 +318,17 @@ def load_project_manifest(path: Path) -> FlowCadProject:
         if python_section.get("assembly_definition")
         else None
     )
+    urdf_targets_factory = (
+        _load_symbol(str(python_section["urdf_targets"]))
+        if python_section.get("urdf_targets")
+        else None
+    )
     validators = {
         name: _load_symbol(str(spec))
         for name, spec in validators_section.items()
     }
     local_state = root / str(outputs.get("local_state", ".flow"))
+    config_path = local_state / FLOW_CAD_CONFIG
     registry_source = inspect.getsourcefile(part_definitions)
 
     return FlowCadProject(
@@ -322,9 +344,12 @@ def load_project_manifest(path: Path) -> FlowCadProject:
             reports=root / str(outputs.get("reports", "reports")),
             local_state=local_state,
             cache=root / str(outputs.get("cache", local_state / "registry.db")),
+            config=config_path,
         ),
         docs=_docs_from_manifest(root, manifest),
         validators=validators,
+        config=load_flow_config(root, project_path=config_path),
+        urdf_targets_factory=urdf_targets_factory,
         source_wrapper_files=(Path(registry_source).resolve(),) if registry_source else (),
     )
 
@@ -360,10 +385,12 @@ def init_project(project_root: Path, *, force: bool = False) -> list[Path]:
         flow_dir / "parts" / "__init__.py": "",
         flow_dir / "assemblies" / "__init__.py": "",
         flow_dir / "validators" / "__init__.py": "",
+        root / ".flow" / FLOW_CAD_CONFIG: _default_flow_config_template(),
         flow_dir / "params.py": _starter_params(root.name.replace(" ", "_").lower() or "flow_project"),
         flow_dir / "parts" / "example.py": _starter_part(),
         flow_dir / "assemblies" / "robot.py": _starter_assembly(),
         flow_dir / "validators" / "project.py": _starter_validator(),
+        flow_dir / "validators" / "panel_example.py": _starter_panel_validator(),
         root / "docs" / "PRINT_MANIFEST.md": "# Print Manifest\n\nProject print intent lives here.\n",
         root / "docs" / "PART_INTERFACES.md": "# Part Interfaces\n\nProject mating-interface contracts live here.\n",
     }
@@ -530,10 +557,21 @@ outputs:
 
 validators:
   project: flow.validators.project:validate_project
+  project-panel-example: flow.validators.panel_example:validate_project_panel_example
 
 docs:
   print_manifest: docs/PRINT_MANIFEST.md
   part_interfaces: docs/PART_INTERFACES.md
+"""
+
+
+def _default_flow_config_template() -> str:
+    return """# Local Flow CAD runtime config.
+# This file is intentionally under .flow/ and is ignored by git by default.
+# User-wide defaults live in ~/.flow/config.toml.
+
+[agent]
+# default_profile = "codex-medium"
 """
 
 
@@ -591,7 +629,59 @@ def get_assembly_placements(_params, *, include_references: bool = False):
 def _starter_validator() -> str:
     return """from __future__ import annotations
 
+from flow_cad.validation import ValidatorMetadata, success_report
 
-def validate_project(_project):
+
+VALIDATOR_METADATA = ValidatorMetadata(
+    id="project",
+    family="project",
+    description="Project-wide starter validator.",
+    mode="source",
+    inputs=("project",),
+    budget_ms=1000.0,
+    tags=("fast", "source-loop"),
+)
+
+
+def validate_project(_project=None):
+    return success_report(
+        VALIDATOR_METADATA,
+        input_summary={"geometry_authority": "unknown", "check_count": 1},
+    )
+
+
+validate_project.validator_metadata = VALIDATOR_METADATA
+"""
+
+
+def _starter_panel_validator() -> str:
+    return """from __future__ import annotations
+
+from flow_cad.validation import ValidatorMetadata, validate_panel_facts
+
+
+VALIDATOR_METADATA = ValidatorMetadata(
+    id="project-panel-example",
+    family="panel",
+    description="Starter example for a project-owned panel validator.",
+    mode="source",
+    inputs=("active-cache", "step", "draft"),
+    budget_ms=2000.0,
+    tags=("fast", "source-loop", "example"),
+)
+
+
+def validate_project_panel_example(facts=None, part_id: str | None = None, **_kwargs):
+    if not part_id:
+        return []
+    cache = facts.active_cache_row(part_id, required=False) if facts is not None else None
+    if cache is not None and cache.facts is not None and not cache.issues:
+        return validate_panel_facts(cache.facts, metadata=VALIDATOR_METADATA, part_id=part_id)
+    step = facts.step_bounding_box(part_id) if facts is not None else None
+    if step is not None and step.facts is not None:
+        return validate_panel_facts(step.facts, metadata=VALIDATOR_METADATA, part_id=part_id)
     return []
+
+
+validate_project_panel_example.validator_metadata = VALIDATOR_METADATA
 """

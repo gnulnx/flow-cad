@@ -207,6 +207,39 @@ describe('ModelList', () => {
     expect(onMetadataChange).toHaveBeenLastCalledWith('wheel_box_tight_insert', { mass_kg: '0.125' })
   })
 
+  it('enables saving dirty part metadata from the detail panel', async () => {
+    const user = userEvent.setup()
+    const onMetadataSave = vi.fn()
+
+    render(
+      <ModelList
+        parts={[part('wheel_box_test_body')]}
+        selectedIds={['wheel_box_test_body']}
+        activeId="wheel_box_test_body"
+        activeVersion="b3_v2"
+        onActivate={vi.fn()}
+        metadataDrafts={{
+          wheel_box_test_body: {
+            material: 'PETG',
+            display_color: '#38bdf8',
+            mass_kg: '0.125',
+            center_of_mass_mm: ['', '', ''],
+            inertia_kg_m2: ['', '', '', '', '', ''],
+            mass_source: 'measured_scale',
+          },
+        }}
+        onMetadataSave={onMetadataSave}
+        collapsed={false}
+        onToggle={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByLabelText('Show details for wheel_box_test_body'))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onMetadataSave).toHaveBeenCalledWith('wheel_box_test_body')
+  })
+
   it('shows source-controlled metadata completion status in part details', async () => {
     const user = userEvent.setup()
 

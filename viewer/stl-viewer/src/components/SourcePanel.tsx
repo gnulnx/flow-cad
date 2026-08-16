@@ -8,6 +8,7 @@ interface SourcePanelProps {
   onToggle: () => void
   width?: number
   isResizing?: boolean
+  standalone?: boolean
 }
 
 const PYTHON_KEYWORDS = new Set([
@@ -149,7 +150,59 @@ function HighlightedSource({ context }: { context: SourceContext }) {
   )
 }
 
-export default function SourcePanel({ context, activeId, collapsed, onToggle, width, isResizing }: SourcePanelProps) {
+function SourcePanelContent({
+  context,
+  activeId,
+  collapsed,
+  onToggle,
+  includeHeader = true,
+}: {
+  context: SourceContext | null
+  activeId: string | null
+  collapsed: boolean
+  onToggle: () => void
+  includeHeader?: boolean
+}) {
+  return (
+    <>
+      {includeHeader ? (
+        <button type="button" className="panel-title panel-toggle" onClick={onToggle}>Source</button>
+      ) : null}
+      {collapsed ? null : (
+        context ? (
+          <>
+            <div className="source-file">{context.relative_file_path}</div>
+            <HighlightedSource context={context} />
+          </>
+        ) : (
+          <div className="source-empty">{activeId ?? 'No part selected'}</div>
+        )
+      )}
+    </>
+  )
+}
+
+export default function SourcePanel({
+  context,
+  activeId,
+  collapsed,
+  onToggle,
+  width,
+  isResizing,
+  standalone = true,
+}: SourcePanelProps) {
+  if (!standalone) {
+    return (
+      <SourcePanelContent
+        context={context}
+        activeId={activeId}
+        collapsed={collapsed}
+        onToggle={onToggle}
+        includeHeader={false}
+      />
+    )
+  }
+
   return (
     <div 
       className={`sidebar-dock left-dock ${collapsed ? 'collapsed' : ''} ${isResizing ? 'resizing' : ''}`}
@@ -167,17 +220,12 @@ export default function SourcePanel({ context, activeId, collapsed, onToggle, wi
         }}>Source</div>
       </div>
       <div className="sidebar-content">
-        <button type="button" className="panel-title panel-toggle" onClick={onToggle}>Source</button>
-        {collapsed ? null : (
-          context ? (
-            <>
-              <div className="source-file">{context.relative_file_path}</div>
-              <HighlightedSource context={context} />
-            </>
-          ) : (
-            <div className="source-empty">{activeId ?? 'No part selected'}</div>
-          )
-        )}
+        <SourcePanelContent
+          context={context}
+          activeId={activeId}
+          collapsed={collapsed}
+          onToggle={onToggle}
+        />
       </div>
     </div>
   )

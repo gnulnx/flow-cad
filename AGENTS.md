@@ -34,6 +34,7 @@ python -m pip install -e /home/gnulnx/flow-cad
 - Public CLI entry point: `src/flow_cad/cli.py` via `flow`
 - Build command implementation: `src/flow_cad/main.py`
 - Project manifest/bootstrap/runtime model: `src/flow_cad/project.py`
+- Flow CAD user/project runtime config model: `src/flow_cad/config.py`
 - Core export, cache, report, snapshot, and metadata logic: `src/flow_cad/core/`
 - Viewer API and STEP-first geometry authority: `src/flow_cad/viewer/`
 - Browser viewer frontend: `viewer/stl-viewer/`
@@ -66,6 +67,7 @@ Start and reload the project-local workbench:
 ```bash
 flow start
 flow reload
+flow refresh --part <part_id> --force-model-refetch
 ```
 
 Query generated project cache state:
@@ -99,6 +101,25 @@ If the shell Python lacks test dependencies, use this checkout's virtualenv:
 .venv/bin/python -m pytest
 ```
 
+## Runtime Config
+
+Flow CAD runtime configuration is represented by dataclasses in
+`src/flow_cad/config.py` and should be passed as a `FlowCadConfig` object through
+runtime code. Do not pass partial config fragments, loose provider dictionaries,
+or one-off model settings through unrelated APIs.
+
+- User defaults live in `~/.flow/config.toml`, or `$FLOW_CAD_HOME/config.toml`
+  when `FLOW_CAD_HOME` is set.
+- Project-local overrides live in `.flow/config.toml` under the Flow CAD project
+  root.
+- `FlowCadProject.paths.config` is the project-local config path and
+  `FlowCadProject.config` is the resolved config object.
+- Environment variables remain a temporary/CI escape hatch and should be folded
+  into `FlowCadConfig` at the boundary.
+- Secrets and OAuth tokens do not belong in project-local `.flow/config.toml`.
+  Store only provider/profile selection and non-secret endpoint/model metadata
+  there.
+
 ## Validation Rules
 
 For any Python code change, run:
@@ -121,6 +142,30 @@ over assertions tied to button labels or layout structure.
 
 If a downstream project is affected, reinstall Flow CAD editable and verify in
 that project repo with its AGENTS guide and validators.
+
+## Agent Screen Verification
+
+For Flow CAD viewer work, agent-screen capture is a protected workflow.
+
+When the user asks what is visible, points to an annotation, asks for screen
+review, or says to verify the current viewer state, do not rely on offscreen
+renders, metadata, old screenshots, or model assumptions.
+
+Use the project-local `agent_screen_*` MCP path:
+
+1. Call `agent_screen_request` for the active project root.
+2. Wait for the running browser workbench to fulfill the request.
+3. Call `agent_screen_latest`.
+4. Open the stored `.flow/agent-screen/<capture-id>.png`.
+5. Report only what is visible in that actual PNG.
+
+The capture must preserve the live viewport camera and in-app annotation overlay.
+`render_context: viewport-canvas` is the expected path for annotated screen
+review. Offscreen rendering is only a fallback when the live canvas is missing or
+blank, and must be called out explicitly.
+
+Do not call viewer/screen verification complete unless the actual PNG has been
+opened and inspected.
 
 ## Geometry Authority
 
@@ -216,7 +261,7 @@ For most tasks:
 - Add tests/validators around existing behavior before extracting modules.
 - Run the relevant test suite before reporting code changes as complete.
 - Keep public commands top-level: `flow init`, `flow cad build`, `flow start`,
-  `flow reload`, and `flow registry`.
+  `flow reload`, `flow refresh`, and `flow registry`.
 - Keep generated caches, local runtime state, and dependency folders out of
   commits.
 - Do not mix Flow CAD runtime changes and downstream project geometry changes in
