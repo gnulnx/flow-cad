@@ -1607,6 +1607,7 @@ describe('App source loading', () => {
     })
 
     const output = screen.getByLabelText('URDF output path') as HTMLInputElement
+    await waitFor(() => expect(output).toBeEnabled())
     await user.clear(output)
     await user.type(output, '/home/gnulnx/BLR/DojoV2/src/dojo/assets/B2_v2.urdf')
     await user.click(screen.getByLabelText('Overwrite'))
