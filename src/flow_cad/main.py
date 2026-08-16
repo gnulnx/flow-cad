@@ -211,12 +211,7 @@ def _changed_definition_needs_rebuild(step_reason: str, stl_reason: str, *, effe
     return effective_stl and stl_reason != "cache_hit"
 
 
-def _bbox_overlaps(shape_a, shape_b) -> bool:
-    try:
-        a = shape_a.bounding_box()
-        b = shape_b.bounding_box()
-    except Exception:
-        return False
+def _bounds_overlap(a, b) -> bool:
     return not (
         a.max.X < b.min.X
         or a.min.X > b.max.X
@@ -225,6 +220,15 @@ def _bbox_overlaps(shape_a, shape_b) -> bool:
         or a.max.Z < b.min.Z
         or a.min.Z > b.max.Z
     )
+
+
+def _bbox_overlaps(shape_a, shape_b) -> bool:
+    try:
+        a = shape_a.bounding_box()
+        b = shape_b.bounding_box()
+    except Exception:
+        return False
+    return _bounds_overlap(a, b)
 
 
 def _part_cache_events_for_skipped_definition(
@@ -345,6 +349,7 @@ def _run_interference_check(parts: dict[str, object], profiler: FlowCadProfiler)
         "pair_count": 0,
         "overlapping_pair_count": 0,
         "interfering_pairs": [],
+        "bounding_box_failure_count": 0,
     }
     with profiler.measure(
         "interference_check",
@@ -355,14 +360,23 @@ def _run_interference_check(parts: dict[str, object], profiler: FlowCadProfiler)
         overlap_count = 0
         pair_names: list[str] = []
         ids = sorted(parts.keys())
+        bounding_boxes: dict[str, object] = {}
+        for part_id in ids:
+            try:
+                bounding_boxes[part_id] = parts[part_id].bounding_box()
+            except Exception:
+                continue
         for first, second in itertools.combinations(ids, 2):
             pair_count += 1
-            if _bbox_overlaps(parts[first], parts[second]):
+            first_box = bounding_boxes.get(first)
+            second_box = bounding_boxes.get(second)
+            if first_box is not None and second_box is not None and _bounds_overlap(first_box, second_box):
                 overlap_count += 1
                 pair_names.append(f"{first}↔{second}")
         metadata["pair_count"] = pair_count
         metadata["overlapping_pair_count"] = overlap_count
         metadata["interfering_pairs"] = pair_names[:20]
+        metadata["bounding_box_failure_count"] = len(parts) - len(bounding_boxes)
 
 
 def _run_project_validators(

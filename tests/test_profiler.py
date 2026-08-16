@@ -1,12 +1,36 @@
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from click.testing import CliRunner
 
 from flow_cad.cli import flow
+from flow_cad.main import _run_interference_check
 from flow_cad.profiler import FlowCadProfiler, format_profile_summary, load_latest_build_profile, write_build_profile
 from flow_cad.project import init_project
+
+
+class _CountingShape:
+    def __init__(self, minimum: tuple[float, float, float], maximum: tuple[float, float, float]) -> None:
+        self.calls = 0
+        self._bounds = SimpleNamespace(
+            min=SimpleNamespace(X=minimum[0], Y=minimum[1], Z=minimum[2]),
+            max=SimpleNamespace(X=maximum[0], Y=maximum[1], Z=maximum[2]),
+        )
+
+    def bounding_box(self):
+        self.calls += 1
+        return self._bounds
+
+
+class _BrokenBoundingBoxShape:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def bounding_box(self):
+        self.calls += 1
+        raise RuntimeError("no bounding box")
 
 
 def test_profiler_writes_latest_profile_and_summary(tmp_path: Path) -> None:
@@ -34,6 +58,30 @@ def test_profiler_writes_latest_profile_and_summary(tmp_path: Path) -> None:
     assert latest["events"][1]["status"] == "skipped"
     assert latest["events"][1]["metadata"]["reason"] == "no_stl_requested"
     assert "part_generation [panel]: panel" in format_profile_summary(latest)
+
+
+def test_interference_profile_computes_each_part_bounding_box_once(tmp_path: Path) -> None:
+    shapes = {
+        "a": _CountingShape((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+        "b": _CountingShape((0.5, 0.5, 0.5), (1.5, 1.5, 1.5)),
+        "c": _CountingShape((2.0, 2.0, 2.0), (3.0, 3.0, 3.0)),
+        "broken": _BrokenBoundingBoxShape(),
+    }
+    profiler = FlowCadProfiler(
+        project_id="demo",
+        project_root=tmp_path,
+        command="flow cad build",
+    )
+
+    _run_interference_check(shapes, profiler)
+
+    assert all(shape.calls == 1 for shape in shapes.values())
+    event = profiler.events[-1]
+    assert event.phase == "interference_check"
+    assert event.metadata["pair_count"] == 6
+    assert event.metadata["overlapping_pair_count"] == 1
+    assert event.metadata["interfering_pairs"] == ["a↔b"]
+    assert event.metadata["bounding_box_failure_count"] == 1
 
 
 def test_flow_cad_build_records_profile_and_profile_command_reads_it(tmp_path: Path) -> None:
