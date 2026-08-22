@@ -31,6 +31,8 @@ def start_viewer(
     frontend_port: int = 3000,
     port_search_span: int = 50,
     open_browser: bool = True,
+    backend_application: str = "flow_cad.viewer.app:app",
+    backend_factory: bool = False,
 ) -> None:
     viewer_dir = PROJECT_ROOT / "viewer" / "stl-viewer"
     if not (viewer_dir / "node_modules").exists():
@@ -51,13 +53,15 @@ def start_viewer(
         sys.executable,
         "-m",
         "uvicorn",
-        "flow_cad.viewer.app:app",
+        backend_application,
         "--host",
         backend_host,
         "--port",
         str(backend_port),
         "--no-access-log",
     ]
+    if backend_factory:
+        backend_cmd.append("--factory")
     frontend_cmd = [
         "npm",
         "run",
@@ -72,6 +76,7 @@ def start_viewer(
 
     click.echo(f"Viewer API: {backend_url}")
     click.echo(f"Viewer UI:  {frontend_url}")
+    click.echo("Starting workbench services...")
     backend_proc = subprocess.Popen(backend_cmd, cwd=project_root, env=env)
     frontend_proc = subprocess.Popen(frontend_cmd, cwd=viewer_dir, env=env)
     _write_viewer_runtime(
@@ -87,8 +92,9 @@ def start_viewer(
     )
 
     try:
+        backend_elapsed = _wait_for_backend_ready(backend_url, backend_proc, timeout=3.0)
+        click.echo(f"Workbench API ready in {backend_elapsed * 1000.0:.1f} ms")
         if open_browser:
-            time.sleep(1.5)
             webbrowser.open(frontend_url)
         while True:
             backend_status = backend_proc.poll()
@@ -104,6 +110,30 @@ def start_viewer(
         _terminate_process(frontend_proc)
         _terminate_process(backend_proc)
         _clear_viewer_runtime(project_root, backend_url=backend_url)
+
+
+def _wait_for_backend_ready(
+    backend_url: str,
+    process: subprocess.Popen,
+    *,
+    timeout: float,
+) -> float:
+    started = time.perf_counter()
+    health_url = backend_url.rstrip("/") + "/api/health"
+    while time.perf_counter() - started < timeout:
+        status = process.poll()
+        if status is not None:
+            raise click.ClickException(f"Viewer backend exited with status {status}")
+        try:
+            with urllib.request.urlopen(health_url, timeout=0.2) as response:
+                if response.status == 200:
+                    return time.perf_counter() - started
+        except (urllib.error.URLError, TimeoutError):
+            pass
+        time.sleep(0.025)
+    raise click.ClickException(
+        f"Viewer backend did not become healthy within {timeout:.1f} seconds at {health_url}"
+    )
 
 
 def reload_viewer(backend_url: str | None = None, *, project_root: Path | None = None) -> dict[str, object]:

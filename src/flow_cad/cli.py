@@ -215,21 +215,24 @@ def start(
 ) -> None:
     """Start the Flow CAD workbench for the current project."""
 
-    from flow_cad.project import ProjectError, load_project
+    from flow_cad.registry import find_manifest, sync_project
     from flow_cad.viewer.cli import start_viewer
 
     try:
-        project = load_project(Path.cwd(), fallback_to_bundled=False)
-    except ProjectError as error:
+        project_root = find_manifest(Path.cwd()).parent
+        sync_project(project_root)
+    except Exception as error:
         raise click.ClickException(f"{error}. Run `flow init` in this project first.") from error
     start_viewer(
-        project_root=project.root,
+        project_root=project_root,
         backend_host=backend_host,
         backend_port=backend_port,
         frontend_host=frontend_host,
         frontend_port=frontend_port,
         port_search_span=port_search_span,
         open_browser=open_browser,
+        backend_application="flow_cad.viewer.api.app:create_app_from_environment",
+        backend_factory=True,
     )
 
 

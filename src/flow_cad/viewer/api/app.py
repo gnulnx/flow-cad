@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,6 +12,15 @@ from flow_cad.chat import ChatStore
 from flow_cad.chat.api import create_chat_command_router, create_chat_query_router
 
 from .query_routes import create_query_router
+
+
+def create_app_from_environment() -> FastAPI:
+    """Uvicorn factory bound to the explicit project-root environment."""
+
+    project_root = os.environ.get("FLOW_CAD_PROJECT_ROOT")
+    if not project_root:
+        raise RuntimeError("FLOW_CAD_PROJECT_ROOT is required to start the workbench API")
+    return create_workbench_app(Path(project_root))
 
 
 def create_workbench_app(
