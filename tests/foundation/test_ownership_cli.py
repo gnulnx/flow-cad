@@ -46,3 +46,28 @@ def test_ownership_cli_fails_and_supports_explicit_archive_exclusion(tmp_path: P
     assert "flow_cad.viewer" in failed.output
     assert "flow_cad.core.geometry" not in failed.output
     assert clean.exit_code == 0
+
+
+def test_public_geometry_facade_is_only_allowed_when_explicit(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "part.py").write_text(
+        "from flow_cad.geometry import box_at\n", encoding="utf-8"
+    )
+    runner = CliRunner()
+
+    failed = runner.invoke(flow, ["ownership", "check", "--project-root", str(project)])
+    allowed = runner.invoke(
+        flow,
+        [
+            "ownership",
+            "check",
+            "--project-root",
+            str(project),
+            "--allow-helper",
+            "flow_cad.geometry",
+        ],
+    )
+
+    assert failed.exit_code != 0
+    assert allowed.exit_code == 0, allowed.output
