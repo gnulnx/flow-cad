@@ -204,6 +204,16 @@ def test_cold_query_is_immediate_and_job_publishes_revision_cache(tmp_path: Path
     assert len(cache_files) == 1
     assert not cache_files[0].is_relative_to(root / "exports")
 
+    replacement = step_path.with_suffix(".replacement")
+    replacement.write_bytes(original_bytes)
+    os.replace(replacement, step_path)
+    rebuilt_same_revision = client.get(
+        f"/api/parts/{PART_UUID}/exact-features",
+        params={"artifact_revision": revision},
+    )
+    assert rebuilt_same_revision.status_code == 200
+    assert rebuilt_same_revision.json()["source_file_identity"]["inode"] == step_path.stat().st_ino
+
     step_path.write_bytes(original_bytes + b"\nchanged")
     stale_cache = client.get(
         f"/api/parts/{PART_UUID}/exact-features",

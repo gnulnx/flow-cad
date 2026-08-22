@@ -252,11 +252,21 @@ class ExactFeatureService:
         if not isinstance(payload.get("features"), list):
             return None
         try:
-            current_identity = _filesystem_identity_payload(self._safe_artifact_path(binding).stat())
+            current_identity = _filesystem_identity_payload(
+                self._safe_artifact_path(binding).stat()
+            )
         except OSError:
             return None
         if payload.get("source_file_identity") != current_identity:
-            return None
+            # Atomic deterministic publication intentionally changes inode and
+            # timestamps.  Those are a fast freshness hint, not geometry
+            # identity: retain a revision-bound cache when the replacement
+            # bytes still match the indexed SHA-256 exactly.
+            try:
+                _path, current_identity = self._verified_artifact(binding)
+            except ExactFeatureServiceError:
+                return None
+            payload = {**payload, "source_file_identity": current_identity}
         return payload
 
     def _write_cache(
