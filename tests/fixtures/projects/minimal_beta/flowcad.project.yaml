@@ -1,0 +1,37 @@
+schema_version: 1
+project_id: minimal_beta
+python_package: minimal_beta
+
+parts:
+  - uuid: 22222222-2222-4222-8222-222222222222
+    key: beta_body
+    aliases: []
+    generator: minimal_beta.generators:make_beta_body
+    role: inspection
+    status: active
+    artifacts:
+      step: exports/step/beta_body.step
+  - uuid: 33333333-3333-4333-8333-333333333333
+    key: beta_reference
+    aliases:
+      - beta_reference_pin
+    generator: minimal_beta.generators:make_beta_reference
+    role: reference
+    status: retired
+    artifacts:
+      step:
+        path: exports/step/beta_reference.step
+        sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+        byte_count: 456
+
+assemblies:
+  review:
+    occurrences:
+      - id: beta_body_main
+        part_uuid: 22222222-2222-4222-8222-222222222222
+        translation_mm: [1, 2, 3]
+        rotation_deg: [10, 20, 30]
+      - id: beta_reference_offset
+        part_uuid: 33333333-3333-4333-8333-333333333333
+        translation_mm: [-1, 0, 4]
+        rotation_deg: [0, 0, 180]

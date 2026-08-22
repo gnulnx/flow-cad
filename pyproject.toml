@@ -11,6 +11,7 @@ dependencies = [
     "build123d",
     "fastapi",
     "mcp==1.26.0",
+    "PyYAML>=6.0",
     "rich-click",
     "sqlmodel",
     "uvicorn",
