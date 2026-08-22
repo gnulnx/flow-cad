@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 
@@ -28,6 +30,14 @@ class PartStatus(StrEnum):
     INSPECTION = "inspection"
     RETIRED = "retired"
     SUPERSEDED = "superseded"
+
+
+class ReleaseHookKind(StrEnum):
+    """A project-owned release extension with an explicit runtime phase."""
+
+    VALIDATOR = "validator"
+    INTERFERENCE = "interference"
+    PRINT_MANIFEST = "print_manifest"
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +109,47 @@ class AssemblySpec:
 
 
 @dataclass(frozen=True, slots=True)
+class ReleaseHookSpec:
+    """Declarative reference to one project-owned release check."""
+
+    key: str
+    kind: ReleaseHookKind
+    provider: str
+    timeout_seconds: float = 30.0
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseArtifactIdentity:
+    """Fresh built artifact identity supplied to project release hooks."""
+
+    part_uuid: UUID
+    part_key: str
+    kind: str
+    path: str
+    sha256: str
+    byte_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseHookContext:
+    """Public, runtime-independent input to a project release hook."""
+
+    project_id: str
+    project_root: str
+    artifact_manifest_path: str
+    artifacts: tuple[ReleaseArtifactIdentity, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseHookResult:
+    """Structured project release-hook result."""
+
+    ok: bool
+    summary: str
+    details: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectManifest:
     """Versioned project authority consumed by metadata-only runtime services."""
 
@@ -108,3 +159,4 @@ class ProjectManifest:
     parts: tuple[ManifestPart, ...]
     assemblies: tuple[AssemblySpec, ...]
     parameter_provider: str | None = None
+    release_hooks: tuple[ReleaseHookSpec, ...] = ()

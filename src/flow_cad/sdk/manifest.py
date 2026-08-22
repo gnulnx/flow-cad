@@ -21,6 +21,8 @@ from .models import (
     PartStatus,
     PrintSpec,
     ProjectManifest,
+    ReleaseHookKind,
+    ReleaseHookSpec,
     Vector3,
 )
 
@@ -79,6 +81,11 @@ def dump_manifest(manifest: ProjectManifest) -> str:
             if manifest.parameter_provider is not None
             else {}
         ),
+        **(
+            {"release_hooks": [_dump_release_hook(hook) for hook in manifest.release_hooks]}
+            if manifest.release_hooks
+            else {}
+        ),
         "parts": [_dump_part(part) for part in manifest.parts],
         "assemblies": {
             assembly.key: {
@@ -112,6 +119,7 @@ def _parse_project(raw: Any, source: str | Path) -> ProjectManifest:
             "project_id",
             "python_package",
             "parameter_provider",
+            "release_hooks",
             "parts",
             "assemblies",
         },
@@ -129,6 +137,14 @@ def _parse_project(raw: Any, source: str | Path) -> ProjectManifest:
         parameter_provider = _nonempty_string(
             parameter_provider, source, "parameter_provider"
         )
+    raw_release_hooks = _sequence(data.get("release_hooks", ()), source, "release_hooks")
+    release_hooks = tuple(
+        _parse_release_hook(value, source, f"release_hooks[{index}]")
+        for index, value in enumerate(raw_release_hooks)
+    )
+    hook_keys = [hook.key for hook in release_hooks]
+    if len(set(hook_keys)) != len(hook_keys):
+        _fail(source, "release_hooks", "hook keys must be unique")
 
     raw_parts = _sequence(data["parts"], source, "parts")
     parts = tuple(_parse_part(value, source, f"parts[{index}]") for index, value in enumerate(raw_parts))
@@ -148,6 +164,31 @@ def _parse_project(raw: Any, source: str | Path) -> ProjectManifest:
         parts=parts,
         assemblies=assemblies,
         parameter_provider=parameter_provider,
+        release_hooks=release_hooks,
+    )
+
+
+def _parse_release_hook(raw: Any, source: str | Path, location: str) -> ReleaseHookSpec:
+    data = _mapping(raw, source, location)
+    _keys(
+        data,
+        source,
+        location,
+        required={"key", "kind", "provider"},
+        allowed={"key", "kind", "provider", "timeout_seconds"},
+    )
+    timeout_seconds = _finite_number(
+        data.get("timeout_seconds", 30.0),
+        source,
+        f"{location}.timeout_seconds",
+    )
+    if not 0.0 < timeout_seconds <= 180.0:
+        _fail(source, f"{location}.timeout_seconds", "must be greater than 0 and at most 180")
+    return ReleaseHookSpec(
+        key=_identifier(data["key"], source, f"{location}.key"),
+        kind=_enum(ReleaseHookKind, data["kind"], source, f"{location}.kind"),
+        provider=_nonempty_string(data["provider"], source, f"{location}.provider"),
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -454,6 +495,15 @@ def _dump_part(part: ManifestPart) -> dict[str, Any]:
         payload["mass_properties"] = mass_properties
     payload["artifacts"] = {artifact.kind: _dump_artifact(artifact) for artifact in part.artifacts}
     return payload
+
+
+def _dump_release_hook(hook: ReleaseHookSpec) -> dict[str, Any]:
+    return {
+        "key": hook.key,
+        "kind": hook.kind.value,
+        "provider": hook.provider,
+        "timeout_seconds": hook.timeout_seconds,
+    }
 
 
 def _dump_artifact(artifact: ArtifactSpec) -> str | dict[str, Any]:

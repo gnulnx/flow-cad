@@ -35,14 +35,14 @@ def scoped_part_build_work(plan: ScopedPartBuildPlan) -> JobWork:
     """Return a job closure; importing this module never imports CAD libraries."""
 
     def work(context: JobContext) -> dict[str, object]:
-        return _run_scoped_part_build(plan, context)
+        return run_scoped_part_build(plan, context)
 
     return work
 
 
-def _run_scoped_part_build(
+def run_scoped_part_build(
     plan: ScopedPartBuildPlan,
-    context: JobContext,
+    context: Any,
 ) -> dict[str, object]:
     started = time.perf_counter()
     timings: dict[str, float] = {}

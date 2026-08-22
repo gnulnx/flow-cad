@@ -18,6 +18,7 @@ class LazyFlowGroup(click.Group):
         "ownership": ("flow_cad.validation.ownership_cli", "ownership"),
         "preserve": ("flow_cad.artifacts.cli", "preserve"),
         "registry": ("flow_cad.registry_cli", "registry"),
+        "release": ("flow_cad.release.cli", "release"),
         "validate": ("flow_cad.validation.cli", "validate"),
     }
     lazy_help = {
@@ -25,6 +26,7 @@ class LazyFlowGroup(click.Group):
         "ownership": "Enforce downstream SDK and runtime boundaries.",
         "preserve": "Create and verify byte-identical migration archives.",
         "registry": "Query the legacy generated build cache.",
+        "release": "Run strict-manifest production release gates.",
         "validate": "Run focused validators.",
     }
 

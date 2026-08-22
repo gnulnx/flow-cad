@@ -16,6 +16,8 @@ from flow_cad.chat.api import create_chat_command_router, create_chat_query_rout
 from flow_cad.chat.providers import ChatProvider
 from flow_cad.jobs import JobService
 from flow_cad.measurement import MeasurementSnapshotStore
+from flow_cad.release import ReleaseGateService
+from flow_cad.release.api import create_release_gate_router
 
 from .agent_screen_routes import create_agent_screen_router
 from .annotation_routes import create_annotation_router
@@ -50,6 +52,7 @@ def create_workbench_app(
 
     job_service = JobService(project_root, max_concurrency=max_concurrent_jobs)
     part_build_service = PartBuildService(project_root, job_service)
+    release_gate_service = ReleaseGateService(project_root, job_service)
     chat_store = ChatStore(project_root)
     resolved_chat_provider = chat_provider
     if resolved_chat_provider is None and enable_default_chat_provider:
@@ -91,12 +94,14 @@ def create_workbench_app(
     app.include_router(create_agent_screen_router(project_root))
     app.include_router(create_workbench_command_router(project_root))
     app.include_router(create_part_build_router(part_build_service))
+    app.include_router(create_release_gate_router(release_gate_service))
     app.include_router(create_measurement_router(project_root, job_service=job_service))
     app.include_router(create_measurement_snapshot_router(measurement_snapshot_store))
     app.include_router(create_job_router(job_service))
     app.state.project_root = project_root.resolve()
     app.state.job_service = job_service
     app.state.part_build_service = part_build_service
+    app.state.release_gate_service = release_gate_service
     app.state.chat_store = chat_store
     app.state.chat_dispatch = chat_dispatch
     app.state.annotation_store = annotation_store

@@ -11,6 +11,11 @@ from .models import (
     PartStatus,
     PrintSpec,
     ProjectManifest,
+    ReleaseArtifactIdentity,
+    ReleaseHookContext,
+    ReleaseHookKind,
+    ReleaseHookResult,
+    ReleaseHookSpec,
 )
 
 __all__ = [
@@ -24,6 +29,11 @@ __all__ = [
     "PartStatus",
     "PrintSpec",
     "ProjectManifest",
+    "ReleaseArtifactIdentity",
+    "ReleaseHookContext",
+    "ReleaseHookKind",
+    "ReleaseHookResult",
+    "ReleaseHookSpec",
     "dump_manifest",
     "load_manifest",
     "loads_manifest",

@@ -11,6 +11,7 @@ from flow_cad.sdk import (
     PartRole,
     PartStatus,
     PrintSpec,
+    ReleaseHookKind,
     dump_manifest,
     load_manifest,
     loads_manifest,
@@ -49,6 +50,49 @@ def test_manifest_round_trips_explicit_project_parameter_provider() -> None:
 
     assert manifest.parameter_provider == "sample.params:ProjectParams"
     assert loads_manifest(dump_manifest(manifest)) == manifest
+
+
+def test_manifest_round_trips_project_owned_release_hooks() -> None:
+    manifest = loads_manifest(
+        _manifest_yaml().replace(
+            "parts:\n",
+            """release_hooks:
+  - key: focused
+    kind: validator
+    provider: sample.validators.release:validate_focused
+    timeout_seconds: 12.5
+  - key: assembly_clearance
+    kind: interference
+    provider: sample.validators.release:validate_interference
+parts:
+""",
+        )
+    )
+
+    assert [hook.kind for hook in manifest.release_hooks] == [
+        ReleaseHookKind.VALIDATOR,
+        ReleaseHookKind.INTERFERENCE,
+    ]
+    assert manifest.release_hooks[0].timeout_seconds == 12.5
+    assert manifest.release_hooks[1].timeout_seconds == 30.0
+    assert loads_manifest(dump_manifest(manifest)) == manifest
+
+
+@pytest.mark.parametrize("timeout", [0, -1, 181])
+def test_manifest_rejects_release_hook_timeouts_outside_gate_bounds(timeout: int) -> None:
+    invalid = _manifest_yaml().replace(
+        "parts:\n",
+        f"""release_hooks:
+  - key: focused
+    kind: validator
+    provider: sample.validators.release:validate_focused
+    timeout_seconds: {timeout}
+parts:
+""",
+    )
+
+    with pytest.raises(ManifestError, match="must be greater than 0 and at most 180"):
+        loads_manifest(invalid, source="release-hooks.yaml")
 
 
 def test_manifest_requires_exact_schema_version() -> None:

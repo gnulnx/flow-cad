@@ -124,6 +124,13 @@ Build a Flow CAD project from that project repo:
 flow cad build
 ```
 
+Run the strict-manifest production release gate separately from ordinary part
+review:
+
+```bash
+flow release gate --request-id <stable-request-id>
+```
+
 Start and reload the project-local workbench:
 
 ```bash
