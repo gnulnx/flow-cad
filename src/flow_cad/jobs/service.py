@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -81,8 +82,14 @@ class JobService:
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be at least 1")
         self.store = JobStore(project_root)
-        if recover_interrupted:
-            self.store.fail_interrupted()
+        self._runtime_lock = (self.store.project_root / ".flow/jobs.runtime.lock").open(
+            "a+b"
+        )
+        try:
+            self._acquire_runtime_lock(recover_interrupted=recover_interrupted)
+        except BaseException:
+            self._runtime_lock.close()
+            raise
         self.max_concurrency = max_concurrency
         self._executor = ThreadPoolExecutor(
             max_workers=max_concurrency,
@@ -163,6 +170,8 @@ class JobService:
         for job_id in active_ids:
             self.cancel(job_id)
         self._executor.shutdown(wait=wait, cancel_futures=cancel_pending)
+        fcntl.flock(self._runtime_lock.fileno(), fcntl.LOCK_UN)
+        self._runtime_lock.close()
 
     def __enter__(self) -> "JobService":
         return self
@@ -187,3 +196,24 @@ class JobService:
         finally:
             with self._lock:
                 self._active.pop(job_id, None)
+
+    def _acquire_runtime_lock(self, *, recover_interrupted: bool) -> None:
+        """Recover only when no other live process owns this project journal."""
+
+        if recover_interrupted:
+            try:
+                fcntl.flock(
+                    self._runtime_lock.fileno(),
+                    fcntl.LOCK_EX | fcntl.LOCK_NB,
+                )
+            except BlockingIOError:
+                # A live runtime owns a shared lock. Joining it must not mark
+                # that process's queued/running records as interrupted.
+                fcntl.flock(self._runtime_lock.fileno(), fcntl.LOCK_SH)
+                return
+            try:
+                self.store.fail_interrupted()
+            finally:
+                fcntl.flock(self._runtime_lock.fileno(), fcntl.LOCK_SH)
+            return
+        fcntl.flock(self._runtime_lock.fileno(), fcntl.LOCK_SH)

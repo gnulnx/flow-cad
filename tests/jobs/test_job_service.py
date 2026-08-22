@@ -185,6 +185,26 @@ def test_failures_and_restart_interruptions_have_clear_terminal_records(tmp_path
         assert recovered.events(job_id=interrupted.job_id)[-1].event_type == "interrupted"
 
 
+def test_joining_live_project_journal_does_not_interrupt_owned_jobs(
+    tmp_path: Path,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def work(_context):
+        started.set()
+        assert release.wait(timeout=2)
+        return {"owner": "still-live"}
+
+    with JobService(tmp_path, max_concurrency=1) as owner:
+        submitted = owner.submit(request_id="live-owner", kind="test", work=work)
+        assert started.wait(timeout=1)
+        with JobService(tmp_path, max_concurrency=1) as joined:
+            assert joined.get(submitted.job.job_id).state is JobState.RUNNING
+            release.set()
+            assert owner.wait(submitted.job.job_id).state is JobState.SUCCEEDED
+
+
 def test_jobs_package_import_does_not_load_cad_kernel(tmp_path: Path) -> None:
     command = [
         sys.executable,
