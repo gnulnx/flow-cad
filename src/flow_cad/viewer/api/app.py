@@ -10,8 +10,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from flow_cad.annotations import AnnotationStore
-from flow_cad.chat import ChatStore
+from flow_cad.chat import ChatDispatchService, ChatStore, CodexAppServerProvider
 from flow_cad.chat.api import create_chat_command_router, create_chat_query_router
+from flow_cad.chat.providers import ChatProvider
 from flow_cad.jobs import JobService
 
 from .agent_screen_routes import create_agent_screen_router
@@ -36,16 +37,31 @@ def create_workbench_app(
     *,
     max_concurrent_model_verifications: int = 2,
     max_concurrent_jobs: int = 2,
+    chat_provider: ChatProvider | None = None,
+    enable_default_chat_provider: bool = True,
+    max_concurrent_chat_turns: int = 1,
+    max_queued_chat_turns: int = 8,
 ) -> FastAPI:
     """Create the replacement query API without loading project or CAD code."""
 
     job_service = JobService(project_root, max_concurrency=max_concurrent_jobs)
+    chat_store = ChatStore(project_root)
+    resolved_chat_provider = chat_provider
+    if resolved_chat_provider is None and enable_default_chat_provider:
+        resolved_chat_provider = CodexAppServerProvider(project_root)
+    chat_dispatch = ChatDispatchService(
+        chat_store,
+        resolved_chat_provider,
+        max_concurrency=max_concurrent_chat_turns,
+        max_queued_turns=max_queued_chat_turns,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
             yield
         finally:
+            chat_dispatch.shutdown(wait=False, cancel_pending=True)
             job_service.shutdown(wait=False, cancel_pending=True)
 
     app = FastAPI(title="Flow CAD Workbench API", version="2", lifespan=lifespan)
@@ -62,10 +78,9 @@ def create_workbench_app(
             max_concurrent_model_verifications=max_concurrent_model_verifications,
         )
     )
-    chat_store = ChatStore(project_root)
     annotation_store = AnnotationStore(project_root)
-    app.include_router(create_chat_query_router(chat_store))
-    app.include_router(create_chat_command_router(chat_store))
+    app.include_router(create_chat_query_router(chat_store, chat_dispatch))
+    app.include_router(create_chat_command_router(chat_store, chat_dispatch))
     app.include_router(create_annotation_router(annotation_store))
     app.include_router(create_agent_screen_router(project_root))
     app.include_router(create_workbench_command_router(project_root))
@@ -73,5 +88,7 @@ def create_workbench_app(
     app.include_router(create_job_router(job_service))
     app.state.project_root = project_root.resolve()
     app.state.job_service = job_service
+    app.state.chat_store = chat_store
+    app.state.chat_dispatch = chat_dispatch
     app.state.annotation_store = annotation_store
     return app

@@ -10,12 +10,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from .models import ChatEvent, ChatThread, ContextPacket
+from .models import ChatEvent, ChatThread, ContextPacket, PendingChatTurn
 
 
 CHAT_SCHEMA_VERSION = 1
 DEFAULT_THREAD_ID = "default"
 DEFAULT_THREAD_TITLE = "Design conversation"
+TERMINAL_TURN_EVENT_TYPES = frozenset(
+    {"assistant_completed", "assistant_failed", "turn_cancelled"}
+)
 
 
 class ChatStoreError(RuntimeError):
@@ -108,6 +111,60 @@ class ChatStore:
                 (thread_id, after_sequence),
             ).fetchall()
         return tuple(self._event_from_row(row) for row in rows)
+
+    def turn_events(self, thread_id: str, turn_id: str) -> tuple[ChatEvent, ...]:
+        """Return one turn's append-only event history."""
+
+        with closing(self._connect()) as connection:
+            if not self._thread_exists(connection, thread_id):
+                raise ThreadNotFoundError(f"chat thread not found: {thread_id}")
+            rows = connection.execute(
+                """
+                SELECT sequence, event_id, thread_id, turn_id, event_type, created_at, payload_json
+                FROM chat_events
+                WHERE thread_id = ? AND turn_id = ?
+                ORDER BY sequence
+                """,
+                (thread_id, turn_id),
+            ).fetchall()
+        if not rows:
+            raise ChatStoreError(f"chat turn not found: {turn_id}")
+        return tuple(self._event_from_row(row) for row in rows)
+
+    def pending_turns(self) -> tuple[PendingChatTurn, ...]:
+        """Recover submitted turns that do not yet have a terminal event."""
+
+        terminal_placeholders = ",".join("?" for _ in TERMINAL_TURN_EVENT_TYPES)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT u.thread_id, u.turn_id, u.payload_json
+                FROM chat_events AS u
+                WHERE u.event_type = 'user_message'
+                  AND u.turn_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM chat_events AS terminal
+                      WHERE terminal.thread_id = u.thread_id
+                        AND terminal.turn_id = u.turn_id
+                        AND terminal.event_type IN ({terminal_placeholders})
+                  )
+                ORDER BY u.sequence
+                """,
+                tuple(sorted(TERMINAL_TURN_EVENT_TYPES)),
+            ).fetchall()
+        return tuple(self._pending_turn_from_row(row) for row in rows)
+
+    def turn_submission(self, thread_id: str, turn_id: str) -> PendingChatTurn:
+        """Load the provider prompt and immutable captured context for a turn."""
+
+        user = next(
+            (event for event in self.turn_events(thread_id, turn_id) if event.event_type == "user_message"),
+            None,
+        )
+        if user is None:
+            raise ChatStoreError(f"chat turn has no user message: {turn_id}")
+        return self._pending_turn_from_payload(thread_id, turn_id, user.payload)
 
     def begin_turn(
         self,
@@ -305,4 +362,32 @@ class ChatStore:
             event_type=str(row["event_type"]),
             created_at=str(row["created_at"]),
             payload=json.loads(str(row["payload_json"])),
+        )
+
+    @classmethod
+    def _pending_turn_from_row(cls, row: sqlite3.Row) -> PendingChatTurn:
+        payload = json.loads(str(row["payload_json"]))
+        if not isinstance(payload, dict):
+            raise ChatStoreError("chat user-message payload is malformed")
+        return cls._pending_turn_from_payload(
+            str(row["thread_id"]),
+            str(row["turn_id"]),
+            payload,
+        )
+
+    @staticmethod
+    def _pending_turn_from_payload(
+        thread_id: str,
+        turn_id: str,
+        payload: Mapping[str, Any],
+    ) -> PendingChatTurn:
+        prompt = payload.get("content")
+        context = payload.get("context")
+        if not isinstance(prompt, str) or not isinstance(context, Mapping):
+            raise ChatStoreError("chat user-message payload is malformed")
+        return PendingChatTurn(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            prompt=prompt,
+            context=dict(context),
         )

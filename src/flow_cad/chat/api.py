@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from .dispatch import ChatDispatchError, ChatDispatchService
 from .models import ChatEvent, ChatThread, ContextPacket
 from .store import ChatStore, ChatStoreError, ThreadNotFoundError
 
@@ -44,8 +45,29 @@ class BeginTurnRequest(BaseModel):
     request_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 
-def create_chat_query_router(store: ChatStore) -> APIRouter:
+def create_chat_query_router(
+    store: ChatStore,
+    dispatch: ChatDispatchService | None = None,
+) -> APIRouter:
     router = APIRouter(prefix="/api/chat", tags=["chat-query"])
+
+    @router.get("/provider")
+    def get_provider_status() -> dict[str, object]:
+        if dispatch is None:
+            return {
+                "provider": None,
+                "available": False,
+                "status": "unavailable",
+                "running_turns": 0,
+                "queued_turns": 0,
+                "max_concurrent_turns": 0,
+                "max_queued_turns": 0,
+                "execution_policy": {
+                    "sandbox": "read-only",
+                    "approval_policy": "never",
+                },
+            }
+        return dispatch.status()
 
     @router.get("/threads")
     def list_threads() -> dict[str, object]:
@@ -71,7 +93,10 @@ def create_chat_query_router(store: ChatStore) -> APIRouter:
     return router
 
 
-def create_chat_command_router(store: ChatStore) -> APIRouter:
+def create_chat_command_router(
+    store: ChatStore,
+    dispatch: ChatDispatchService | None = None,
+) -> APIRouter:
     router = APIRouter(prefix="/api/chat", tags=["chat-command"])
 
     @router.post("/threads", status_code=201)
@@ -95,27 +120,43 @@ def create_chat_command_router(store: ChatStore) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ChatStoreError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        dispatch_result = (
+            dispatch.start_turn(thread_id, str(user.turn_id))
+            if dispatch is not None and user.turn_id is not None
+            else {"provider": None, "status": "awaiting_dispatch", "created": False}
+        )
         return {
             "thread_id": thread_id,
             "turn_id": user.turn_id,
             "events": [_event_payload(user), _event_payload(assistant)],
-            "provider_status": "awaiting_dispatch",
+            "provider": dispatch_result["provider"],
+            "provider_status": dispatch_result["status"],
         }
 
     @router.post("/threads/{thread_id}/turns/{turn_id}/cancel", status_code=202)
     def cancel_turn(thread_id: str, turn_id: str) -> dict[str, object]:
         try:
-            event = store.append_turn_event(
-                thread_id,
-                turn_id,
-                "turn_cancelled",
-                {"status": "cancel_requested"},
-            )
+            if dispatch is None:
+                event = store.append_turn_event(
+                    thread_id,
+                    turn_id,
+                    "turn_cancelled",
+                    {"status": "cancelled", "provider": None},
+                )
+                accepted = True
+            else:
+                event, accepted = dispatch.cancel_turn(thread_id, turn_id)
         except ThreadNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ChatStoreError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        return {"event": _event_payload(event)}
+        except ChatDispatchError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {
+            "event": _event_payload(event),
+            "accepted": accepted,
+            "provider_status": "cancelled",
+        }
 
     return router
 

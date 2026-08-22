@@ -8,7 +8,9 @@ from flow_cad.viewer.api import create_workbench_app
 
 
 def test_workbench_includes_persistent_chat_and_browser_post_cors(tmp_path: Path) -> None:
-    client = TestClient(create_workbench_app(tmp_path))
+    client = TestClient(
+        create_workbench_app(tmp_path, enable_default_chat_provider=False)
+    )
 
     default = client.get("/api/chat/threads")
     assert default.status_code == 200

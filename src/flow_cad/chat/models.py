@@ -55,3 +55,13 @@ class ChatThread:
     created_at: str
     updated_at: str
     events: tuple[ChatEvent, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingChatTurn:
+    """Provider input recovered from one non-terminal durable user turn."""
+
+    thread_id: str
+    turn_id: str
+    prompt: str
+    context: JsonObject

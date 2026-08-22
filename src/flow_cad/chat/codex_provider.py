@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -19,7 +20,7 @@ import uuid
 from collections import deque
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
-from typing import Any, Protocol, TextIO, cast
+from typing import Protocol, TextIO, cast
 
 from .providers import ProviderCancellation, ProviderEvent
 
@@ -249,17 +250,29 @@ class CodexAppServerProvider:
         project_root: Path,
         *,
         transport_factory: Callable[[], JsonRpcTransport] | None = None,
+        executable: str = "codex",
         bindings_path: Path | None = None,
         request_timeout: float = _REQUEST_TIMEOUT_SECONDS,
     ) -> None:
         self.project_root = project_root.resolve()
+        self._executable = executable
+        self._custom_transport = transport_factory is not None
         self._transport_factory = transport_factory or (
-            lambda: SubprocessJsonRpcTransport(project_root=self.project_root)
+            lambda: SubprocessJsonRpcTransport(
+                project_root=self.project_root,
+                executable=self._executable,
+            )
         )
         self._bindings = CodexThreadBindings(
             bindings_path or self.project_root / ".flow" / "codex-thread-bindings.json"
         )
         self._request_timeout = request_timeout
+
+    @property
+    def available(self) -> bool:
+        """Report whether the configured app-server transport can be started."""
+
+        return self._custom_transport or shutil.which(self._executable) is not None
 
     def stream_turn(
         self,
@@ -284,7 +297,7 @@ class CodexAppServerProvider:
             )
             if context_size > _MAX_CONTEXT_BYTES:
                 raise CodexProviderError("Flow CAD context exceeds the provider size limit")
-        except (TypeError, ValueError, UnicodeError) as error:
+        except (TypeError, ValueError, UnicodeError):
             yield ProviderEvent(
                 "failed",
                 "Flow CAD context could not be sent to Codex.",
