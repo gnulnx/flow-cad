@@ -69,7 +69,7 @@ def manifest_command(
         write_manifest_atomic(output, inventory)
     except (OSError, PreservationError, subprocess.CalledProcessError) as error:
         raise click.ClickException(str(error)) from error
-    click.echo(json.dumps({**inventory.to_dict(), "output": str(output.resolve())}, sort_keys=True))
+    click.echo(json.dumps(_summary(inventory, output=str(output.resolve())), sort_keys=True))
 
 
 @preserve.command("copy")
@@ -91,7 +91,7 @@ def copy_command(
         inventory = copy_archive(source, archive, paths)
     except (OSError, PreservationError, subprocess.CalledProcessError) as error:
         raise click.ClickException(str(error)) from error
-    click.echo(json.dumps({**inventory.to_dict(), "archive": str(archive.resolve())}, sort_keys=True))
+    click.echo(json.dumps(_summary(inventory, archive=str(archive.resolve())), sort_keys=True))
 
 
 @preserve.command("verify")
@@ -113,7 +113,7 @@ def verify_command(
         inventory = verify_archive(source, archive, paths)
     except (OSError, PreservationError, subprocess.CalledProcessError) as error:
         raise click.ClickException(str(error)) from error
-    click.echo(json.dumps({**inventory.to_dict(), "verified": True}, sort_keys=True))
+    click.echo(json.dumps(_summary(inventory, verified=True), sort_keys=True))
 
 
 @preserve.command("migration-map")
@@ -208,3 +208,11 @@ def _write_migration_map(output: Path, entries, *, status: str) -> None:
     except BaseException:
         temporary_path.unlink(missing_ok=True)
         raise
+
+
+def _summary(inventory, **extra: object) -> dict[str, object]:
+    return {
+        "file_count": inventory.file_count,
+        "byte_count": inventory.byte_count,
+        **extra,
+    }
