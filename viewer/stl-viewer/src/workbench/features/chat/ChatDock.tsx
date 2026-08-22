@@ -5,13 +5,14 @@ interface ChatDockProps {
   client: WorkbenchClient
   context: ChatContext
   available: boolean
+  onThreadChange?(threadId: string | null): void
 }
 
 function nextRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function ChatDock({ client, context, available }: ChatDockProps) {
+export function ChatDock({ client, context, available, onThreadChange }: ChatDockProps) {
   const [thread, setThread] = useState<DefaultThread | null>(null)
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [draft, setDraft] = useState('')
@@ -21,16 +22,19 @@ export function ChatDock({ client, context, available }: ChatDockProps) {
 
   useEffect(() => {
     const controller = new AbortController()
+    onThreadChange?.(null)
     client.getDefaultThread(controller.signal).then((nextThread) => {
       setThread(nextThread)
       setMessages(nextThread.messages)
       setError(null)
+      onThreadChange?.(nextThread.thread.id)
     }).catch((reason: unknown) => {
       if (controller.signal.aborted) return
       setError(reason instanceof Error ? reason.message : 'Chat history unavailable')
+      onThreadChange?.(null)
     })
     return () => controller.abort()
-  }, [client])
+  }, [client, onThreadChange])
 
   const running = messages.some((message) => message.state === 'streaming')
 

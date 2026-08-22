@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ThreadMessage } from '../../contracts'
 import { createTestWorkbenchClient } from '../../testClient'
 import { ChatDock } from './ChatDock'
@@ -12,6 +12,21 @@ function deferred<T>() {
 }
 
 describe('ChatDock feedback contract', () => {
+  it('publishes the current durable thread for viewport context features', async () => {
+    const onThreadChange = vi.fn()
+    render(
+      <ChatDock
+        client={createTestWorkbenchClient()}
+        available
+        context={{ projectRevision: 1, selectedPartUuid: null, selectedPartKey: null, visibleOccurrenceIds: [], artifactHashes: {} }}
+        onThreadChange={onThreadChange}
+      />,
+    )
+
+    expect(await screen.findByText('Design review')).toBeInTheDocument()
+    expect(onThreadChange).toHaveBeenLastCalledWith('default')
+  })
+
   it('creates an optimistic assistant row immediately and attaches exact selection context', async () => {
     const user = userEvent.setup()
     const response = deferred<ThreadMessage>()

@@ -17,6 +17,7 @@ export default function AppShell({ client }: AppShellProps) {
   const workbenchClient = useMemo(() => client ?? configuredWorkbenchClient(), [client])
   const [project, setProject] = useState<ProjectSummary | null>(null)
   const [activePart, setActivePart] = useState<WorkbenchPart | null>(null)
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [visiblePartUuids, setVisiblePartUuids] = useState<string[]>([])
   const selectPart = useCallback((part: WorkbenchPart) => setActivePart(part), [])
   const projectChanged = useCallback((nextProject: ProjectSummary | null) => setProject(nextProject), [])
@@ -43,6 +44,7 @@ export default function AppShell({ client }: AppShellProps) {
             client={workbenchClient}
             part={activePart}
             backendRevision={project?.revision ?? null}
+            threadId={activeThreadId}
             onVisibilityChange={visibilityChanged}
           />
           <JobDrawer client={workbenchClient} />
@@ -50,6 +52,7 @@ export default function AppShell({ client }: AppShellProps) {
         <ChatDock
           client={workbenchClient}
           available={project?.chatAvailable ?? true}
+          onThreadChange={setActiveThreadId}
           context={{
             projectRevision: project?.revision ?? null,
             selectedPartUuid: activePart?.uuid ?? null,

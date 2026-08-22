@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { applicationApiUrl } from '../../client'
 import type { WorkbenchPart } from '../../contracts'
+import { captureViewportWithAnnotations } from '../annotation/capture'
 
 export interface LiveViewportSource {
   canvas: HTMLCanvasElement
@@ -20,8 +21,14 @@ interface AgentScreenRequest {
 interface UseAgentScreenCaptureOptions {
   enabled: boolean
   getSource(): LiveViewportSource | null
+  getAnnotationOverlay?(): SVGSVGElement | null
   part: WorkbenchPart | null
   backendRevision: number | null
+}
+
+interface AgentScreenCaptureOptions {
+  dataUrl?: string
+  annotationOverlay?: boolean
 }
 
 export function buildAgentScreenPayload(
@@ -29,8 +36,9 @@ export function buildAgentScreenPayload(
   source: LiveViewportSource,
   part: WorkbenchPart | null,
   backendRevision: number | null,
+  options: AgentScreenCaptureOptions = {},
 ) {
-  const dataUrl = source.canvas.toDataURL('image/png')
+  const dataUrl = options.dataUrl ?? source.canvas.toDataURL('image/png')
   if (!dataUrl.startsWith('data:image/png;base64,')) throw new Error('Live viewport did not produce a PNG capture')
   return {
     request_id: requestId,
@@ -56,11 +64,32 @@ export function buildAgentScreenPayload(
     metadata: {
       render_context: 'viewport-canvas',
       capture_source: 'live-browser-workbench',
+      annotation_overlay: options.annotationOverlay ?? false,
     },
   }
 }
 
-export function useAgentScreenCapture({ enabled, getSource, part, backendRevision }: UseAgentScreenCaptureOptions) {
+export async function captureAgentScreenPayload(
+  requestId: string,
+  source: LiveViewportSource,
+  part: WorkbenchPart | null,
+  backendRevision: number | null,
+  overlay: SVGSVGElement | null,
+  capture: typeof captureViewportWithAnnotations = captureViewportWithAnnotations,
+) {
+  const annotationOverlay = Boolean(
+    overlay
+    && overlay.getAttribute('aria-hidden') !== 'true'
+    && overlay.querySelector('[data-mark-id]'),
+  )
+  const dataUrl = await capture(source.canvas, overlay)
+  return buildAgentScreenPayload(requestId, source, part, backendRevision, {
+    dataUrl,
+    annotationOverlay,
+  })
+}
+
+export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay, part, backendRevision }: UseAgentScreenCaptureOptions) {
   const inFlightRef = useRef(new Set<string>())
 
   useEffect(() => {
@@ -80,7 +109,13 @@ export function useAgentScreenCapture({ enabled, getSource, part, backendRevisio
         if (!source || source.canvas.width < 1 || source.canvas.height < 1) return
         inFlightRef.current.add(request.request_id)
         try {
-          const payload = buildAgentScreenPayload(request.request_id, source, part, backendRevision)
+          const payload = await captureAgentScreenPayload(
+            request.request_id,
+            source,
+            part,
+            backendRevision,
+            getAnnotationOverlay?.() ?? null,
+          )
           const capture = await fetch(applicationApiUrl('/api/agent-screen/capture'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -112,5 +147,5 @@ export function useAgentScreenCapture({ enabled, getSource, part, backendRevisio
       window.cancelAnimationFrame(firstFrame)
       window.clearInterval(timer)
     }
-  }, [backendRevision, enabled, getSource, part])
+  }, [backendRevision, enabled, getAnnotationOverlay, getSource, part])
 }

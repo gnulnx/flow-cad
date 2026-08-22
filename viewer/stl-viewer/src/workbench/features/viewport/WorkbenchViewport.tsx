@@ -1,5 +1,10 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { applicationApiUrl } from '../../client'
 import type { DisplayArtifact, WorkbenchClient, WorkbenchPart } from '../../contracts'
+import { AnnotationOverlay } from '../annotation/AnnotationOverlay'
+import { saveAnnotationSnapshot } from '../annotation/client'
+import { createAnnotationSnapshotInput } from '../annotation/context'
+import type { AnnotationMark } from '../annotation/contracts'
 import { MeasurementOverlay, MeasurementToolButton } from '../measurement/MeasurementTool'
 import {
   createDistanceMeasurement,
@@ -84,11 +89,12 @@ interface WorkbenchViewportProps {
   client: WorkbenchClient
   part: WorkbenchPart | null
   backendRevision: number | null
+  threadId?: string | null
   onVisibilityChange?(partUuid: string, visible: boolean): void
   onMeasurementsChange?(measurements: MeasurementResult[]): void
 }
 
-export function WorkbenchViewport({ client, part, backendRevision, onVisibilityChange, onMeasurementsChange }: WorkbenchViewportProps) {
+export function WorkbenchViewport({ client, part, backendRevision, threadId = null, onVisibilityChange, onMeasurementsChange }: WorkbenchViewportProps) {
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -100,6 +106,7 @@ export function WorkbenchViewport({ client, part, backendRevision, onVisibilityC
   const [measurements, setMeasurements] = useState<MeasurementResult[]>([])
   const measurementSequence = useRef(0)
   const stageRef = useRef<HTMLDivElement | null>(null)
+  const annotationOverlayRef = useRef<SVGSVGElement>(null)
   const measurementProjectionRef = useRef<MeasurementProjectionSource | null>(null)
   const liveViewportRef = useRef<(() => LiveViewportSource) | null>(null)
   const { artifactBytes, state, error } = useDisplayArtifact(part?.displayArtifact ?? null)
@@ -119,11 +126,13 @@ export function WorkbenchViewport({ client, part, backendRevision, onVisibilityC
     measurementProjectionRef.current = source
   }, [])
   const getLiveViewport = useCallback(() => liveViewportRef.current?.() ?? null, [])
+  const getAnnotationOverlay = useCallback(() => annotationOverlayRef.current, [])
   useAgentScreenCapture({
     enabled: rendererReady && !rendererError,
     getSource: getLiveViewport,
     part,
     backendRevision,
+    getAnnotationOverlay,
   })
 
   useEffect(() => {
@@ -192,6 +201,25 @@ export function WorkbenchViewport({ client, part, backendRevision, onVisibilityC
   const updateMeasurement = useCallback((id: string, update: (record: MeasurementResult) => MeasurementResult) => {
     setMeasurements((current) => current.map((record) => record.id === id ? update(record) : record))
   }, [])
+
+  const selectedArtifactRevision = part?.authorityHash ?? part?.displayArtifact?.contentHash ?? null
+  const saveAnnotations = useCallback(async (marks: AnnotationMark[], hidden: boolean) => {
+    const source = liveViewportRef.current?.()
+    if (!threadId || !part || !selectedArtifactRevision || backendRevision === null || !source) {
+      throw new Error('A loaded part and persistent design thread are required to save annotations')
+    }
+    await saveAnnotationSnapshot(applicationApiUrl(''), createAnnotationSnapshotInput({
+      requestId: globalThis.crypto?.randomUUID?.() ?? `annotation-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      threadId,
+      marks,
+      hidden,
+      source,
+      part,
+      artifactRevision: selectedArtifactRevision,
+      visibleOccurrenceIds: displayState === 'ready' ? part.occurrenceIds : [],
+      backendRevision,
+    }))
+  }, [backendRevision, displayState, part, selectedArtifactRevision, threadId])
 
   return (
     <section className="viewport-panel" aria-labelledby="viewport-title">
@@ -299,6 +327,12 @@ export function WorkbenchViewport({ client, part, backendRevision, onVisibilityC
             ...record,
             offsetPx: [record.offsetPx[0] + dx, record.offsetPx[1] + dy],
           }))}
+        />
+        <AnnotationOverlay
+          overlayRef={annotationOverlayRef}
+          onSave={threadId && part && selectedArtifactRevision && backendRevision !== null && displayState === 'ready'
+            ? saveAnnotations
+            : undefined}
         />
       </div>
     </section>

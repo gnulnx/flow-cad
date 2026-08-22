@@ -5,11 +5,12 @@ import { createTestWorkbenchClient } from '../../testClient'
 import { WorkbenchViewport } from './WorkbenchViewport'
 
 describe('WorkbenchViewport measurement integration', () => {
-  it('exposes one Measure control and restores the normal left-drag camera contract on exit', async () => {
+  it('mounts annotation beside measurement and restores the normal left-drag camera contract on exit', async () => {
     const user = userEvent.setup()
     render(<WorkbenchViewport client={createTestWorkbenchClient()} part={null} backendRevision={7} />)
 
     const button = screen.getByRole('button', { name: 'Measure exact geometry' })
+    expect(screen.getByRole('button', { name: 'Annotate' })).toHaveAttribute('aria-pressed', 'false')
     expect(button).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByText(/Left rotate/)).toBeInTheDocument()
 
