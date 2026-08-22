@@ -10,6 +10,28 @@ geometry source, parameters, registries, validators, generated exports, print
 intent, and project-local skills. Do not put robot-specific geometry contracts
 or print handoff facts in this runtime repo unless they are examples or fixtures.
 
+## Rebuild Authority
+
+The professional replacement contract is
+`docs/FLOW_CAD_REBUILD_SPEC.md`. Read it completely before starting the Flow CAD
+rebuild, changing project bootstrap behavior, or creating the `flow_b2`
+downstream project.
+
+- Treat the current implementation as a preserved reference, not as permission
+  to copy its architecture into the replacement.
+- Build the replacement on a dedicated rebuild branch and preserve the legacy
+  baseline with an immutable tag.
+- Do not create `/home/gnulnx/flow_b2`; the user will create that repository.
+  Once it exists, initialize it using the replacement `flow init`.
+- Never delete or rewrite `/home/gnulnx/b3_robot`. Its part source and generated
+  artifacts are migration authorities and must be preserved byte-for-byte with
+  SHA-256 and `cmp` verification.
+- Enforce the Flow CAD/`flow_b2` ownership boundary in SDK imports and CI. Do not
+  rely on this guide alone.
+- Performance budgets in the rebuild specification are release gates. Any work
+  exceeding one second needs visible feedback, and work exceeding ten seconds
+  must be a cancellable background job.
+
 ## Project Relationship
 
 - `flow-cad` owns reusable runtime/tooling: `flow` CLI, `flow init`, `flow cad
