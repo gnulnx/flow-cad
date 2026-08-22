@@ -1,5 +1,7 @@
 import type {
   DefaultThread,
+  ChatProviderStatus,
+  ChatTurnEvent,
   ExactFeatureLookup,
   ExactFeatureSubmission,
   InventorySnapshot,
@@ -18,6 +20,8 @@ export interface TestClientOverrides {
   jobs?: WorkbenchJob[] | Promise<WorkbenchJob[]>
   defaultThread?: DefaultThread | Promise<DefaultThread>
   sendTurn?: (input: SendTurnInput) => Promise<ThreadMessage>
+  chatProvider?: ChatProviderStatus | Promise<ChatProviderStatus>
+  streamTurn?: (threadId: string, turnId: string, afterSequence: number, onEvent: (event: ChatTurnEvent) => void) => Promise<void>
   exactFeatures?: ExactFeatureLookup | Promise<ExactFeatureLookup>
   queueExactFeatures?: (partUuid: string, artifactRevision: string, requestId: string) => Promise<ExactFeatureSubmission>
   latestMeasurementSnapshot?: SavedMeasurementSnapshot | null | Promise<SavedMeasurementSnapshot | null>
@@ -45,12 +49,14 @@ export function createTestWorkbenchClient(overrides: TestClientOverrides = {}): 
     getInventory: async () => overrides.inventory ?? { revision: 7, activeAssemblyId: 'active', parts: [] },
     getJobs: async () => overrides.jobs ?? [],
     getDefaultThread: async () => overrides.defaultThread ?? thread,
+    getChatProvider: async () => overrides.chatProvider ?? { provider: 'test-provider', available: true, status: 'ready' },
     sendTurn: async (input) => overrides.sendTurn?.(input) ?? {
       id: `${input.requestId}-assistant`,
       role: 'assistant',
       content: 'Request accepted.',
       state: 'complete',
     },
+    streamTurn: async (threadId, turnId, afterSequence, onEvent) => overrides.streamTurn?.(threadId, turnId, afterSequence, onEvent),
     cancelTurn: async () => undefined,
     cancelJob: async () => undefined,
     getExactFeatures: async () => overrides.exactFeatures ?? {

@@ -5,6 +5,18 @@ import type { ThreadMessage } from '../../contracts'
 import { createTestWorkbenchClient } from '../../testClient'
 import { ChatDock } from './ChatDock'
 
+const EMPTY_CONTEXT = {
+  projectRevision: 1,
+  selectedPartUuid: null,
+  selectedPartKey: null,
+  visibleOccurrenceIds: [] as string[],
+  artifactHashes: {} as Record<string, string>,
+  camera: {},
+  measurements: [] as Record<string, unknown>[],
+  annotations: [] as Record<string, unknown>[],
+  viewportAttachment: null,
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((next) => { resolve = next })
@@ -18,7 +30,7 @@ describe('ChatDock feedback contract', () => {
       <ChatDock
         client={createTestWorkbenchClient()}
         available
-        context={{ projectRevision: 1, selectedPartUuid: null, selectedPartKey: null, visibleOccurrenceIds: [], artifactHashes: {} }}
+        context={EMPTY_CONTEXT}
         onThreadChange={onThreadChange}
       />,
     )
@@ -47,6 +59,10 @@ describe('ChatDock feedback contract', () => {
           selectedPartKey: 'unitree_l2_arch_guard',
           visibleOccurrenceIds: ['guard-occurrence'],
           artifactHashes: { 'guard-uuid': 'display-sha' },
+          camera: { position: [1, 2, 3] },
+          measurements: [{ totalMm: 42 }],
+          annotations: [{ kind: 'arrow' }],
+          viewportAttachment: { captureId: 'capture-1' },
         }}
       />,
     )
@@ -68,12 +84,41 @@ describe('ChatDock feedback contract', () => {
       <ChatDock
         client={createTestWorkbenchClient()}
         available={false}
-        context={{ projectRevision: 1, selectedPartUuid: null, selectedPartKey: null, visibleOccurrenceIds: [], artifactHashes: {} }}
+        context={EMPTY_CONTEXT}
       />,
     )
 
     expect(screen.getByRole('heading', { name: 'Design chat' })).toBeInTheDocument()
     expect(screen.getByText('No agent provider configured. Viewing remains fully available.')).toBeInTheDocument()
     expect(await screen.findByPlaceholderText('Ask about this part or view…')).toBeDisabled()
+  })
+
+  it('streams bounded activity, content, evidence, and a terminal result into one row', async () => {
+    const user = userEvent.setup()
+    const client = createTestWorkbenchClient({
+      sendTurn: async () => ({
+        id: 'assistant-1',
+        turnId: 'turn-1',
+        afterSequence: 2,
+        role: 'assistant',
+        content: 'Agent is working…',
+        state: 'streaming',
+      }),
+      streamTurn: async (_threadId, turnId, _afterSequence, onEvent) => {
+        onEvent({ sequence: 3, eventId: 'progress-1', turnId, eventType: 'assistant_progress', payload: { content: 'Inspecting exact STEP facts.' } })
+        onEvent({ sequence: 4, eventId: 'delta-1', turnId, eventType: 'assistant_delta', payload: { content: 'The guard is aligned.' } })
+        onEvent({ sequence: 5, eventId: 'evidence-1', turnId, eventType: 'assistant_evidence', payload: { artifact_hash: 'a'.repeat(64) } })
+        onEvent({ sequence: 6, eventId: 'done-1', turnId, eventType: 'assistant_completed', payload: {} })
+      },
+    })
+    render(<ChatDock client={client} available context={EMPTY_CONTEXT} />)
+
+    await user.type(await screen.findByPlaceholderText('Ask about this part or view…'), 'Inspect')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    expect(await screen.findByText('The guard is aligned.')).toBeInTheDocument()
+    expect(screen.getByText('Inspecting exact STEP facts.')).toBeInTheDocument()
+    expect(screen.getByText('1 evidence record')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
   })
 })

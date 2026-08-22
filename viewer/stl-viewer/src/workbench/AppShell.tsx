@@ -23,6 +23,8 @@ export default function AppShell({ client }: AppShellProps) {
   const [inventory, setInventory] = useState<InventorySnapshot | null>(null)
   const [activePart, setActivePart] = useState<WorkbenchPart | null>(null)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
+  const [chatProviderAvailable, setChatProviderAvailable] = useState<boolean | null>(null)
+  const [chatMeasurements, setChatMeasurements] = useState<MeasurementResult[]>([])
   const [assemblyState, setAssemblyState] = useState<AssemblyViewportSnapshot>({
     partStates: {},
     visibleOccurrenceIds: [],
@@ -39,6 +41,16 @@ export default function AppShell({ client }: AppShellProps) {
   const measurementKey = activeThreadId && activePart?.authorityHash
     ? `${activeThreadId}:${activePart.uuid}:${activePart.authorityHash}`
     : null
+
+  useEffect(() => {
+    const controller = new AbortController()
+    workbenchClient.getChatProvider(controller.signal)
+      .then((provider) => setChatProviderAvailable(provider.available))
+      .catch(() => {
+        if (!controller.signal.aborted) setChatProviderAvailable(false)
+      })
+    return () => controller.abort()
+  }, [workbenchClient])
 
   useEffect(() => {
     if (measurementSaveTimer.current !== null) window.clearTimeout(measurementSaveTimer.current)
@@ -71,6 +83,7 @@ export default function AppShell({ client }: AppShellProps) {
   }, [])
 
   const measurementsChanged = useCallback((measurements: MeasurementResult[]) => {
+    setChatMeasurements(measurements)
     if (!measurementKey || !measurementRestore || measurementRestore.key !== measurementKey || !activeThreadId || !activePart?.authorityHash) return
     const currentArtifactRevision = activePart.authorityHash
     const fingerprint = measurementFingerprint(measurements)
@@ -130,7 +143,7 @@ export default function AppShell({ client }: AppShellProps) {
         </main>
         <ChatDock
           client={workbenchClient}
-          available={project?.chatAvailable ?? true}
+          available={chatProviderAvailable ?? project?.chatAvailable ?? false}
           onThreadChange={setActiveThreadId}
           context={{
             projectRevision: project?.revision ?? null,
@@ -141,6 +154,10 @@ export default function AppShell({ client }: AppShellProps) {
               ...assemblyState.artifactHashes,
               ...(activePart?.authorityHash ? { [`${activePart.uuid}:authority`]: activePart.authorityHash } : {}),
             },
+            camera: {},
+            measurements: savedLabels(chatMeasurements) as unknown as Record<string, unknown>[],
+            annotations: [],
+            viewportAttachment: null,
           }}
         />
       </div>

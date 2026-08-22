@@ -3,6 +3,8 @@ import type {
   ExactFeatureLookup,
   ExactFeatureSet,
   ExactFeatureSubmission,
+  ChatProviderStatus,
+  ChatTurnEvent,
   InventorySnapshot,
   ProjectSummary,
   SavedMeasurementSnapshot,
@@ -71,10 +73,17 @@ interface InventoryDto extends ProjectDto {
 }
 
 interface ChatEventDto {
+  sequence: number
   event_id: string
   turn_id: string | null
   event_type: string
   payload: Record<string, unknown>
+}
+
+interface ChatProviderDto {
+  provider: string | null
+  available: boolean
+  status: string
 }
 
 interface ThreadDto {
@@ -177,6 +186,63 @@ async function readJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>
 }
 
+function chatTurnEvent(event: ChatEventDto): ChatTurnEvent {
+  return {
+    sequence: event.sequence,
+    eventId: event.event_id,
+    turnId: event.turn_id,
+    eventType: event.event_type,
+    payload: event.payload,
+  }
+}
+
+export function applyChatTurnEvent(message: ThreadMessage, event: ChatTurnEvent): ThreadMessage {
+  if (event.turnId && message.turnId && event.turnId !== message.turnId) return message
+  if (event.eventType === 'assistant_delta') {
+    return {
+      ...message,
+      afterSequence: event.sequence,
+      content: message.content === 'Agent is working…' || message.content === 'Queued for agent dispatch…'
+        ? String(event.payload.content ?? event.payload.delta ?? '')
+        : message.content + String(event.payload.content ?? event.payload.delta ?? ''),
+    }
+  }
+  if (event.eventType === 'assistant_progress') {
+    const activity = String(event.payload.content ?? event.payload.summary ?? event.payload.message ?? '').trim()
+    return {
+      ...message,
+      afterSequence: event.sequence,
+      activity: activity ? [...(message.activity ?? []), activity].slice(-8) : message.activity,
+    }
+  }
+  if (event.eventType === 'assistant_evidence') {
+    return {
+      ...message,
+      afterSequence: event.sequence,
+      evidence: [...(message.evidence ?? []), event.payload],
+    }
+  }
+  if (event.eventType === 'assistant_completed') {
+    return {
+      ...message,
+      afterSequence: event.sequence,
+      content: String(event.payload.content ?? message.content),
+      state: 'complete',
+    }
+  }
+  if (event.eventType === 'assistant_failed' || event.eventType === 'turn_cancelled') {
+    return {
+      ...message,
+      afterSequence: event.sequence,
+      content: event.eventType === 'turn_cancelled'
+        ? 'Cancelled.'
+        : String(event.payload.error ?? event.payload.message ?? 'Agent request failed'),
+      state: 'failed',
+    }
+  }
+  return { ...message, afterSequence: event.sequence }
+}
+
 function threadMessages(events: ChatEventDto[]): ThreadMessage[] {
   const messages: ThreadMessage[] = []
   const assistantByTurn = new Map<string, ThreadMessage>()
@@ -185,6 +251,7 @@ function threadMessages(events: ChatEventDto[]): ThreadMessage[] {
       messages.push({
         id: event.event_id,
         turnId: event.turn_id,
+        afterSequence: event.sequence,
         role: 'user',
         content: String(event.payload.content ?? ''),
         state: 'complete',
@@ -197,6 +264,7 @@ function threadMessages(events: ChatEventDto[]): ThreadMessage[] {
       assistant = {
         id: event.event_id,
         turnId: event.turn_id,
+        afterSequence: event.sequence,
         role: 'assistant',
         content: '',
         state: 'streaming',
@@ -204,20 +272,39 @@ function threadMessages(events: ChatEventDto[]): ThreadMessage[] {
       assistantByTurn.set(event.turn_id, assistant)
       messages.push(assistant)
     }
-    if (event.event_type === 'assistant_delta') assistant.content += String(event.payload.content ?? event.payload.delta ?? '')
-    if (event.event_type === 'assistant_progress') assistant.content = String(event.payload.summary ?? event.payload.message ?? assistant.content)
-    if (event.event_type === 'assistant_completed') {
-      assistant.content = String(event.payload.content ?? assistant.content)
-      assistant.state = 'complete'
-    }
-    if (event.event_type === 'assistant_failed') {
-      assistant.content = String(event.payload.error ?? event.payload.message ?? 'Agent request failed')
-      assistant.state = 'failed'
-    }
+    Object.assign(assistant, applyChatTurnEvent(assistant, chatTurnEvent(event)))
   })
   return messages.map((message) => message.role === 'assistant' && !message.content
     ? { ...message, content: 'Queued for agent dispatch…' }
     : message)
+}
+
+async function streamSse(
+  response: Response,
+  onEvent: (event: ChatTurnEvent) => void,
+) {
+  if (!response.ok) throw new Error(await response.text() || `${response.status} ${response.statusText}`)
+  if (!response.body) throw new Error('Chat event stream is unavailable')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffered = ''
+  while (true) {
+    const { value, done } = await reader.read()
+    buffered += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n')
+    if (done && buffered.trim()) buffered += '\n\n'
+    let boundary = buffered.indexOf('\n\n')
+    while (boundary >= 0) {
+      const frame = buffered.slice(0, boundary)
+      buffered = buffered.slice(boundary + 2)
+      const data = frame.split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n')
+      if (data) onEvent(chatTurnEvent(JSON.parse(data) as ChatEventDto))
+      boundary = buffered.indexOf('\n\n')
+    }
+    if (done) break
+  }
 }
 
 function jobRecords(payload: JobDto[] | { jobs: JobDto[] }): WorkbenchJob[] {
@@ -405,6 +492,15 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         thread: { id: dto.thread_id, title: dto.title, status: 'ready' },
         messages: threadMessages(dto.events),
       })),
+    getChatProvider: (signal) => fetch(`${applicationUrl}/api/chat/provider`, { signal })
+      .then(readJson<ChatProviderDto>)
+      .then((dto): ChatProviderStatus => ({
+        provider: dto.provider,
+        available: dto.available,
+        status: ['ready', 'busy', 'unavailable', 'stopping'].includes(dto.status)
+          ? dto.status as ChatProviderStatus['status']
+          : 'unavailable',
+      })),
     sendTurn: (input: SendTurnInput, signal) => fetch(`${applicationUrl}/api/chat/threads/${encodeURIComponent(input.threadId)}/turns`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -415,6 +511,10 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
           selected_part_uuid: input.context.selectedPartUuid,
           visible_occurrence_ids: input.context.visibleOccurrenceIds,
           artifact_hashes: input.context.artifactHashes,
+          camera: input.context.camera,
+          measurements: input.context.measurements,
+          annotations: input.context.annotations,
+          viewport_attachment: input.context.viewportAttachment,
           viewer_revision: input.context.projectRevision === null ? null : String(input.context.projectRevision),
         },
       }),
@@ -422,10 +522,15 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
     }).then(readJson<BeginTurnDto>).then((dto) => ({
       id: dto.events.find((event) => event.event_type === 'assistant_created')?.event_id ?? `${input.requestId}-assistant`,
       turnId: dto.turn_id,
+      afterSequence: Math.max(...dto.events.map((event) => event.sequence), 0),
       role: 'assistant',
       content: dto.provider_status === 'awaiting_dispatch' ? 'Queued for agent dispatch…' : 'Agent is working…',
       state: 'streaming',
     })),
+    streamTurn: (threadId, turnId, afterSequence, onEvent, signal) => fetch(
+      `${applicationUrl}/api/chat/threads/${encodeURIComponent(threadId)}/turns/${encodeURIComponent(turnId)}/stream?after_sequence=${afterSequence}`,
+      { signal, cache: 'no-store', headers: { Accept: 'text/event-stream' } },
+    ).then((response) => streamSse(response, onEvent)),
     cancelTurn: (threadId, turnId) => fetch(`${applicationUrl}/api/chat/threads/${encodeURIComponent(threadId)}/turns/${encodeURIComponent(turnId)}/cancel`, {
       method: 'POST',
     }).then(async (response) => {

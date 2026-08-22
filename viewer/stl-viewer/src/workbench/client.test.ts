@@ -80,13 +80,17 @@ describe('workbench HTTP adapter', () => {
           selected_part_uuid: 'guard-uuid',
           visible_occurrence_ids: ['guard-main'],
           artifact_hashes: { 'guard-uuid': 'stl-sha' },
+          camera: { position: [1, 2, 3] },
+          measurements: [{ total_mm: 42 }],
+          annotations: [{ kind: 'arrow' }],
+          viewport_attachment: { capture_id: 'capture-1' },
           viewer_revision: '4',
         },
       })
       return jsonResponse({
         turn_id: 'turn-1',
         provider_status: 'awaiting_dispatch',
-        events: [{ event_id: 'assistant-event', turn_id: 'turn-1', event_type: 'assistant_created', payload: {} }],
+        events: [{ sequence: 2, event_id: 'assistant-event', turn_id: 'turn-1', event_type: 'assistant_created', payload: {} }],
       })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -101,10 +105,42 @@ describe('workbench HTTP adapter', () => {
         selectedPartKey: 'unitree_l2_arch_guard',
         visibleOccurrenceIds: ['guard-main'],
         artifactHashes: { 'guard-uuid': 'stl-sha' },
+        camera: { position: [1, 2, 3] },
+        measurements: [{ total_mm: 42 }],
+        annotations: [{ kind: 'arrow' }],
+        viewportAttachment: { capture_id: 'capture-1' },
       },
     })
 
-    expect(message).toMatchObject({ id: 'assistant-event', turnId: 'turn-1', state: 'streaming' })
+    expect(message).toMatchObject({ id: 'assistant-event', turnId: 'turn-1', afterSequence: 2, state: 'streaming' })
+  })
+
+  it('reports optional provider availability and parses the terminal SSE turn stream', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ provider: 'codex-app-server', available: true, status: 'ready' }))
+      .mockResolvedValueOnce(new Response([
+        'id: 3',
+        'event: assistant_delta',
+        'data: {"sequence":3,"event_id":"delta-1","turn_id":"turn-1","event_type":"assistant_delta","created_at":"now","payload":{"content":"Done"}}',
+        '',
+        'id: 4',
+        'event: assistant_completed',
+        'data: {"sequence":4,"event_id":"done-1","turn_id":"turn-1","event_type":"assistant_completed","created_at":"now","payload":{}}',
+        '',
+      ].join('\n'), { headers: { 'Content-Type': 'text/event-stream' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createHttpWorkbenchClient()
+
+    await expect(client.getChatProvider()).resolves.toEqual({
+      provider: 'codex-app-server',
+      available: true,
+      status: 'ready',
+    })
+    const events: string[] = []
+    await client.streamTurn('default', 'turn-1', 2, (event) => events.push(`${event.sequence}:${event.eventType}`))
+
+    expect(events).toEqual(['3:assistant_delta', '4:assistant_completed'])
+    expect(String(fetchMock.mock.calls[1][0])).toContain('after_sequence=2')
   })
 
   it('maps durable succeeded jobs to the completed UI state', async () => {

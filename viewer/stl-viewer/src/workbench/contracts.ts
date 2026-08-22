@@ -133,9 +133,12 @@ export interface ThreadSummary {
 export interface ThreadMessage {
   id: string
   turnId?: string | null
+  afterSequence?: number
   role: 'user' | 'assistant'
   content: string
   state: 'complete' | 'streaming' | 'failed'
+  activity?: string[]
+  evidence?: Record<string, unknown>[]
 }
 
 export interface DefaultThread {
@@ -149,6 +152,24 @@ export interface ChatContext {
   selectedPartKey: string | null
   visibleOccurrenceIds: string[]
   artifactHashes: Record<string, string>
+  camera: Record<string, unknown>
+  measurements: Record<string, unknown>[]
+  annotations: Record<string, unknown>[]
+  viewportAttachment: Record<string, unknown> | null
+}
+
+export interface ChatProviderStatus {
+  provider: string | null
+  available: boolean
+  status: 'ready' | 'busy' | 'unavailable' | 'stopping'
+}
+
+export interface ChatTurnEvent {
+  sequence: number
+  eventId: string
+  turnId: string | null
+  eventType: string
+  payload: Record<string, unknown>
 }
 
 export interface SendTurnInput {
@@ -189,7 +210,15 @@ export interface WorkbenchClient {
   getInventory(signal?: AbortSignal): Promise<InventorySnapshot>
   getJobs(signal?: AbortSignal): Promise<WorkbenchJob[]>
   getDefaultThread(signal?: AbortSignal): Promise<DefaultThread>
+  getChatProvider(signal?: AbortSignal): Promise<ChatProviderStatus>
   sendTurn(input: SendTurnInput, signal?: AbortSignal): Promise<ThreadMessage>
+  streamTurn(
+    threadId: string,
+    turnId: string,
+    afterSequence: number,
+    onEvent: (event: ChatTurnEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void>
   cancelTurn(threadId: string, turnId: string): Promise<void>
   cancelJob(jobId: string): Promise<void>
   getExactFeatures(partUuid: string, artifactRevision: string, signal?: AbortSignal): Promise<ExactFeatureLookup>

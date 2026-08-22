@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { applyChatTurnEvent } from '../../client'
 import type { ChatContext, DefaultThread, ThreadMessage, WorkbenchClient } from '../../contracts'
 
 interface ChatDockProps {
@@ -72,6 +73,16 @@ export function ChatDock({ client, context, available, onThreadChange }: ChatDoc
       setMessages((current) => current.map((message) => message.id === assistantMessage.id ? result : message))
       if (result.state === 'streaming' && result.turnId) {
         activeTurnRef.current = { threadId: thread.thread.id, turnId: result.turnId }
+        await client.streamTurn(
+          thread.thread.id,
+          result.turnId,
+          result.afterSequence ?? 0,
+          (turnEvent) => setMessages((current) => current.map((message) => (
+            message.turnId === result.turnId ? applyChatTurnEvent(message, turnEvent) : message
+          ))),
+          controller.signal,
+        )
+        activeTurnRef.current = null
       }
     } catch (reason) {
       const detail = controller.signal.aborted ? 'Cancelled.' : reason instanceof Error ? reason.message : 'Request failed'
@@ -101,6 +112,19 @@ export function ChatDock({ client, context, available, onThreadChange }: ChatDoc
         <button type="button" title="Project revision">rev {context.projectRevision ?? '—'}</button>
         <button type="button" title="Selected part">{context.selectedPartKey ?? 'no part'}</button>
         <button type="button" title="Visible occurrences">{context.visibleOccurrenceIds.length} visible</button>
+        <details className="context-inspector">
+          <summary>Inspect</summary>
+          <pre>{JSON.stringify({
+            selectedPartUuid: context.selectedPartUuid,
+            visibleOccurrenceIds: context.visibleOccurrenceIds,
+            artifactHashes: context.artifactHashes,
+            camera: context.camera,
+            measurements: context.measurements,
+            annotations: context.annotations,
+            viewportAttachment: context.viewportAttachment,
+            viewerRevision: context.projectRevision,
+          }, null, 2)}</pre>
+        </details>
       </div>
       <div className="chat-transcript" aria-live="polite">
         {messages.length === 0 ? (
@@ -113,6 +137,12 @@ export function ChatDock({ client, context, available, onThreadChange }: ChatDoc
           <article className={`chat-message chat-message--${message.role}`} data-state={message.state} key={message.id}>
             <span>{message.role === 'assistant' ? 'Flow agent' : 'You'}</span>
             <p>{message.content}</p>
+            {message.activity?.length ? (
+              <ul className="chat-activity" aria-label="Agent activity">
+                {message.activity.map((activity, index) => <li key={`${message.id}-activity-${index}`}>{activity}</li>)}
+              </ul>
+            ) : null}
+            {message.evidence?.length ? <span className="chat-evidence">{message.evidence.length} evidence record{message.evidence.length === 1 ? '' : 's'}</span> : null}
           </article>
         ))}
       </div>
