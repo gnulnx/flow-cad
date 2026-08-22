@@ -184,6 +184,7 @@ def _run_release_gate(project_root: Path, context: JobContext) -> dict[str, Any]
             result = scan_ownership(
                 OwnershipScanConfig(
                     downstream_root=package_root,
+                    allowed_helper_imports=("flow_cad.geometry",),
                     runtime_python_files=tuple(sorted(runtime_root.rglob("*.py"))),
                 )
             )

@@ -244,10 +244,10 @@ def provide_params():
         (
             slow_import
             + """
-from build123d import Box
+from flow_cad.geometry import box_at
 
 def make_panel(params):
-    return Box(params.width_mm, 5.0, 6.0)
+    return box_at((params.width_mm, 5.0, 6.0), (0.0, 0.0, 0.0))
 """.lstrip()
         ),
         encoding="utf-8",

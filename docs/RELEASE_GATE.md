@@ -17,7 +17,9 @@ The gate checks, in order:
 
 1. Strict manifest/schema and SQLite registry/assembly integrity.
 2. The downstream SDK ownership boundary and importability of the project
-   parameter provider, every active generator, and every release hook.
+   parameter provider, every active generator, and every release hook. Project
+   source may import only `flow_cad.sdk` and the explicitly public,
+   geometry-heavy `flow_cad.geometry` helper facade.
 3. Fresh STEP plus declared optional STL output for every `active` part through
    the same isolated, deterministic scoped-build worker used by public part
    builds.
