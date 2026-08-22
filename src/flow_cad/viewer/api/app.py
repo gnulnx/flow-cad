@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from flow_cad.chat import ChatStore
 from flow_cad.chat.api import create_chat_command_router, create_chat_query_router
 
+from .agent_screen_routes import create_agent_screen_router
 from .query_routes import create_query_router
 
 
@@ -47,5 +48,6 @@ def create_workbench_app(
     chat_store = ChatStore(project_root)
     app.include_router(create_chat_query_router(chat_store))
     app.include_router(create_chat_command_router(chat_store))
+    app.include_router(create_agent_screen_router(project_root))
     app.state.project_root = project_root.resolve()
     return app

@@ -8,12 +8,13 @@ import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from flow_cad.viewer.service import ViewerError, ViewerService
+if TYPE_CHECKING:
+    from flow_cad.viewer.service import ViewerService
 
 
-class AgentScreenError(ViewerError):
+class AgentScreenError(RuntimeError):
     status_code = 400
 
 
@@ -85,10 +86,15 @@ def _as_string_list(value: Any) -> list[str]:
 class AgentScreenService:
     """Project-local storage for explicit workbench screenshots for agents."""
 
-    def __init__(self, viewer_service: ViewerService):
-        self.viewer_service = viewer_service
-        self.project_root = viewer_service.project_root
-        self.root = viewer_service.project.paths.local_state / "agent-screen"
+    def __init__(self, project: ViewerService | Path):
+        if isinstance(project, Path):
+            self.viewer_service = None
+            self.project_root = project.resolve()
+            self.root = self.project_root / ".flow" / "agent-screen"
+        else:
+            self.viewer_service = project
+            self.project_root = project.project_root
+            self.root = project.project.paths.local_state / "agent-screen"
 
     def capture(self, payload: dict[str, Any]) -> dict[str, Any]:
         image_bytes, content_type = _parse_png_payload(payload if isinstance(payload, dict) else {})
