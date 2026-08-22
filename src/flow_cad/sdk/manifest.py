@@ -15,9 +15,11 @@ from .models import (
     ArtifactSpec,
     AssemblyOccurrence,
     AssemblySpec,
+    MassProperties,
     ManifestPart,
     PartRole,
     PartStatus,
+    PrintSpec,
     ProjectManifest,
     Vector3,
 )
@@ -128,7 +130,21 @@ def _parse_part(raw: Any, source: str | Path, location: str) -> ManifestPart:
         source,
         location,
         required={"uuid", "key", "aliases", "generator", "role", "status", "artifacts"},
-        allowed={"uuid", "key", "aliases", "generator", "role", "status", "artifacts", "material"},
+        allowed={
+            "uuid",
+            "key",
+            "aliases",
+            "generator",
+            "role",
+            "status",
+            "artifacts",
+            "material",
+            "family",
+            "version",
+            "compatible_versions",
+            "print",
+            "mass_properties",
+        },
     )
     part_uuid = _uuid(data["uuid"], source, f"{location}.uuid")
     key = _identifier(data["key"], source, f"{location}.key")
@@ -149,6 +165,29 @@ def _parse_part(raw: Any, source: str | Path, location: str) -> ManifestPart:
     material = data.get("material")
     if material is not None:
         material = _nonempty_string(material, source, f"{location}.material")
+    family = data.get("family")
+    if family is not None:
+        family = _identifier(family, source, f"{location}.family")
+    version = data.get("version")
+    if version is not None:
+        version = _identifier(version, source, f"{location}.version")
+    raw_compatible_versions = _sequence(
+        data.get("compatible_versions", ()), source, f"{location}.compatible_versions"
+    )
+    compatible_versions = tuple(
+        _identifier(value, source, f"{location}.compatible_versions[{index}]")
+        for index, value in enumerate(raw_compatible_versions)
+    )
+    if len(set(compatible_versions)) != len(compatible_versions):
+        _fail(source, f"{location}.compatible_versions", "contains duplicate versions")
+    print_spec = None
+    if "print" in data:
+        print_spec = _parse_print_spec(data["print"], source, f"{location}.print")
+    mass_properties = None
+    if "mass_properties" in data:
+        mass_properties = _parse_mass_properties(
+            data["mass_properties"], source, f"{location}.mass_properties"
+        )
 
     artifact_map = _mapping(data["artifacts"], source, f"{location}.artifacts")
     artifacts = tuple(
@@ -164,6 +203,83 @@ def _parse_part(raw: Any, source: str | Path, location: str) -> ManifestPart:
         status=status,
         artifacts=artifacts,
         material=material,
+        family=family,
+        version=version,
+        compatible_versions=compatible_versions,
+        print=print_spec,
+        mass_properties=mass_properties,
+    )
+
+
+def _parse_print_spec(raw: Any, source: str | Path, location: str) -> PrintSpec:
+    data = _mapping(raw, source, location)
+    _keys(
+        data,
+        source,
+        location,
+        required={"shell_count", "infill_density"},
+        allowed={"shell_count", "infill_density"},
+    )
+    shell_count = data["shell_count"]
+    if type(shell_count) is not int or shell_count <= 0:
+        _fail(source, f"{location}.shell_count", "must be a positive integer")
+    infill_density = _finite_number(
+        data["infill_density"], source, f"{location}.infill_density"
+    )
+    if not 0.0 <= infill_density <= 1.0:
+        _fail(source, f"{location}.infill_density", "must be between 0 and 1")
+    return PrintSpec(shell_count=shell_count, infill_density=infill_density)
+
+
+def _parse_mass_properties(raw: Any, source: str | Path, location: str) -> MassProperties:
+    data = _mapping(raw, source, location)
+    _keys(
+        data,
+        source,
+        location,
+        required=set(),
+        allowed={
+            "mass_kg",
+            "center_of_mass_mm",
+            "inertia_kg_m2",
+            "source",
+            "status",
+            "notes",
+        },
+    )
+    mass_kg = None
+    if "mass_kg" in data:
+        mass_kg = _finite_number(data["mass_kg"], source, f"{location}.mass_kg")
+        if mass_kg < 0.0:
+            _fail(source, f"{location}.mass_kg", "must be non-negative")
+    center_of_mass_mm = None
+    if "center_of_mass_mm" in data:
+        center_of_mass_mm = _vector3(
+            data["center_of_mass_mm"], source, f"{location}.center_of_mass_mm"
+        )
+    inertia_kg_m2 = None
+    if "inertia_kg_m2" in data:
+        inertia_values = _sequence(
+            data["inertia_kg_m2"], source, f"{location}.inertia_kg_m2"
+        )
+        if len(inertia_values) != 6:
+            _fail(source, f"{location}.inertia_kg_m2", "must contain exactly six numbers")
+        inertia_kg_m2 = tuple(
+            _finite_number(value, source, f"{location}.inertia_kg_m2[{index}]")
+            for index, value in enumerate(inertia_values)
+        )
+    source_name = _nonempty_string(data.get("source", "unset"), source, f"{location}.source")
+    status = _identifier(data.get("status", "todo"), source, f"{location}.status")
+    notes = data.get("notes", "")
+    if not isinstance(notes, str):
+        _fail(source, f"{location}.notes", "must be a string")
+    return MassProperties(
+        mass_kg=mass_kg,
+        center_of_mass_mm=center_of_mass_mm,
+        inertia_kg_m2=inertia_kg_m2,  # type: ignore[arg-type]
+        source=source_name,
+        status=status,
+        notes=notes,
     )
 
 
@@ -271,6 +387,32 @@ def _dump_part(part: ManifestPart) -> dict[str, Any]:
     }
     if part.material is not None:
         payload["material"] = part.material
+    if part.family is not None:
+        payload["family"] = part.family
+    if part.version is not None:
+        payload["version"] = part.version
+    if part.compatible_versions:
+        payload["compatible_versions"] = list(part.compatible_versions)
+    if part.print is not None:
+        payload["print"] = {
+            "shell_count": part.print.shell_count,
+            "infill_density": part.print.infill_density,
+        }
+    if part.mass_properties is not None:
+        mass_properties: dict[str, Any] = {
+            "source": part.mass_properties.source,
+            "status": part.mass_properties.status,
+            "notes": part.mass_properties.notes,
+        }
+        if part.mass_properties.mass_kg is not None:
+            mass_properties["mass_kg"] = part.mass_properties.mass_kg
+        if part.mass_properties.center_of_mass_mm is not None:
+            mass_properties["center_of_mass_mm"] = list(
+                part.mass_properties.center_of_mass_mm
+            )
+        if part.mass_properties.inertia_kg_m2 is not None:
+            mass_properties["inertia_kg_m2"] = list(part.mass_properties.inertia_kg_m2)
+        payload["mass_properties"] = mass_properties
     payload["artifacts"] = {artifact.kind: _dump_artifact(artifact) for artifact in part.artifacts}
     return payload
 
@@ -372,13 +514,17 @@ def _vector3(value: Any, source: str | Path, location: str) -> Vector3:
         _fail(source, location, "must contain exactly three numbers")
     vector: list[float] = []
     for index, component in enumerate(values):
-        if isinstance(component, bool) or not isinstance(component, (int, float)):
-            _fail(source, f"{location}[{index}]", "must be a finite number")
-        number = float(component)
-        if not math.isfinite(number):
-            _fail(source, f"{location}[{index}]", "must be a finite number")
-        vector.append(number)
+        vector.append(_finite_number(component, source, f"{location}[{index}]"))
     return (vector[0], vector[1], vector[2])
+
+
+def _finite_number(value: Any, source: str | Path, location: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        _fail(source, location, "must be a finite number")
+    number = float(value)
+    if not math.isfinite(number):
+        _fail(source, location, "must be a finite number")
+    return number
 
 
 def _fail(source: str | Path, location: str, message: str) -> NoReturn:

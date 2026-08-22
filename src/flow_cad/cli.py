@@ -151,6 +151,25 @@ def part_show(key_or_alias: str, as_json: bool) -> None:
         "role": detail.role,
         "status": detail.status,
         "material": detail.material,
+        "family": detail.family,
+        "version": detail.version,
+        "compatible_versions": list(detail.compatible_versions),
+        "print": {
+            "shell_count": detail.shell_count,
+            "infill_density": detail.infill_density,
+        }
+        if detail.shell_count is not None and detail.infill_density is not None
+        else None,
+        "mass_properties": {
+            "mass_kg": detail.mass_kg,
+            "center_of_mass_mm": detail.center_of_mass_mm,
+            "inertia_kg_m2": detail.inertia_kg_m2,
+            "source": detail.mass_source,
+            "status": detail.metadata_status,
+            "notes": detail.metadata_notes,
+        }
+        if detail.mass_source is not None
+        else None,
         "artifacts": [
             {"kind": kind, "path": path, "state": state}
             for kind, path, state in detail.artifacts
@@ -293,6 +312,8 @@ def _part_summary_dict(row: Any) -> dict[str, Any]:
         "role": row.role,
         "status": row.status,
         "material": row.material,
+        "family": row.family,
+        "version": row.version,
         "artifact_count": row.artifact_count,
         "missing_artifact_count": row.missing_artifact_count,
     }

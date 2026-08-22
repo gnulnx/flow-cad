@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 import tempfile
@@ -142,8 +143,12 @@ def _populate(
         part_uuid = str(part.uuid)
         connection.execute(
             """
-            INSERT INTO parts(uuid, project_id, key, generator, role, status, material)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO parts(
+                uuid, project_id, key, generator, role, status, material,
+                family, version, compatible_versions_json,
+                shell_count, infill_density, mass_kg, center_of_mass_mm_json,
+                inertia_kg_m2_json, mass_source, metadata_status, metadata_notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 part_uuid,
@@ -153,6 +158,23 @@ def _populate(
                 part.role.value,
                 part.status.value,
                 part.material,
+                part.family,
+                part.version,
+                json.dumps(part.compatible_versions),
+                part.print.shell_count if part.print is not None else None,
+                part.print.infill_density if part.print is not None else None,
+                part.mass_properties.mass_kg if part.mass_properties is not None else None,
+                json.dumps(part.mass_properties.center_of_mass_mm)
+                if part.mass_properties is not None
+                and part.mass_properties.center_of_mass_mm is not None
+                else None,
+                json.dumps(part.mass_properties.inertia_kg_m2)
+                if part.mass_properties is not None
+                and part.mass_properties.inertia_kg_m2 is not None
+                else None,
+                part.mass_properties.source if part.mass_properties is not None else None,
+                part.mass_properties.status if part.mass_properties is not None else None,
+                part.mass_properties.notes if part.mass_properties is not None else None,
             ),
         )
         module, separator, symbol = part.generator.partition(":")

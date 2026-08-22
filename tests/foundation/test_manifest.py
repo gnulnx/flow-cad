@@ -5,7 +5,16 @@ from uuid import UUID
 
 import pytest
 
-from flow_cad.sdk import ManifestError, PartRole, PartStatus, dump_manifest, load_manifest, loads_manifest
+from flow_cad.sdk import (
+    ManifestError,
+    MassProperties,
+    PartRole,
+    PartStatus,
+    PrintSpec,
+    dump_manifest,
+    load_manifest,
+    loads_manifest,
+)
 
 
 FIXTURE_ROOT = Path(__file__).parents[1] / "fixtures" / "projects"
@@ -103,6 +112,71 @@ def test_artifact_metadata_is_typed_and_paths_are_project_relative() -> None:
     invalid = _manifest_yaml().replace("exports/step/sample.step", "../outside.step")
     with pytest.raises(ManifestError, match="must be a project-relative path"):
         loads_manifest(invalid, source="artifact.yaml")
+
+
+def test_manifest_round_trips_project_owned_print_and_physical_metadata() -> None:
+    source = _manifest_yaml().replace(
+        "    artifacts:\n",
+        """    family: compute
+    version: b3_v2
+    compatible_versions: [b3_v1]
+    material: PETG
+    print:
+      shell_count: 4
+      infill_density: 0.4
+    mass_properties:
+      mass_kg: 0.125
+      center_of_mass_mm: [1, 2, 3]
+      inertia_kg_m2: [1, 2, 3, 4, 5, 6]
+      source: measured
+      status: complete
+      notes: Bench measurement
+    artifacts:
+""",
+    )
+
+    manifest = loads_manifest(source, source="metadata.yaml")
+    part = manifest.parts[0]
+
+    assert part.family == "compute"
+    assert part.version == "b3_v2"
+    assert part.compatible_versions == ("b3_v1",)
+    assert part.print == PrintSpec(shell_count=4, infill_density=0.4)
+    assert part.mass_properties == MassProperties(
+        mass_kg=0.125,
+        center_of_mass_mm=(1.0, 2.0, 3.0),
+        inertia_kg_m2=(1.0, 2.0, 3.0, 4.0, 5.0, 6.0),
+        source="measured",
+        status="complete",
+        notes="Bench measurement",
+    )
+    assert loads_manifest(dump_manifest(manifest)) == manifest
+
+
+@pytest.mark.parametrize(
+    ("needle", "replacement", "message"),
+    [
+        ("shell_count: 4", "shell_count: 0", "must be a positive integer"),
+        ("infill_density: 0.4", "infill_density: 1.4", "must be between 0 and 1"),
+        ("mass_kg: 0.125", "mass_kg: -1", "must be non-negative"),
+    ],
+)
+def test_manifest_rejects_invalid_project_owned_metadata(
+    needle: str, replacement: str, message: str
+) -> None:
+    source = _manifest_yaml().replace(
+        "    artifacts:\n",
+        """    print:
+      shell_count: 4
+      infill_density: 0.4
+    mass_properties:
+      mass_kg: 0.125
+    artifacts:
+""",
+    )
+
+    with pytest.raises(ManifestError, match=message):
+        loads_manifest(source.replace(needle, replacement), source="metadata.yaml")
 
 
 def _manifest_yaml(*, generator: str = "sample.generators:make_part") -> str:

@@ -41,6 +41,26 @@ class ArtifactSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class PrintSpec:
+    """Project-owned manufacturing intent for a printable part."""
+
+    shell_count: int
+    infill_density: float
+
+
+@dataclass(frozen=True, slots=True)
+class MassProperties:
+    """Optional measured or estimated rigid-body metadata in SI units."""
+
+    mass_kg: float | None = None
+    center_of_mass_mm: Vector3 | None = None
+    inertia_kg_m2: tuple[float, float, float, float, float, float] | None = None
+    source: str = "unset"
+    status: str = "todo"
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class ManifestPart:
     """A lifecycle record whose UUID remains stable when its key changes."""
 
@@ -52,6 +72,11 @@ class ManifestPart:
     status: PartStatus
     artifacts: tuple[ArtifactSpec, ...]
     material: str | None = None
+    family: str | None = None
+    version: str | None = None
+    compatible_versions: tuple[str, ...] = ()
+    print: PrintSpec | None = None
+    mass_properties: MassProperties | None = None
 
 
 @dataclass(frozen=True, slots=True)

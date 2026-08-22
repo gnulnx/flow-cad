@@ -11,9 +11,11 @@ from flow_cad.registry import get_part, list_parts, sync_project
 from flow_cad.registry.db import database_path
 from flow_cad.sdk import (
     ArtifactSpec,
+    MassProperties,
     ManifestPart,
     PartRole,
     PartStatus,
+    PrintSpec,
     ProjectManifest,
     dump_manifest,
 )
@@ -124,3 +126,55 @@ def test_listing_one_thousand_indexed_parts_stays_below_hard_gate(tmp_path: Path
 
     assert len(listed) == 1000
     assert elapsed < 0.250
+
+
+def test_sync_indexes_project_owned_print_and_physical_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "physical_metadata"
+    root.mkdir()
+    manifest = ProjectManifest(
+        schema_version=1,
+        project_id="physical_metadata",
+        python_package="physical_metadata",
+        parts=(
+            ManifestPart(
+                uuid=UUID("11111111-1111-4111-8111-111111111111"),
+                key="measured_part",
+                aliases=(),
+                generator="physical_metadata.parts:make_measured_part",
+                role=PartRole.PRINTABLE,
+                status=PartStatus.ACTIVE,
+                artifacts=(),
+                material="PETG",
+                family="compute",
+                version="b3_v2",
+                compatible_versions=("b3_v1",),
+                print=PrintSpec(shell_count=4, infill_density=0.4),
+                mass_properties=MassProperties(
+                    mass_kg=0.125,
+                    center_of_mass_mm=(1.0, 2.0, 3.0),
+                    inertia_kg_m2=(1.0, 2.0, 3.0, 4.0, 5.0, 6.0),
+                    source="measured",
+                    status="complete",
+                    notes="Bench measurement",
+                ),
+            ),
+        ),
+        assemblies=(),
+    )
+    (root / "flowcad.project.yaml").write_text(dump_manifest(manifest), encoding="utf-8")
+
+    sync_project(root)
+    summary = list_parts(root)[0]
+    detail = get_part(root, "measured_part")
+
+    assert summary.family == "compute"
+    assert summary.version == "b3_v2"
+    assert detail is not None
+    assert detail.compatible_versions == ("b3_v1",)
+    assert detail.shell_count == 4
+    assert detail.infill_density == 0.4
+    assert detail.mass_kg == 0.125
+    assert detail.center_of_mass_mm == (1.0, 2.0, 3.0)
+    assert detail.inertia_kg_m2 == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    assert detail.mass_source == "measured"
+    assert detail.metadata_status == "complete"

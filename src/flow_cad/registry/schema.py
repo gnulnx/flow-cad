@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-DATABASE_SCHEMA_VERSION = 1
+DATABASE_SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -30,6 +30,19 @@ CREATE TABLE parts (
     role TEXT NOT NULL,
     status TEXT NOT NULL,
     material TEXT,
+    family TEXT,
+    version TEXT,
+    compatible_versions_json TEXT NOT NULL DEFAULT '[]',
+    shell_count INTEGER CHECK (shell_count IS NULL OR shell_count > 0),
+    infill_density REAL CHECK (
+        infill_density IS NULL OR (infill_density >= 0.0 AND infill_density <= 1.0)
+    ),
+    mass_kg REAL CHECK (mass_kg IS NULL OR mass_kg >= 0.0),
+    center_of_mass_mm_json TEXT,
+    inertia_kg_m2_json TEXT,
+    mass_source TEXT,
+    metadata_status TEXT,
+    metadata_notes TEXT,
     UNIQUE (project_id, key)
 );
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from contextlib import closing
 from pathlib import Path
@@ -117,7 +118,11 @@ class InventoryService:
                 parameters.append(limit)
             parts = connection.execute(
                 f"""
-                SELECT p.uuid, p.key, p.generator, p.role, p.status, p.material
+                SELECT p.uuid, p.key, p.generator, p.role, p.status, p.material,
+                       p.family, p.version, p.compatible_versions_json,
+                       p.shell_count, p.infill_density, p.mass_kg,
+                       p.center_of_mass_mm_json, p.inertia_kg_m2_json,
+                       p.mass_source, p.metadata_status, p.metadata_notes
                 FROM parts p
                 {where}
                 ORDER BY p.key
@@ -273,6 +278,29 @@ def _part_payload(row, *, aliases, artifacts, occurrences) -> dict[str, Any]:
         "role": str(row["role"]),
         "status": str(row["status"]),
         "material": str(row["material"]) if row["material"] is not None else None,
+        "family": str(row["family"]) if row["family"] is not None else None,
+        "version": str(row["version"]) if row["version"] is not None else None,
+        "compatible_versions": json.loads(str(row["compatible_versions_json"])),
+        "print": {
+            "shell_count": int(row["shell_count"]),
+            "infill_density": float(row["infill_density"]),
+        }
+        if row["shell_count"] is not None and row["infill_density"] is not None
+        else None,
+        "mass_properties": {
+            "mass_kg": float(row["mass_kg"]) if row["mass_kg"] is not None else None,
+            "center_of_mass_mm": json.loads(str(row["center_of_mass_mm_json"]))
+            if row["center_of_mass_mm_json"] is not None
+            else None,
+            "inertia_kg_m2": json.loads(str(row["inertia_kg_m2_json"]))
+            if row["inertia_kg_m2_json"] is not None
+            else None,
+            "source": str(row["mass_source"]),
+            "status": str(row["metadata_status"]),
+            "notes": str(row["metadata_notes"]),
+        }
+        if row["mass_source"] is not None
+        else None,
         "artifacts": artifact_payloads,
         "occurrences": [
             {
