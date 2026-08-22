@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from flow_cad.chat import ChatStore
+from flow_cad.chat import ChatStore, ContextPacket
 from flow_cad.chat.api import create_chat_command_router, create_chat_query_router
 
 
@@ -87,3 +87,51 @@ def test_chat_routes_return_clear_not_found_errors(tmp_path: Path) -> None:
         ).status_code
         == 404
     )
+    assert (
+        client.get("/api/chat/threads/default/turns/missing/stream").status_code
+        == 404
+    )
+
+
+def test_turn_event_stream_replays_after_cursor_and_closes_on_terminal(
+    tmp_path: Path,
+) -> None:
+    store = ChatStore(tmp_path)
+    user, assistant = store.begin_turn(
+        "default",
+        "Inspect this exact view",
+        ContextPacket(selected_part_uuid="part-1"),
+        request_id="stream-request",
+    )
+    assert user.turn_id == assistant.turn_id
+    assert user.turn_id is not None
+    progress = store.append_turn_event(
+        "default",
+        user.turn_id,
+        "assistant_progress",
+        {"phase": "inspect", "content": "Reading exact features."},
+    )
+    completed = store.append_turn_event(
+        "default",
+        user.turn_id,
+        "assistant_completed",
+        {"content": "Done.", "evidence": {"artifact_hash": "a" * 64}},
+    )
+    app = FastAPI()
+    app.include_router(create_chat_query_router(store))
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/chat/threads/default/turns/{user.turn_id}/stream"
+        f"?after_sequence={assistant.sequence}"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["cache-control"] == "no-store"
+    assert f"id: {progress.sequence}\n" in response.text
+    assert "event: assistant_progress\n" in response.text
+    assert f"id: {completed.sequence}\n" in response.text
+    assert "event: assistant_completed\n" in response.text
+    assert '"artifact_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' in response.text
+    assert "event: user_message" not in response.text

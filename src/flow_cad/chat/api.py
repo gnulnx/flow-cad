@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .dispatch import ChatDispatchError, ChatDispatchService
@@ -89,6 +92,60 @@ def create_chat_query_router(
             "events": [_event_payload(event) for event in events],
             "after_sequence": after_sequence,
         }
+
+    @router.get("/threads/{thread_id}/turns/{turn_id}/stream")
+    def stream_turn(
+        thread_id: str,
+        turn_id: str,
+        after_sequence: int = 0,
+    ) -> StreamingResponse:
+        """Stream one durable turn and close after its terminal event."""
+
+        try:
+            store.turn_events(thread_id, turn_id)
+        except ThreadNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ChatStoreError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        async def event_stream():
+            cursor = after_sequence
+            while True:
+                events = tuple(
+                    event
+                    for event in store.turn_events(thread_id, turn_id)
+                    if event.sequence > cursor
+                )
+                terminal_seen = False
+                for event in events:
+                    cursor = event.sequence
+                    terminal_seen = event.event_type in {
+                        "assistant_completed",
+                        "assistant_failed",
+                        "turn_cancelled",
+                    }
+                    payload = json.dumps(
+                        _event_payload(event),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    yield (
+                        f"id: {event.sequence}\n"
+                        f"event: {event.event_type}\n"
+                        f"data: {payload}\n\n"
+                    )
+                if terminal_seen:
+                    break
+                await asyncio.sleep(0.05)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     return router
 
