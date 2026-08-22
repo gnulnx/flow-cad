@@ -37,7 +37,7 @@ export interface MeasurementResult {
   id: string
   kind: 'distance' | 'edge_length'
   title: string
-  quality: 'Exact'
+  quality: 'Exact' | 'Approximate'
   startMm: Point3
   endMm: Point3
   totalMm: number

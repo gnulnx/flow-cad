@@ -1,6 +1,6 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import AppShell from './AppShell'
 import type { InventorySnapshot, WorkbenchPart } from './contracts'
 import { createTestWorkbenchClient } from './testClient'
@@ -74,5 +74,45 @@ describe('replacement AppShell', () => {
     await user.clear(search)
     expect(inventory.getByText('missing_bracket')).toBeInTheDocument()
     expect(inventory.getByText('Missing')).toBeInTheDocument()
+  })
+
+  it('restores and durably saves thread-bound measurement label state', async () => {
+    const user = userEvent.setup()
+    const saveMeasurementSnapshot = vi.fn(async () => undefined)
+    const partUuid = '11111111-1111-4111-8111-111111111111'
+    const revision = 'a'.repeat(64)
+    render(<AppShell client={createTestWorkbenchClient({
+      inventory: { revision: 9, parts: [part('arch_guard', { uuid: partUuid, authorityHash: revision })] },
+      latestMeasurementSnapshot: {
+        threadId: 'default',
+        partUuid,
+        artifactRevision: revision,
+        measurements: [{
+          measurementId: 'measurement-1',
+          kind: 'distance',
+          title: 'Exact vertex to Exact vertex',
+          quality: 'exact',
+          startMm: [0, 0, 0],
+          endMm: [3, 4, 0],
+          totalMm: 5,
+          deltaMm: [3, 4, 0],
+          featureIds: ['vertex-1', 'vertex-2'],
+          hidden: false,
+          pinned: true,
+          labelOffsetPx: [0, 0],
+        }],
+      },
+      saveMeasurementSnapshot,
+    })} />)
+
+    expect(await screen.findByText('5.00 mm')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Unpin' }))
+    await waitFor(() => expect(saveMeasurementSnapshot).toHaveBeenCalledOnce())
+    expect(saveMeasurementSnapshot.mock.calls[0][0]).toMatchObject({
+      threadId: 'default',
+      partUuid,
+      artifactRevision: revision,
+      measurements: [{ measurementId: 'measurement-1', pinned: false }],
+    })
   })
 })

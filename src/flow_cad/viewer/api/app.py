@@ -14,12 +14,14 @@ from flow_cad.chat import ChatDispatchService, ChatStore, CodexAppServerProvider
 from flow_cad.chat.api import create_chat_command_router, create_chat_query_router
 from flow_cad.chat.providers import ChatProvider
 from flow_cad.jobs import JobService
+from flow_cad.measurement import MeasurementSnapshotStore
 
 from .agent_screen_routes import create_agent_screen_router
 from .annotation_routes import create_annotation_router
 from .command_routes import create_workbench_command_router
 from .job_routes import create_job_router
 from .measurement_routes import create_measurement_router
+from .measurement_snapshot_routes import create_measurement_snapshot_router
 from .query_routes import create_query_router
 
 
@@ -79,16 +81,19 @@ def create_workbench_app(
         )
     )
     annotation_store = AnnotationStore(project_root)
+    measurement_snapshot_store = MeasurementSnapshotStore(project_root)
     app.include_router(create_chat_query_router(chat_store, chat_dispatch))
     app.include_router(create_chat_command_router(chat_store, chat_dispatch))
     app.include_router(create_annotation_router(annotation_store))
     app.include_router(create_agent_screen_router(project_root))
     app.include_router(create_workbench_command_router(project_root))
     app.include_router(create_measurement_router(project_root, job_service=job_service))
+    app.include_router(create_measurement_snapshot_router(measurement_snapshot_store))
     app.include_router(create_job_router(job_service))
     app.state.project_root = project_root.resolve()
     app.state.job_service = job_service
     app.state.chat_store = chat_store
     app.state.chat_dispatch = chat_dispatch
     app.state.annotation_store = annotation_store
+    app.state.measurement_snapshot_store = measurement_snapshot_store
     return app

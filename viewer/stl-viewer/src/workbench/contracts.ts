@@ -149,6 +149,32 @@ export interface SendTurnInput {
   context: ChatContext
 }
 
+export interface SavedMeasurementLabel {
+  measurementId: string
+  kind: 'distance' | 'edge_length'
+  title: string
+  quality: 'exact' | 'approximate'
+  startMm: Point3
+  endMm: Point3
+  totalMm: number
+  deltaMm: Point3
+  featureIds: string[]
+  hidden: boolean
+  pinned: boolean
+  labelOffsetPx: [number, number]
+}
+
+export interface SavedMeasurementSnapshot {
+  threadId: string
+  partUuid: string
+  artifactRevision: string
+  measurements: SavedMeasurementLabel[]
+}
+
+export interface SaveMeasurementSnapshotInput extends SavedMeasurementSnapshot {
+  requestId: string
+}
+
 export interface WorkbenchClient {
   getProject(signal?: AbortSignal): Promise<ProjectSummary>
   getInventory(signal?: AbortSignal): Promise<InventorySnapshot>
@@ -159,4 +185,6 @@ export interface WorkbenchClient {
   cancelJob(jobId: string): Promise<void>
   getExactFeatures(partUuid: string, artifactRevision: string, signal?: AbortSignal): Promise<ExactFeatureLookup>
   queueExactFeatures(partUuid: string, artifactRevision: string, requestId: string, signal?: AbortSignal): Promise<ExactFeatureSubmission>
+  getLatestMeasurementSnapshot(threadId: string, partUuid: string, signal?: AbortSignal): Promise<SavedMeasurementSnapshot | null>
+  saveMeasurementSnapshot(input: SaveMeasurementSnapshotInput, signal?: AbortSignal): Promise<void>
 }

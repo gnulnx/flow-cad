@@ -4,6 +4,8 @@ import type {
   ExactFeatureSubmission,
   InventorySnapshot,
   ProjectSummary,
+  SavedMeasurementSnapshot,
+  SaveMeasurementSnapshotInput,
   SendTurnInput,
   ThreadMessage,
   WorkbenchClient,
@@ -18,6 +20,8 @@ export interface TestClientOverrides {
   sendTurn?: (input: SendTurnInput) => Promise<ThreadMessage>
   exactFeatures?: ExactFeatureLookup | Promise<ExactFeatureLookup>
   queueExactFeatures?: (partUuid: string, artifactRevision: string, requestId: string) => Promise<ExactFeatureSubmission>
+  latestMeasurementSnapshot?: SavedMeasurementSnapshot | null | Promise<SavedMeasurementSnapshot | null>
+  saveMeasurementSnapshot?: (input: SaveMeasurementSnapshotInput) => Promise<void>
 }
 
 const project: ProjectSummary = {
@@ -63,5 +67,7 @@ export function createTestWorkbenchClient(overrides: TestClientOverrides = {}): 
       jobId: requestId,
       resultUrl: '',
     },
+    getLatestMeasurementSnapshot: async () => overrides.latestMeasurementSnapshot ?? null,
+    saveMeasurementSnapshot: async (input) => overrides.saveMeasurementSnapshot?.(input),
   }
 }

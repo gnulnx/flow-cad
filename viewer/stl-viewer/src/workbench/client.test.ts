@@ -178,4 +178,84 @@ describe('workbench HTTP adapter', () => {
       body: JSON.stringify({ request_id: 'request-1', artifact_revision: revision }),
     })
   })
+
+  it('loads and saves revision-bound measurement snapshots through the durable API', async () => {
+    const revision = 'a'.repeat(64)
+    const measurement = {
+      measurementId: 'measurement-1',
+      kind: 'distance' as const,
+      title: 'Two vertices',
+      quality: 'exact' as const,
+      startMm: [0, 0, 0] as [number, number, number],
+      endMm: [3, 4, 0] as [number, number, number],
+      totalMm: 5,
+      deltaMm: [3, 4, 0] as [number, number, number],
+      featureIds: ['vertex-1', 'vertex-2'],
+      hidden: false,
+      pinned: true,
+      labelOffsetPx: [8, -2] as [number, number],
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        snapshot: {
+          thread_id: 'thread-1',
+          part_uuid: 'part-1',
+          artifact_revision: revision,
+          measurements: [{
+            measurement_id: measurement.measurementId,
+            kind: measurement.kind,
+            title: measurement.title,
+            quality: measurement.quality,
+            start_mm: measurement.startMm,
+            end_mm: measurement.endMm,
+            total_mm: measurement.totalMm,
+            delta_mm: measurement.deltaMm,
+            feature_ids: measurement.featureIds,
+            hidden: measurement.hidden,
+            pinned: measurement.pinned,
+            label_offset_px: measurement.labelOffsetPx,
+          }],
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({ created: true }, 201))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createHttpWorkbenchClient()
+
+    await expect(client.getLatestMeasurementSnapshot('thread-1', 'part-1')).resolves.toEqual({
+      threadId: 'thread-1',
+      partUuid: 'part-1',
+      artifactRevision: revision,
+      measurements: [measurement],
+    })
+    await client.saveMeasurementSnapshot({
+      requestId: 'save-1',
+      threadId: 'thread-1',
+      partUuid: 'part-1',
+      artifactRevision: revision,
+      measurements: [measurement],
+    })
+
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/api/measurements/threads/thread-1/parts/part-1/snapshots')
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({
+        request_id: 'save-1',
+        artifact_revision: revision,
+        measurements: [{
+          measurement_id: measurement.measurementId,
+          kind: measurement.kind,
+          title: measurement.title,
+          quality: measurement.quality,
+          start_mm: measurement.startMm,
+          end_mm: measurement.endMm,
+          total_mm: measurement.totalMm,
+          delta_mm: measurement.deltaMm,
+          feature_ids: measurement.featureIds,
+          hidden: measurement.hidden,
+          pinned: measurement.pinned,
+          label_offset_px: measurement.labelOffsetPx,
+        }],
+      }),
+    })
+  })
 })

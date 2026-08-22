@@ -9,6 +9,7 @@ from flow_cad.measurement import MeasurementSnapshotStore
 from flow_cad.viewer.api.measurement_snapshot_routes import (
     create_measurement_snapshot_router,
 )
+from flow_cad.viewer.api import create_workbench_app
 
 
 PART_UUID = "2ff3ad34-7a6c-4d15-9743-e9790e4ae0cc"
@@ -114,3 +115,14 @@ def test_empty_snapshot_durably_represents_clear_all(tmp_path: Path) -> None:
     assert response.status_code == 201
     assert response.json()["event"]["snapshot"]["measurements"] == []
     assert client.get(f"{BASE_URL}/latest").json()["measurements"] == []
+
+
+def test_replacement_workbench_mounts_the_project_measurement_journal(
+    tmp_path: Path,
+) -> None:
+    app = create_workbench_app(tmp_path, enable_default_chat_provider=False)
+    client = TestClient(app)
+
+    assert isinstance(app.state.measurement_snapshot_store, MeasurementSnapshotStore)
+    assert app.state.measurement_snapshot_store.project_root == tmp_path.resolve()
+    assert client.get(f"{BASE_URL}/latest").status_code == 204

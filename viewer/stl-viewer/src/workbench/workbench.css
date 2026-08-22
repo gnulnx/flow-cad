@@ -228,6 +228,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .empty-copy { margin: 0; padding: 0 14px; color: var(--quiet); font-size: 10px; line-height: 1.55; }
 
 .workbench-main { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
+.measurement-save-error { margin: 0; padding: 6px 10px; border-top: 1px solid rgb(230 182 106 / 35%); color: #e6b66a; background: rgb(53 35 20 / 92%); font-size: 11px; }
 .viewport-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--canvas); }
 .viewport-toolbar { z-index: 2; display: flex; gap: 16px; align-items: center; justify-content: space-between; min-height: 57px; padding: 9px 14px; border-bottom: 1px solid var(--line); background: rgb(15 22 29 / 94%); }
 .viewport-toolbar h1 { max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

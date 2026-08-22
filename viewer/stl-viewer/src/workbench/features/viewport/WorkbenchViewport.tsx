@@ -92,9 +92,10 @@ interface WorkbenchViewportProps {
   threadId?: string | null
   onVisibilityChange?(partUuid: string, visible: boolean): void
   onMeasurementsChange?(measurements: MeasurementResult[]): void
+  measurementRestore?: { key: string; measurements: MeasurementResult[] } | null
 }
 
-export function WorkbenchViewport({ client, part, backendRevision, threadId = null, onVisibilityChange, onMeasurementsChange }: WorkbenchViewportProps) {
+export function WorkbenchViewport({ client, part, backendRevision, threadId = null, onVisibilityChange, onMeasurementsChange, measurementRestore = null }: WorkbenchViewportProps) {
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -148,6 +149,13 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
   useEffect(() => {
     onMeasurementsChange?.(measurements)
   }, [measurements, onMeasurementsChange])
+
+  useEffect(() => {
+    if (!measurementRestore) return
+    setMeasurements(measurementRestore.measurements)
+    setHoverTarget(null)
+    setStartTarget(null)
+  }, [measurementRestore])
 
   useEffect(() => {
     if (!part) return

@@ -5,6 +5,8 @@ import type {
   ExactFeatureSubmission,
   InventorySnapshot,
   ProjectSummary,
+  SavedMeasurementSnapshot,
+  SaveMeasurementSnapshotInput,
   SendTurnInput,
   ThreadMessage,
   WorkbenchClient,
@@ -137,6 +139,30 @@ interface ExactFeatureQueuedDto {
   result_url: string
 }
 
+interface MeasurementLabelDto {
+  measurement_id: string
+  kind: 'distance' | 'edge_length'
+  title: string
+  quality: 'exact' | 'approximate'
+  start_mm: [number, number, number]
+  end_mm: [number, number, number]
+  total_mm: number
+  delta_mm: [number, number, number]
+  feature_ids: string[]
+  hidden: boolean
+  pinned: boolean
+  label_offset_px: [number, number]
+}
+
+interface MeasurementSnapshotDto {
+  snapshot: {
+    thread_id: string
+    part_uuid: string
+    artifact_revision: string
+    measurements: MeasurementLabelDto[]
+  }
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const detail = await response.text()
@@ -257,6 +283,49 @@ async function readExactSubmission(response: Response): Promise<ExactFeatureSubm
   }
 }
 
+function measurementSnapshot(dto: MeasurementSnapshotDto): SavedMeasurementSnapshot {
+  return {
+    threadId: dto.snapshot.thread_id,
+    partUuid: dto.snapshot.part_uuid,
+    artifactRevision: dto.snapshot.artifact_revision,
+    measurements: dto.snapshot.measurements.map((measurement) => ({
+      measurementId: measurement.measurement_id,
+      kind: measurement.kind,
+      title: measurement.title,
+      quality: measurement.quality,
+      startMm: measurement.start_mm,
+      endMm: measurement.end_mm,
+      totalMm: measurement.total_mm,
+      deltaMm: measurement.delta_mm,
+      featureIds: measurement.feature_ids,
+      hidden: measurement.hidden,
+      pinned: measurement.pinned,
+      labelOffsetPx: measurement.label_offset_px,
+    })),
+  }
+}
+
+function saveMeasurementBody(input: SaveMeasurementSnapshotInput) {
+  return {
+    request_id: input.requestId,
+    artifact_revision: input.artifactRevision,
+    measurements: input.measurements.map((measurement) => ({
+      measurement_id: measurement.measurementId,
+      kind: measurement.kind,
+      title: measurement.title,
+      quality: measurement.quality,
+      start_mm: measurement.startMm,
+      end_mm: measurement.endMm,
+      total_mm: measurement.totalMm,
+      delta_mm: measurement.deltaMm,
+      feature_ids: measurement.featureIds,
+      hidden: measurement.hidden,
+      pinned: measurement.pinned,
+      label_offset_px: measurement.labelOffsetPx,
+    })),
+  }
+}
+
 export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}`): WorkbenchClient {
   const applicationUrl = API_ROOT
   const projectSummary = (dto: ProjectDto): ProjectSummary => ({
@@ -363,6 +432,25 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         signal,
       },
     ).then(readExactSubmission),
+    getLatestMeasurementSnapshot: async (threadId, partUuid, signal) => {
+      const response = await fetch(
+        `${applicationUrl}/api/measurements/threads/${encodeURIComponent(threadId)}/parts/${encodeURIComponent(partUuid)}/latest`,
+        { signal, cache: 'no-store' },
+      )
+      if (response.status === 204) return null
+      return measurementSnapshot(await readJson<MeasurementSnapshotDto>(response))
+    },
+    saveMeasurementSnapshot: (input, signal) => fetch(
+      `${applicationUrl}/api/measurements/threads/${encodeURIComponent(input.threadId)}/parts/${encodeURIComponent(input.partUuid)}/snapshots`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saveMeasurementBody(input)),
+        signal,
+      },
+    ).then(async (response) => {
+      if (!response.ok) throw new Error(await response.text())
+    }),
   }
 }
 
