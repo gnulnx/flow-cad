@@ -53,6 +53,55 @@ export interface InventorySnapshot {
   parts: WorkbenchPart[]
 }
 
+export type ExactFeatureKind = 'vertex' | 'line_edge' | 'edge_midpoint' | 'circle_center'
+export type Point3 = [number, number, number]
+
+export interface ExactFeature {
+  id: string
+  kind: ExactFeatureKind
+  quality: 'exact'
+  source: 'step_topology'
+  pointMm?: Point3
+  startMm?: Point3
+  endMm?: Point3
+  midpointMm?: Point3
+  lengthMm?: number
+  radiusMm?: number
+  edgeLengthMm?: number
+  edgeFeatureId?: string
+}
+
+export interface ExactFeatureSet {
+  status: 'ready'
+  partUuid: string
+  artifactRevision: string
+  geometryAuthority: 'step_kernel'
+  quality: 'exact'
+  units: 'mm'
+  features: ExactFeature[]
+  warnings: string[]
+  cacheHit: boolean
+}
+
+export interface ExactFeatureJobRequired {
+  status: 'job_required'
+  partUuid: string
+  artifactRevision: string
+  geometryAuthority: 'step_kernel'
+  quality: 'exact'
+}
+
+export interface ExactFeatureJobQueued {
+  status: 'queued' | 'running'
+  partUuid: string
+  artifactRevision: string
+  jobId: string
+  resultUrl: string
+}
+
+export type ExactFeatureLookup = ExactFeatureSet | ExactFeatureJobRequired
+export type ExactFeatureSubmission = ExactFeatureSet | ExactFeatureJobQueued
+
 export type JobState = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled'
 
 export interface WorkbenchJob {
@@ -108,4 +157,6 @@ export interface WorkbenchClient {
   sendTurn(input: SendTurnInput, signal?: AbortSignal): Promise<ThreadMessage>
   cancelTurn(threadId: string, turnId: string): Promise<void>
   cancelJob(jobId: string): Promise<void>
+  getExactFeatures(partUuid: string, artifactRevision: string, signal?: AbortSignal): Promise<ExactFeatureLookup>
+  queueExactFeatures(partUuid: string, artifactRevision: string, requestId: string, signal?: AbortSignal): Promise<ExactFeatureSubmission>
 }

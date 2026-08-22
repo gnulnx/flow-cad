@@ -1,4 +1,8 @@
 import type {
+  ExactFeature,
+  ExactFeatureLookup,
+  ExactFeatureSet,
+  ExactFeatureSubmission,
   InventorySnapshot,
   ProjectSummary,
   SendTurnInput,
@@ -90,6 +94,49 @@ interface JobDto {
   payload?: Record<string, unknown>
 }
 
+interface ExactFeatureDto {
+  id: string
+  kind: ExactFeature['kind']
+  quality: 'exact'
+  source: 'step_topology'
+  point_mm?: [number, number, number]
+  start_mm?: [number, number, number]
+  end_mm?: [number, number, number]
+  midpoint_mm?: [number, number, number]
+  length_mm?: number
+  radius_mm?: number
+  edge_length_mm?: number
+  edge_feature_id?: string
+}
+
+interface ExactFeatureSetDto {
+  status: 'ready'
+  part_uuid: string
+  artifact_revision: string
+  geometry_authority: 'step_kernel'
+  quality: 'exact'
+  units: 'mm'
+  features: ExactFeatureDto[]
+  warnings: string[]
+  cache_hit?: boolean
+}
+
+interface ExactFeatureRequiredDto {
+  status: 'job_required'
+  part_uuid: string
+  artifact_revision: string
+  geometry_authority: 'step_kernel'
+  quality: 'exact'
+}
+
+interface ExactFeatureQueuedDto {
+  status: 'queued' | 'running'
+  part_uuid: string
+  artifact_revision: string
+  job: { job_id: string }
+  result_url: string
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const detail = await response.text()
@@ -157,6 +204,57 @@ function jobRecords(payload: JobDto[] | { jobs: JobDto[] }): WorkbenchJob[] {
     elapsedMs: job.elapsed_seconds * 1000,
     lastUpdate: job.updated_at,
   }))
+}
+
+function exactFeatureSet(dto: ExactFeatureSetDto): ExactFeatureSet {
+  return {
+    status: 'ready',
+    partUuid: dto.part_uuid,
+    artifactRevision: dto.artifact_revision,
+    geometryAuthority: dto.geometry_authority,
+    quality: dto.quality,
+    units: dto.units,
+    features: dto.features.map((feature) => ({
+      id: feature.id,
+      kind: feature.kind,
+      quality: feature.quality,
+      source: feature.source,
+      pointMm: feature.point_mm,
+      startMm: feature.start_mm,
+      endMm: feature.end_mm,
+      midpointMm: feature.midpoint_mm,
+      lengthMm: feature.length_mm,
+      radiusMm: feature.radius_mm,
+      edgeLengthMm: feature.edge_length_mm,
+      edgeFeatureId: feature.edge_feature_id,
+    })),
+    warnings: dto.warnings,
+    cacheHit: dto.cache_hit ?? false,
+  }
+}
+
+async function readExactLookup(response: Response): Promise<ExactFeatureLookup> {
+  const dto = await readJson<ExactFeatureSetDto | ExactFeatureRequiredDto>(response)
+  if (dto.status === 'ready') return exactFeatureSet(dto)
+  return {
+    status: 'job_required',
+    partUuid: dto.part_uuid,
+    artifactRevision: dto.artifact_revision,
+    geometryAuthority: dto.geometry_authority,
+    quality: dto.quality,
+  }
+}
+
+async function readExactSubmission(response: Response): Promise<ExactFeatureSubmission> {
+  const dto = await readJson<ExactFeatureSetDto | ExactFeatureQueuedDto>(response)
+  if (dto.status === 'ready') return exactFeatureSet(dto)
+  return {
+    status: dto.status,
+    partUuid: dto.part_uuid,
+    artifactRevision: dto.artifact_revision,
+    jobId: dto.job.job_id,
+    resultUrl: dto.result_url,
+  }
 }
 
 export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}`): WorkbenchClient {
@@ -252,6 +350,19 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
     }).then(async (response) => {
       if (!response.ok) throw new Error(await response.text())
     }),
+    getExactFeatures: (partUuid, artifactRevision, signal) => fetch(
+      `${applicationUrl}/api/parts/${encodeURIComponent(partUuid)}/exact-features?artifact_revision=${encodeURIComponent(artifactRevision)}`,
+      { signal, cache: 'no-store' },
+    ).then(readExactLookup),
+    queueExactFeatures: (partUuid, artifactRevision, requestId, signal) => fetch(
+      `${applicationUrl}/api/parts/${encodeURIComponent(partUuid)}/exact-features/jobs`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, artifact_revision: artifactRevision }),
+        signal,
+      },
+    ).then(readExactSubmission),
   }
 }
 

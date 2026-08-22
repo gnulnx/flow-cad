@@ -5,8 +5,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function jsonResponse(body: unknown) {
-  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
 describe('workbench HTTP adapter', () => {
@@ -115,5 +115,67 @@ describe('workbench HTTP adapter', () => {
     const jobs = await createHttpWorkbenchClient('').getJobs()
 
     expect(jobs[0]).toMatchObject({ id: 'job-1', label: 'Exact topology', state: 'complete' })
+  })
+
+  it('keeps exact STEP extraction as an explicit cold job followed by a warm revision result', async () => {
+    const revision = 'a'.repeat(64)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'job_required',
+        part_uuid: 'part-1',
+        artifact_revision: revision,
+        geometry_authority: 'step_kernel',
+        quality: 'exact',
+      }, 202))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'queued',
+        part_uuid: 'part-1',
+        artifact_revision: revision,
+        job: { job_id: 'job-1' },
+        result_url: `/api/parts/part-1/exact-features?artifact_revision=${revision}`,
+      }, 202))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 'ready',
+        part_uuid: 'part-1',
+        artifact_revision: revision,
+        geometry_authority: 'step_kernel',
+        quality: 'exact',
+        units: 'mm',
+        cache_hit: true,
+        warnings: [],
+        features: [{
+          id: 'line_edge:0',
+          kind: 'line_edge',
+          source: 'step_topology',
+          quality: 'exact',
+          start_mm: [0, 0, 0],
+          end_mm: [10, 0, 0],
+          midpoint_mm: [5, 0, 0],
+          length_mm: 10,
+        }],
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createHttpWorkbenchClient()
+
+    expect(await client.getExactFeatures('part-1', revision)).toMatchObject({ status: 'job_required' })
+    expect(await client.queueExactFeatures('part-1', revision, 'request-1')).toMatchObject({
+      status: 'queued',
+      jobId: 'job-1',
+    })
+    expect(await client.getExactFeatures('part-1', revision)).toMatchObject({
+      status: 'ready',
+      artifactRevision: revision,
+      cacheHit: true,
+      features: [{
+        kind: 'line_edge',
+        startMm: [0, 0, 0],
+        endMm: [10, 0, 0],
+        lengthMm: 10,
+      }],
+    })
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ request_id: 'request-1', artifact_revision: revision }),
+    })
   })
 })

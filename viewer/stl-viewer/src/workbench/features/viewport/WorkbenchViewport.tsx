@@ -1,5 +1,15 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { DisplayArtifact, WorkbenchPart } from '../../contracts'
+import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import type { DisplayArtifact, WorkbenchClient, WorkbenchPart } from '../../contracts'
+import { MeasurementOverlay, MeasurementToolButton } from '../measurement/MeasurementTool'
+import {
+  createDistanceMeasurement,
+  createEdgeLengthMeasurement,
+  findScreenSpaceSnap,
+  type MeasurementProjectionSource,
+  type MeasurementResult,
+  type SnapCandidate,
+} from '../measurement/measurement'
+import { useExactFeatures } from '../measurement/useExactFeatures'
 import type { RotationMode } from './navigation'
 import { useAgentScreenCapture, type LiveViewportSource } from './agentScreen'
 
@@ -71,24 +81,42 @@ function useDisplayArtifact(artifact: DisplayArtifact | null) {
 }
 
 interface WorkbenchViewportProps {
+  client: WorkbenchClient
   part: WorkbenchPart | null
   backendRevision: number | null
   onVisibilityChange?(partUuid: string, visible: boolean): void
+  onMeasurementsChange?(measurements: MeasurementResult[]): void
 }
 
-export function WorkbenchViewport({ part, backendRevision, onVisibilityChange }: WorkbenchViewportProps) {
+export function WorkbenchViewport({ client, part, backendRevision, onVisibilityChange, onMeasurementsChange }: WorkbenchViewportProps) {
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
   const [rendererReady, setRendererReady] = useState(false)
   const [rendererError, setRendererError] = useState<string | null>(null)
+  const [measureMode, setMeasureMode] = useState(false)
+  const [hoverTarget, setHoverTarget] = useState<SnapCandidate | null>(null)
+  const [startTarget, setStartTarget] = useState<SnapCandidate | null>(null)
+  const [measurements, setMeasurements] = useState<MeasurementResult[]>([])
+  const measurementSequence = useRef(0)
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const measurementProjectionRef = useRef<MeasurementProjectionSource | null>(null)
   const liveViewportRef = useRef<(() => LiveViewportSource) | null>(null)
   const { artifactBytes, state, error } = useDisplayArtifact(part?.displayArtifact ?? null)
   const displayState: ModelLoadState = rendererError ? 'failed' : state === 'ready' && !rendererReady ? 'loading' : state
+  const exactFeatures = useExactFeatures(
+    client,
+    part?.uuid ?? null,
+    part?.authorityHash ?? null,
+    displayState === 'ready' && part?.geometryAuthority === 'step',
+  )
   const rendererBecameReady = useCallback(() => setRendererReady(true), [])
   const rendererFailed = useCallback((message: string) => setRendererError(message), [])
   const registerLiveViewport = useCallback((source: (() => LiveViewportSource) | null) => {
     liveViewportRef.current = source
+  }, [])
+  const registerMeasurementProjection = useCallback((source: MeasurementProjectionSource | null) => {
+    measurementProjectionRef.current = source
   }, [])
   const getLiveViewport = useCallback(() => liveViewportRef.current?.() ?? null, [])
   useAgentScreenCapture({
@@ -104,9 +132,66 @@ export function WorkbenchViewport({ part, backendRevision, onVisibilityChange }:
   }, [part?.displayArtifact?.contentHash])
 
   useEffect(() => {
+    setHoverTarget(null)
+    setStartTarget(null)
+  }, [part?.authorityHash, part?.uuid])
+
+  useEffect(() => {
+    onMeasurementsChange?.(measurements)
+  }, [measurements, onMeasurementsChange])
+
+  useEffect(() => {
     if (!part) return
     onVisibilityChange?.(part.uuid, displayState === 'ready')
   }, [displayState, onVisibilityChange, part])
+
+  const toggleMeasureMode = useCallback(() => {
+    setMeasureMode((active) => {
+      if (active) {
+        setHoverTarget(null)
+        setStartTarget(null)
+      }
+      return !active
+    })
+  }, [])
+
+  const snapAtPointer = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!measureMode || exactFeatures.status !== 'ready' || !measurementProjectionRef.current) return null
+    return findScreenSpaceSnap(
+      { x: event.clientX, y: event.clientY },
+      exactFeatures.featureSet.features,
+      measurementProjectionRef.current.createProjector(),
+    )
+  }, [exactFeatures, measureMode])
+
+  const pointerMoved = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if ((event.target as Element).closest?.('.measurement-labels')) return
+    setHoverTarget(snapAtPointer(event))
+  }, [snapAtPointer])
+
+  const pointerClicked = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!measureMode || event.button !== 0 || (event.target as Element).closest?.('.measurement-labels')) return
+    const target = snapAtPointer(event)
+    if (!target || !part?.authorityHash) return
+    const binding = { partUuid: part.uuid, artifactRevision: part.authorityHash }
+    measurementSequence.current += 1
+    const id = `${part.uuid}:measurement:${measurementSequence.current}`
+    if (target.kind === 'line_edge' && !startTarget) {
+      const edge = createEdgeLengthMeasurement(id, target, binding)
+      if (edge) setMeasurements((current) => [...current, edge])
+      return
+    }
+    if (!startTarget) {
+      setStartTarget(target)
+      return
+    }
+    setMeasurements((current) => [...current, createDistanceMeasurement(id, startTarget, target, binding)])
+    setStartTarget(null)
+  }, [measureMode, part, snapAtPointer, startTarget])
+
+  const updateMeasurement = useCallback((id: string, update: (record: MeasurementResult) => MeasurementResult) => {
+    setMeasurements((current) => current.map((record) => record.id === id ? update(record) : record))
+  }, [])
 
   return (
     <section className="viewport-panel" aria-labelledby="viewport-title">
@@ -134,9 +219,16 @@ export function WorkbenchViewport({ part, backendRevision, onVisibilityChange }:
           </div>
           <button type="button" className="tool-button" onClick={() => setFitRequest((request) => request + 1)}>Fit</button>
           <button type="button" className="tool-button" onClick={() => setFrameSelectedRequest((request) => request + 1)}>Frame part</button>
+          <MeasurementToolButton active={measureMode} state={exactFeatures} onToggle={toggleMeasureMode} />
         </div>
       </div>
-      <div className="viewport-stage">
+      <div
+        ref={stageRef}
+        className={`viewport-stage${measureMode ? ' viewport-stage--measuring' : ''}`}
+        onPointerMove={pointerMoved}
+        onPointerLeave={() => setHoverTarget(null)}
+        onClick={pointerClicked}
+      >
         {artifactBytes ? (
           <ModelErrorBoundary resetKey={part?.displayArtifact?.contentHash ?? null} onError={rendererFailed}>
             <Suspense fallback={(
@@ -154,6 +246,13 @@ export function WorkbenchViewport({ part, backendRevision, onVisibilityChange }:
                 frameSelectedRequest={frameSelectedRequest}
                 onReady={rendererBecameReady}
                 registerLiveViewport={registerLiveViewport}
+                registerMeasurementProjection={registerMeasurementProjection}
+                measureMode={measureMode}
+                measurementHover={hoverTarget}
+                measurementStart={startTarget}
+                measurements={measurements}
+                currentPartUuid={part?.uuid ?? null}
+                currentArtifactRevision={part?.authorityHash ?? null}
               />
             </Suspense>
           </ModelErrorBoundary>
@@ -182,7 +281,25 @@ export function WorkbenchViewport({ part, backendRevision, onVisibilityChange }:
           <span className={`artifact-state artifact-state--${displayState === 'ready' ? 'visible' : displayState}`} />
           <span>{displayState === 'ready' ? 'Display artifact visible' : displayState === 'loading' ? 'Loading model' : displayState === 'failed' ? 'Model failed' : 'Viewport ready'}</span>
         </div>
-        <div className="navigation-hint">Left rotate · Right / middle pan · Wheel dolly · Z-up</div>
+        <div className="navigation-hint">{measureMode ? 'Left select · Right / middle pan · Wheel dolly · Z-up' : 'Left rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
+        <MeasurementOverlay
+          active={measureMode}
+          state={exactFeatures}
+          hover={hoverTarget}
+          start={startTarget}
+          measurements={measurements}
+          currentPartUuid={part?.uuid ?? null}
+          currentArtifactRevision={part?.authorityHash ?? null}
+          stageRect={stageRef.current?.getBoundingClientRect() ?? null}
+          onClear={() => setMeasurements([])}
+          onDelete={(id) => setMeasurements((current) => current.filter((record) => record.id !== id))}
+          onToggleHidden={(id) => updateMeasurement(id, (record) => ({ ...record, hidden: !record.hidden }))}
+          onTogglePinned={(id) => updateMeasurement(id, (record) => ({ ...record, pinned: !record.pinned }))}
+          onMove={(id, [dx, dy]) => updateMeasurement(id, (record) => ({
+            ...record,
+            offsetPx: [record.offsetPx[0] + dx, record.offsetPx[1] + dy],
+          }))}
+        />
       </div>
     </section>
   )

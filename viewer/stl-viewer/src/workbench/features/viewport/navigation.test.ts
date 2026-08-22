@@ -26,6 +26,7 @@ function frame(): CameraFrame {
 describe('replacement workbench navigation contract', () => {
   it('maps left drag to rotate and both alternate buttons to pan', () => {
     expect(pointerIntent(0)).toBe('rotate')
+    expect(pointerIntent(0, false)).toBeNull()
     expect(pointerIntent(1)).toBe('pan')
     expect(pointerIntent(2)).toBe('pan')
     expect(pointerIntent(4)).toBeNull()

@@ -39,7 +39,12 @@ export default function AppShell({ client }: AppShellProps) {
           <InspectorDock part={activePart} />
         </aside>
         <main className="workbench-main">
-          <WorkbenchViewport part={activePart} backendRevision={project?.revision ?? null} onVisibilityChange={visibilityChanged} />
+          <WorkbenchViewport
+            client={workbenchClient}
+            part={activePart}
+            backendRevision={project?.revision ?? null}
+            onVisibilityChange={visibilityChanged}
+          />
           <JobDrawer client={workbenchClient} />
         </main>
         <ChatDock

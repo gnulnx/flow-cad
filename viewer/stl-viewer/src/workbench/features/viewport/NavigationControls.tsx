@@ -22,6 +22,7 @@ interface NavigationControlsProps {
   selectedBounds: Bounds3 | null
   fitRequest: number
   frameSelectedRequest: number
+  measureMode: boolean
 }
 
 interface DragState {
@@ -52,11 +53,13 @@ export function NavigationControls({
   selectedBounds,
   fitRequest,
   frameSelectedRequest,
+  measureMode,
 }: NavigationControlsProps) {
   const { camera, gl, invalidate } = useThree()
   const pivotRef = useRef(new THREE.Vector3())
   const dragRef = useRef<DragState | null>(null)
   const modeRef = useRef(rotationMode)
+  const measureModeRef = useRef(measureMode)
   const fitRequestRef = useRef(-1)
   const frameRequestRef = useRef(-1)
 
@@ -67,6 +70,10 @@ export function NavigationControls({
     camera.lookAt(pivotRef.current)
     invalidate()
   }, [camera, invalidate, rotationMode])
+
+  useEffect(() => {
+    measureModeRef.current = measureMode
+  }, [measureMode])
 
   useEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera) || fitRequestRef.current === fitRequest) return
@@ -94,7 +101,7 @@ export function NavigationControls({
     const element = gl.domElement
 
     const pointerDown = (event: PointerEvent) => {
-      const intent = pointerIntent(event.button)
+      const intent = pointerIntent(event.button, !measureModeRef.current)
       if (!intent) return
       const rect = element.getBoundingClientRect()
       dragRef.current = {

@@ -25,8 +25,8 @@ export interface ViewportRect {
   height: number
 }
 
-export function pointerIntent(button: number): PointerIntent {
-  if (button === 0) return 'rotate'
+export function pointerIntent(button: number, leftRotateEnabled = true): PointerIntent {
+  if (button === 0) return leftRotateEnabled ? 'rotate' : null
   if (button === 1 || button === 2) return 'pan'
   return null
 }

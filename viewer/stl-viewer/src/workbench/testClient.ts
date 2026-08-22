@@ -1,5 +1,7 @@
 import type {
   DefaultThread,
+  ExactFeatureLookup,
+  ExactFeatureSubmission,
   InventorySnapshot,
   ProjectSummary,
   SendTurnInput,
@@ -14,6 +16,8 @@ export interface TestClientOverrides {
   jobs?: WorkbenchJob[] | Promise<WorkbenchJob[]>
   defaultThread?: DefaultThread | Promise<DefaultThread>
   sendTurn?: (input: SendTurnInput) => Promise<ThreadMessage>
+  exactFeatures?: ExactFeatureLookup | Promise<ExactFeatureLookup>
+  queueExactFeatures?: (partUuid: string, artifactRevision: string, requestId: string) => Promise<ExactFeatureSubmission>
 }
 
 const project: ProjectSummary = {
@@ -45,5 +49,19 @@ export function createTestWorkbenchClient(overrides: TestClientOverrides = {}): 
     },
     cancelTurn: async () => undefined,
     cancelJob: async () => undefined,
+    getExactFeatures: async () => overrides.exactFeatures ?? {
+      status: 'job_required',
+      partUuid: 'unavailable',
+      artifactRevision: 'unavailable',
+      geometryAuthority: 'step_kernel',
+      quality: 'exact',
+    },
+    queueExactFeatures: async (partUuid, artifactRevision, requestId) => overrides.queueExactFeatures?.(partUuid, artifactRevision, requestId) ?? {
+      status: 'queued',
+      partUuid,
+      artifactRevision,
+      jobId: requestId,
+      resultUrl: '',
+    },
   }
 }
