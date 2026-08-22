@@ -307,6 +307,22 @@ class ViewerService:
             for definition in self.project.iter_part_definitions()
         ]
         versions = self._versions(parts, active_version)
+        return {
+            "project_id": self.project.project_id,
+            "project_name": self.project.name,
+            "revision": self.revision,
+            "active_version": active_version,
+            "active_assembly_id": active_assembly_id,
+            "versions": versions,
+            # Keep registry discovery geometry-free. Large projects can require
+            # minutes to compute URDF mass properties, which must not block the
+            # part list or prevent the viewer from rendering existing exports.
+            "assembly_mass_properties": None,
+            "parts": parts,
+        }
+
+    def assembly_mass_properties(self) -> dict[str, Any]:
+        active_assembly_id = self._active_assembly_id()
         mass_properties = UrdfExportService(
             self.project,
             params=self.params,
@@ -317,14 +333,9 @@ class ViewerService:
             include_references=True,
         )
         return {
-            "project_id": self.project.project_id,
-            "project_name": self.project.name,
+            "ok": True,
             "revision": self.revision,
-            "active_version": active_version,
-            "active_assembly_id": active_assembly_id,
-            "versions": versions,
             "assembly_mass_properties": mass_properties.to_payload(include_contributions=False),
-            "parts": parts,
         }
 
     def get_part_payload(self, component_id: str) -> dict[str, Any]:
