@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - front_back_refactor
+      - "rebuild/**"
 
 jobs:
   pytest:

@@ -22,8 +22,12 @@ class PartRole(StrEnum):
 class PartStatus(StrEnum):
     """Lifecycle status for a manifest part."""
 
+    PRESERVED_ONLY = "preserved-only"
     ACTIVE = "active"
+    REFERENCE = "reference"
+    INSPECTION = "inspection"
     RETIRED = "retired"
+    SUPERSEDED = "superseded"
 
 
 @dataclass(frozen=True, slots=True)

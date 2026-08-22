@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+import shutil
+import sqlite3
+import sys
+import time
+from pathlib import Path
+from uuid import UUID
+
+from flow_cad.registry import get_part, list_parts, sync_project
+from flow_cad.registry.db import database_path
+from flow_cad.sdk import (
+    ArtifactSpec,
+    ManifestPart,
+    PartRole,
+    PartStatus,
+    ProjectManifest,
+    dump_manifest,
+)
+
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "projects"
+
+
+def _copy_fixture(tmp_path: Path, name: str = "minimal_alpha") -> Path:
+    root = tmp_path / name
+    shutil.copytree(FIXTURES / name, root)
+    return root
+
+
+def test_sync_builds_all_contract_tables_without_importing_geometry(tmp_path: Path) -> None:
+    root = _copy_fixture(tmp_path)
+
+    result = sync_project(root)
+
+    assert result.changed
+    assert result.part_count == 1
+    assert result.occurrence_count == 1
+    assert "minimal_alpha.parts" not in sys.modules
+    with sqlite3.connect(result.database_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    assert {
+        "projects",
+        "parts",
+        "part_aliases",
+        "source_definitions",
+        "assembly_occurrences",
+        "builds",
+        "build_jobs",
+        "artifacts",
+        "artifact_dependencies",
+        "validation_results",
+        "thread_summaries",
+    } <= tables
+
+
+def test_sync_is_idempotent_and_reconstructs_a_deleted_index(tmp_path: Path) -> None:
+    root = _copy_fixture(tmp_path)
+
+    first = sync_project(root)
+    second = sync_project(root)
+    first.database_path.unlink()
+    rebuilt = sync_project(root)
+
+    assert first.changed
+    assert not second.changed
+    assert second.revision == first.revision
+    assert rebuilt.changed
+    assert rebuilt.revision == 1
+    assert [part.key for part in list_parts(root)] == ["alpha_panel"]
+
+
+def test_part_queries_are_read_only_and_resolve_aliases(tmp_path: Path) -> None:
+    root = _copy_fixture(tmp_path)
+    sync_project(root)
+    index_path = database_path(root)
+    before_mtime = index_path.stat().st_mtime_ns
+
+    parts = list_parts(root)
+    detail = get_part(root, "original_alpha_panel")
+
+    assert [part.key for part in parts] == ["alpha_panel"]
+    assert parts[0].artifact_count == 2
+    assert parts[0].missing_artifact_count == 2
+    assert detail is not None
+    assert detail.key == "alpha_panel"
+    assert detail.aliases == ("original_alpha_panel",)
+    assert index_path.stat().st_mtime_ns == before_mtime
+
+
+def test_listing_one_thousand_indexed_parts_stays_below_hard_gate(tmp_path: Path) -> None:
+    root = tmp_path / "large_project"
+    root.mkdir()
+    parts = tuple(
+        ManifestPart(
+            uuid=UUID(int=index + 1),
+            key=f"part_{index:04d}",
+            aliases=(),
+            generator=f"large_project.parts:make_{index:04d}",
+            role=PartRole.PRINTABLE,
+            status=PartStatus.ACTIVE,
+            artifacts=(ArtifactSpec(kind="step", path=f"exports/step/part_{index:04d}.step"),),
+        )
+        for index in range(1000)
+    )
+    manifest = ProjectManifest(
+        schema_version=1,
+        project_id="large_project",
+        python_package="large_project",
+        parts=parts,
+        assemblies=(),
+    )
+    (root / "flowcad.project.yaml").write_text(dump_manifest(manifest), encoding="utf-8")
+    sync_project(root)
+
+    started = time.perf_counter()
+    listed = list_parts(root)
+    elapsed = time.perf_counter() - started
+
+    assert len(listed) == 1000
+    assert elapsed < 0.250
