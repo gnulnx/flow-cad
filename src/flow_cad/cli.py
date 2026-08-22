@@ -15,12 +15,14 @@ class LazyFlowGroup(click.Group):
 
     lazy_commands = {
         "cad": ("flow_cad.main", "cli"),
+        "ownership": ("flow_cad.validation.ownership_cli", "ownership"),
         "preserve": ("flow_cad.artifacts.cli", "preserve"),
         "registry": ("flow_cad.registry_cli", "registry"),
         "validate": ("flow_cad.validation.cli", "validate"),
     }
     lazy_help = {
         "cad": "Build and export CAD artifacts.",
+        "ownership": "Enforce downstream SDK and runtime boundaries.",
         "preserve": "Create and verify byte-identical migration archives.",
         "registry": "Query the legacy generated build cache.",
         "validate": "Run focused validators.",
