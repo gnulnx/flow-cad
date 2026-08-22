@@ -276,3 +276,11 @@ The working tree may contain user or other-agent changes.
 - Treat agent-authored docs as user-visible work.
 - Separate cleanup of tracked junk, generated files, or ignore rules into its
   own explicit commit when possible.
+- Always commit every completed change before ending the task. Never leave this
+  worktree with modified, staged, or untracked task files.
+- Preserve pre-existing work; checkpoint it in an explicit commit instead of
+  discarding it or leaving it dirty.
+- When work spans Flow CAD and a downstream project, commit each repository
+  separately with an ownership-appropriate message.
+- Run `git status --short` after the final commit. A task is not complete until
+  the output is empty.
