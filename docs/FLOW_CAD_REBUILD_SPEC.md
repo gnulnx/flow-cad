@@ -36,6 +36,7 @@ correct geometry.
   on the legacy branch.
 - Do not delete, rewrite, clean, or repurpose `/home/gnulnx/b3_robot`.
 - Create `/home/gnulnx/flow_b2` only after the user creates the repository.
+  -- flow_b2 is here:  git@github.com:gnulnx/flow_b2.git
 - Initialize `flow_b2` using the replacement `flow init`; do not manually copy a
   starter project into place.
 - Preserve every B3 part source file and every existing STEP/STL artifact.
