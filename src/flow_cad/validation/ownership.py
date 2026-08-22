@@ -166,7 +166,7 @@ def scan_downstream_ownership(
         scanned_files.append(relative_path)
         source_bytes = source_path.read_bytes()
         digest = hashlib.sha256(source_bytes).hexdigest()
-        matches = runtime_hashes.get(digest, ())
+        matches = runtime_hashes.get(digest, ()) if source_bytes.strip() else ()
         if matches:
             issues.append(
                 OwnershipIssue(

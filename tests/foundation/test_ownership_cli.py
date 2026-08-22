@@ -10,6 +10,7 @@ from flow_cad.cli import flow
 def test_ownership_cli_reports_clean_sdk_only_project(tmp_path: Path) -> None:
     package = tmp_path / "flow_b2"
     package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "part.py").write_text("from flow_cad.sdk import ManifestPart\n", encoding="utf-8")
 
     result = CliRunner().invoke(
