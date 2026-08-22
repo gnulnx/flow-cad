@@ -17,6 +17,7 @@ interface AnnotationOverlayProps {
   onActiveChange?(active: boolean): void
   onChange?(marks: AnnotationMark[], hidden: boolean): void
   onSave?(marks: AnnotationMark[], hidden: boolean): void | Promise<void>
+  onAskAgent?(marks: AnnotationMark[]): void
 }
 
 const TOOLS: readonly [AnnotationTool, string][] = [
@@ -34,6 +35,7 @@ export function AnnotationOverlay({
   onActiveChange,
   onChange,
   onSave,
+  onAskAgent,
 }: AnnotationOverlayProps) {
   const [state, dispatch] = useReducer(annotationReducer, initialMarks, createAnnotationState)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
@@ -153,6 +155,11 @@ export function AnnotationOverlay({
               <button type="button" onClick={() => dispatch({ type: 'clear' })} disabled={state.marks.length === 0}>Clear</button>
               <button type="button" onClick={() => dispatch({ type: 'toggle_visible' })}>{state.visible ? 'Hide' : 'Show'}</button>
               {onSave ? <button type="button" onClick={() => void save()}>{saveState === 'saving' ? 'Saving…' : 'Save'}</button> : null}
+              {onAskAgent ? (
+                <button type="button" onClick={() => onAskAgent(state.marks)} disabled={state.marks.length === 0}>
+                  Ask agent about this markup
+                </button>
+              ) : null}
             </div>
             {saveState === 'failed' ? <span className="annotation-save-state" role="alert">Save failed</span> : null}
             <span className="annotation-palette__hint">Esc exits</span>

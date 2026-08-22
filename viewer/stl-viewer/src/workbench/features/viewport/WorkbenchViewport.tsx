@@ -69,10 +69,11 @@ interface WorkbenchViewportProps {
   onAssemblyStateChange?(snapshot: AssemblyViewportSnapshot): void
   onMeasurementsChange?(measurements: MeasurementResult[]): void
   onViewportContextChange?(context: WorkbenchViewportContext): void
+  onAskAgentAboutMarkup?(marks: AnnotationMark[]): void
   measurementRestore?: { key: string; measurements: MeasurementResult[] } | null
 }
 
-export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, measurementRestore = null }: WorkbenchViewportProps) {
+export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null }: WorkbenchViewportProps) {
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -377,6 +378,7 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
         <AnnotationOverlay
           overlayRef={annotationOverlayRef}
           onChange={annotationsChanged}
+          onAskAgent={onAskAgentAboutMarkup}
           onSave={threadId && part && selectedArtifactRevision && backendRevision !== null && assembly.partStates[part.uuid] === 'visible'
             ? saveAnnotations
             : undefined}

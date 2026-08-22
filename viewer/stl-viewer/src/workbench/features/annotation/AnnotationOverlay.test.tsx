@@ -97,4 +97,20 @@ describe('AnnotationOverlay', () => {
     await user.click(screen.getByRole('button', { name: 'Clear' }))
     expect(surface.querySelectorAll('[data-mark-id]')).toHaveLength(0)
   })
+
+  it('hands current review-intent markup to the design agent explicitly', async () => {
+    const user = userEvent.setup()
+    const onAskAgent = vi.fn()
+    render(<AnnotationOverlay onAskAgent={onAskAgent} />)
+    const surface = drawingSurface()
+    await user.click(screen.getByRole('button', { name: 'Annotate' }))
+    expect(screen.getByRole('button', { name: 'Ask agent about this markup' })).toBeDisabled()
+    drag(surface, [100, 100], [300, 200])
+
+    await user.click(screen.getByRole('button', { name: 'Ask agent about this markup' }))
+
+    expect(onAskAgent).toHaveBeenCalledWith([
+      expect.objectContaining({ kind: 'pen', intent: 'review_intent' }),
+    ])
+  })
 })

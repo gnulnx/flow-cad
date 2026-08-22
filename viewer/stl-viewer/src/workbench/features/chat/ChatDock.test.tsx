@@ -24,6 +24,28 @@ function deferred<T>() {
 }
 
 describe('ChatDock feedback contract', () => {
+  it('stages an explicit markup-review request in the composer', async () => {
+    const view = render(
+      <ChatDock
+        client={createTestWorkbenchClient()}
+        available
+        context={EMPTY_CONTEXT}
+        draftRequest={{ id: 'markup-1', content: 'Review the attached viewport markup.' }}
+      />,
+    )
+    expect(await screen.findByDisplayValue('Review the attached viewport markup.')).toHaveFocus()
+
+    view.rerender(
+      <ChatDock
+        client={createTestWorkbenchClient()}
+        available
+        context={EMPTY_CONTEXT}
+        draftRequest={{ id: 'markup-2', content: 'Review the updated viewport markup.' }}
+      />,
+    )
+    expect(screen.getByDisplayValue('Review the updated viewport markup.')).toBeInTheDocument()
+  })
+
   it('publishes the current durable thread for viewport context features', async () => {
     const onThreadChange = vi.fn()
     render(

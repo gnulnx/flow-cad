@@ -7,19 +7,27 @@ interface ChatDockProps {
   context: ChatContext
   available: boolean
   onThreadChange?(threadId: string | null): void
+  draftRequest?: { id: string, content: string } | null
 }
 
 function nextRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function ChatDock({ client, context, available, onThreadChange }: ChatDockProps) {
+export function ChatDock({ client, context, available, onThreadChange, draftRequest = null }: ChatDockProps) {
   const [thread, setThread] = useState<DefaultThread | null>(null)
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
   const activeRequestRef = useRef<AbortController | null>(null)
   const activeTurnRef = useRef<{ threadId: string, turnId: string } | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    if (!draftRequest) return
+    setDraft(draftRequest.content)
+    composerRef.current?.focus()
+  }, [draftRequest, thread])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -152,6 +160,7 @@ export function ChatDock({ client, context, available, onThreadChange }: ChatDoc
         <label>
           <span className="sr-only">Message design agent</span>
           <textarea
+            ref={composerRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Ask about this part or view…"

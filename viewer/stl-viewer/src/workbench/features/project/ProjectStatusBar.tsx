@@ -4,9 +4,10 @@ import type { ProjectSummary, WorkbenchClient } from '../../contracts'
 interface ProjectStatusBarProps {
   client: WorkbenchClient
   onProjectChange(project: ProjectSummary | null): void
+  refreshToken?: number
 }
 
-export function ProjectStatusBar({ client, onProjectChange }: ProjectStatusBarProps) {
+export function ProjectStatusBar({ client, onProjectChange, refreshToken = 0 }: ProjectStatusBarProps) {
   const [project, setProject] = useState<ProjectSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -22,7 +23,7 @@ export function ProjectStatusBar({ client, onProjectChange }: ProjectStatusBarPr
       onProjectChange(null)
     })
     return () => controller.abort()
-  }, [client, onProjectChange])
+  }, [client, onProjectChange, refreshToken])
 
   return (
     <header className="project-status-bar">

@@ -225,6 +225,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .inspector-facts dd { min-width: 0; margin: 0; overflow: hidden; color: #bbc5cc; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .inspector-facts code { font-size: 9px; }
 .inspector-warning dd { color: var(--amber); white-space: normal; }
+.inspector-actions { display: grid; gap: 6px; padding: 0 14px 15px; }
+.inspector-actions .tool-button { justify-self: start; }
+.inspector-actions [role="alert"] { color: var(--red); font-size: 9px; }
 .empty-copy { margin: 0; padding: 0 14px; color: var(--quiet); font-size: 10px; line-height: 1.55; }
 
 .workbench-main { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }

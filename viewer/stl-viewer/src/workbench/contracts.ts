@@ -219,6 +219,7 @@ export interface WorkbenchClient {
     onEvent: (event: ChatTurnEvent) => void,
     signal?: AbortSignal,
   ): Promise<void>
+  buildPart(partIdentity: string, requestId: string, signal?: AbortSignal): Promise<WorkbenchJob>
   cancelTurn(threadId: string, turnId: string): Promise<void>
   cancelJob(jobId: string): Promise<void>
   getExactFeatures(partUuid: string, artifactRevision: string, signal?: AbortSignal): Promise<ExactFeatureLookup>

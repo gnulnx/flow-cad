@@ -7,13 +7,14 @@ interface PartInventoryDockProps {
   onSelect(part: WorkbenchPart): void
   onInventoryChange?(snapshot: InventorySnapshot): void
   loadStates?: Record<string, ArtifactState>
+  refreshToken?: number
 }
 
 function statusLabel(part: WorkbenchPart, loadStates: Record<string, ArtifactState>) {
   return (loadStates[part.uuid] ?? part.artifactState).replace('-', ' ')
 }
 
-export function PartInventoryDock({ client, activePartUuid, onSelect, onInventoryChange, loadStates = {} }: PartInventoryDockProps) {
+export function PartInventoryDock({ client, activePartUuid, onSelect, onInventoryChange, loadStates = {}, refreshToken = 0 }: PartInventoryDockProps) {
   const [snapshot, setSnapshot] = useState<InventorySnapshot | null>(null)
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -29,7 +30,12 @@ export function PartInventoryDock({ client, activePartUuid, onSelect, onInventor
       setSnapshot(nextSnapshot)
       onInventoryChange?.(nextSnapshot)
       setError(null)
-      if (!activePartUuidRef.current && nextSnapshot.parts.length > 0) {
+      const refreshedSelection = activePartUuidRef.current
+        ? nextSnapshot.parts.find((part) => part.uuid === activePartUuidRef.current)
+        : null
+      if (refreshedSelection) {
+        onSelect(refreshedSelection)
+      } else if (!activePartUuidRef.current && nextSnapshot.parts.length > 0) {
         const preferred = nextSnapshot.parts.find((part) => part.status === 'active') ?? nextSnapshot.parts[0]
         onSelect(preferred)
       }
@@ -38,7 +44,7 @@ export function PartInventoryDock({ client, activePartUuid, onSelect, onInventor
       setError(reason instanceof Error ? reason.message : 'Part inventory unavailable')
     })
     return () => controller.abort()
-  }, [client, onInventoryChange, onSelect])
+  }, [client, onInventoryChange, onSelect, refreshToken])
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()

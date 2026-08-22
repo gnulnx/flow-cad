@@ -111,6 +111,11 @@ interface JobDto {
   payload?: Record<string, unknown>
 }
 
+interface PartBuildSubmissionDto {
+  created: boolean
+  job: JobDto
+}
+
 interface ExactFeatureDto {
   id: string
   kind: ExactFeature['kind']
@@ -531,6 +536,15 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
       `${applicationUrl}/api/chat/threads/${encodeURIComponent(threadId)}/turns/${encodeURIComponent(turnId)}/stream?after_sequence=${afterSequence}`,
       { signal, cache: 'no-store', headers: { Accept: 'text/event-stream' } },
     ).then((response) => streamSse(response, onEvent)),
+    buildPart: (partIdentity, requestId, signal) => fetch(
+      `${baseUrl}/parts/${encodeURIComponent(partIdentity)}/build`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId }),
+        signal,
+      },
+    ).then(readJson<PartBuildSubmissionDto>).then((dto) => jobRecords([dto.job])[0]),
     cancelTurn: (threadId, turnId) => fetch(`${applicationUrl}/api/chat/threads/${encodeURIComponent(threadId)}/turns/${encodeURIComponent(turnId)}/cancel`, {
       method: 'POST',
     }).then(async (response) => {

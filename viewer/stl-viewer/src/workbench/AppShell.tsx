@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { configuredWorkbenchClient } from './client'
-import type { InventorySnapshot, ProjectSummary, WorkbenchClient, WorkbenchPart } from './contracts'
+import type { InventorySnapshot, ProjectSummary, WorkbenchClient, WorkbenchJob, WorkbenchPart } from './contracts'
 import { ChatDock } from './features/chat/ChatDock'
 import { PartInventoryDock } from './features/inventory/PartInventoryDock'
 import { InspectorDock } from './features/inspector/InspectorDock'
@@ -9,6 +9,7 @@ import type { MeasurementResult } from './features/measurement/measurement'
 import { measurementFingerprint, restoredMeasurements, savedLabels } from './features/measurement/persistence'
 import { ProjectStatusBar } from './features/project/ProjectStatusBar'
 import { WorkbenchViewport, type AssemblyViewportSnapshot } from './features/viewport/WorkbenchViewport'
+import type { WorkbenchViewportContext } from './features/viewport/viewportContext'
 import './workbench.css'
 
 interface AppShellProps {
@@ -25,6 +26,10 @@ export default function AppShell({ client }: AppShellProps) {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [chatProviderAvailable, setChatProviderAvailable] = useState<boolean | null>(null)
   const [chatMeasurements, setChatMeasurements] = useState<MeasurementResult[]>([])
+  const [viewportContext, setViewportContext] = useState<WorkbenchViewportContext | null>(null)
+  const [watchedBuildJobId, setWatchedBuildJobId] = useState<string | null>(null)
+  const [inventoryRefreshToken, setInventoryRefreshToken] = useState(0)
+  const [chatDraftRequest, setChatDraftRequest] = useState<{ id: string, content: string } | null>(null)
   const [assemblyState, setAssemblyState] = useState<AssemblyViewportSnapshot>({
     partStates: {},
     visibleOccurrenceIds: [],
@@ -38,6 +43,17 @@ export default function AppShell({ client }: AppShellProps) {
   const projectChanged = useCallback((nextProject: ProjectSummary | null) => setProject(nextProject), [])
   const inventoryChanged = useCallback((snapshot: InventorySnapshot) => setInventory(snapshot), [])
   const assemblyChanged = useCallback((snapshot: AssemblyViewportSnapshot) => setAssemblyState(snapshot), [])
+  const buildSubmitted = useCallback((jobId: string) => setWatchedBuildJobId(jobId), [])
+  const buildFinished = useCallback((job: WorkbenchJob) => {
+    setWatchedBuildJobId(null)
+    if (job.state === 'complete') setInventoryRefreshToken((value) => value + 1)
+  }, [])
+  const askAgentAboutMarkup = useCallback(() => {
+    setChatDraftRequest({
+      id: crypto.randomUUID(),
+      content: 'Review the attached viewport markup and explain what geometry change it indicates.',
+    })
+  }, [])
   const measurementKey = activeThreadId && activePart?.authorityHash
     ? `${activeThreadId}:${activePart.uuid}:${activePart.authorityHash}`
     : null
@@ -114,7 +130,7 @@ export default function AppShell({ client }: AppShellProps) {
 
   return (
     <div className="workbench-shell">
-      <ProjectStatusBar client={workbenchClient} onProjectChange={projectChanged} />
+      <ProjectStatusBar client={workbenchClient} onProjectChange={projectChanged} refreshToken={inventoryRefreshToken} />
       <div className="workbench-shell__body">
         <aside className="left-workbench-dock">
           <PartInventoryDock
@@ -123,8 +139,9 @@ export default function AppShell({ client }: AppShellProps) {
             onSelect={selectPart}
             onInventoryChange={inventoryChanged}
             loadStates={assemblyState.partStates}
+            refreshToken={inventoryRefreshToken}
           />
-          <InspectorDock part={activePart} />
+          <InspectorDock client={workbenchClient} part={activePart} onBuildSubmitted={buildSubmitted} />
         </aside>
         <main className="workbench-main">
           <WorkbenchViewport
@@ -137,14 +154,17 @@ export default function AppShell({ client }: AppShellProps) {
             onAssemblyStateChange={assemblyChanged}
             measurementRestore={measurementRestore}
             onMeasurementsChange={measurementsChanged}
+            onViewportContextChange={setViewportContext}
+            onAskAgentAboutMarkup={askAgentAboutMarkup}
           />
           {measurementSaveError ? <p className="measurement-save-error" role="status">{measurementSaveError}</p> : null}
-          <JobDrawer client={workbenchClient} />
+          <JobDrawer client={workbenchClient} watchJobId={watchedBuildJobId} onWatchedJobTerminal={buildFinished} />
         </main>
         <ChatDock
           client={workbenchClient}
           available={chatProviderAvailable ?? project?.chatAvailable ?? false}
           onThreadChange={setActiveThreadId}
+          draftRequest={chatDraftRequest}
           context={{
             projectRevision: project?.revision ?? null,
             selectedPartUuid: activePart?.uuid ?? null,
@@ -154,10 +174,13 @@ export default function AppShell({ client }: AppShellProps) {
               ...assemblyState.artifactHashes,
               ...(activePart?.authorityHash ? { [`${activePart.uuid}:authority`]: activePart.authorityHash } : {}),
             },
-            camera: {},
-            measurements: savedLabels(chatMeasurements) as unknown as Record<string, unknown>[],
-            annotations: [],
-            viewportAttachment: null,
+            camera: viewportContext?.camera as unknown as Record<string, unknown> ?? {},
+            measurements: savedLabels(viewportContext?.measurements ?? chatMeasurements) as unknown as Record<string, unknown>[],
+            annotations: viewportContext ? [{
+              hidden: viewportContext.annotations.hidden,
+              marks: viewportContext.annotations.marks,
+            }] as unknown as Record<string, unknown>[] : [],
+            viewportAttachment: viewportContext?.latestCapture as unknown as Record<string, unknown> ?? null,
           }}
         />
       </div>

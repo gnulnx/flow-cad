@@ -1,25 +1,50 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { WorkbenchClient, WorkbenchJob } from '../../contracts'
 
 interface JobDrawerProps {
   client: WorkbenchClient
+  watchJobId?: string | null
+  onWatchedJobTerminal?(job: WorkbenchJob): void
 }
 
-export function JobDrawer({ client }: JobDrawerProps) {
+const TERMINAL_STATES = new Set<WorkbenchJob['state']>(['complete', 'failed', 'cancelled'])
+
+export function JobDrawer({ client, watchJobId = null, onWatchedJobTerminal }: JobDrawerProps) {
   const [jobs, setJobs] = useState<WorkbenchJob[] | null>(null)
   const [error, setError] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const terminalNotification = useRef<string | null>(null)
 
   useEffect(() => {
-    const controller = new AbortController()
-    client.getJobs(controller.signal).then((nextJobs) => {
-      setJobs(nextJobs)
-      setError(false)
-    }).catch(() => {
-      if (!controller.signal.aborted) setError(true)
-    })
-    return () => controller.abort()
-  }, [client])
+    terminalNotification.current = null
+  }, [watchJobId])
+
+  useEffect(() => {
+    let disposed = false
+    let controller: AbortController | null = null
+    const poll = () => {
+      controller = new AbortController()
+      client.getJobs(controller.signal).then((nextJobs) => {
+        if (disposed) return
+        setJobs(nextJobs)
+        setError(false)
+        const watched = watchJobId ? nextJobs.find((job) => job.id === watchJobId) : null
+        if (watched && TERMINAL_STATES.has(watched.state) && terminalNotification.current !== watched.id) {
+          terminalNotification.current = watched.id
+          onWatchedJobTerminal?.(watched)
+        }
+      }).catch(() => {
+        if (!disposed && !controller?.signal.aborted) setError(true)
+      })
+    }
+    poll()
+    const timer = window.setInterval(poll, 500)
+    return () => {
+      disposed = true
+      controller?.abort()
+      window.clearInterval(timer)
+    }
+  }, [client, onWatchedJobTerminal, watchJobId])
 
   const activeJobs = jobs?.filter((job) => job.state === 'queued' || job.state === 'running') ?? []
   return (

@@ -165,6 +165,35 @@ describe('workbench HTTP adapter', () => {
     expect(jobs[0]).toMatchObject({ id: 'job-1', label: 'Exact topology', state: 'complete' })
   })
 
+  it('submits a deterministic scoped build request through the workbench API', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/workbench/v1/parts/guard-uuid/build')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({ request_id: 'request-1' })
+      return jsonResponse({
+        job: {
+          job_id: 'job-1',
+          kind: 'part-build',
+          state: 'queued',
+          phase: 'queued',
+          progress: 0,
+          message: 'Queued',
+          elapsed_seconds: 0,
+          updated_at: '2026-08-22T00:00:00Z',
+          cancellation_requested: false,
+          payload: { label: 'Build arch guard' },
+        },
+      }, 202)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(createHttpWorkbenchClient().buildPart('guard-uuid', 'request-1')).resolves.toMatchObject({
+      id: 'job-1',
+      label: 'Build arch guard',
+      state: 'queued',
+    })
+  })
+
   it('keeps exact STEP extraction as an explicit cold job followed by a warm revision result', async () => {
     const revision = 'a'.repeat(64)
     const fetchMock = vi.fn()

@@ -26,6 +26,7 @@ export interface TestClientOverrides {
   queueExactFeatures?: (partUuid: string, artifactRevision: string, requestId: string) => Promise<ExactFeatureSubmission>
   latestMeasurementSnapshot?: SavedMeasurementSnapshot | null | Promise<SavedMeasurementSnapshot | null>
   saveMeasurementSnapshot?: (input: SaveMeasurementSnapshotInput) => Promise<void>
+  buildPart?: (partIdentity: string, requestId: string) => Promise<WorkbenchJob>
 }
 
 const project: ProjectSummary = {
@@ -57,6 +58,16 @@ export function createTestWorkbenchClient(overrides: TestClientOverrides = {}): 
       state: 'complete',
     },
     streamTurn: async (threadId, turnId, afterSequence, onEvent) => overrides.streamTurn?.(threadId, turnId, afterSequence, onEvent),
+    buildPart: async (partIdentity, requestId) => overrides.buildPart?.(partIdentity, requestId) ?? {
+      id: requestId,
+      label: `Build ${partIdentity}`,
+      state: 'queued',
+      phase: 'queued',
+      progress: 0,
+      cancellable: true,
+      elapsedMs: 0,
+      lastUpdate: new Date(0).toISOString(),
+    },
     cancelTurn: async () => undefined,
     cancelJob: async () => undefined,
     getExactFeatures: async () => overrides.exactFeatures ?? {
