@@ -110,6 +110,14 @@ flow part rename <part_key_or_alias> <new_key>
 flow part retire <part_key_or_alias>
 ```
 
+Create and verify explicit byte-identical migration scopes:
+
+```bash
+flow preserve manifest --source <root> --output <manifest> --tracked <path>
+flow preserve copy --source <root> --archive <archive> --tree <path>
+flow preserve verify --source <root> --archive <archive> --tree <path>
+```
+
 Build a Flow CAD project from that project repo:
 
 ```bash
