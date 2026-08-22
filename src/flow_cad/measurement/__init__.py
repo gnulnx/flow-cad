@@ -14,6 +14,18 @@ from .service import (
     InvalidArtifactRevisionError,
     PartNotFoundError,
 )
+from .snapshot_models import (
+    MeasurementLabelState,
+    MeasurementSnapshot,
+    MeasurementSnapshotEvent,
+    MeasurementSnapshotValidationError,
+)
+from .snapshot_store import (
+    MeasurementSnapshotIdempotencyConflictError,
+    MeasurementSnapshotStore,
+    MeasurementSnapshotStoreError,
+    UnsupportedMeasurementSnapshotSchemaError,
+)
 
 __all__ = [
     "ArtifactBytesChangedError",
@@ -23,5 +35,13 @@ __all__ = [
     "ExactFeatureService",
     "ExactGeometryUnavailableError",
     "InvalidArtifactRevisionError",
+    "MeasurementLabelState",
+    "MeasurementSnapshot",
+    "MeasurementSnapshotEvent",
+    "MeasurementSnapshotIdempotencyConflictError",
+    "MeasurementSnapshotStore",
+    "MeasurementSnapshotStoreError",
+    "MeasurementSnapshotValidationError",
     "PartNotFoundError",
+    "UnsupportedMeasurementSnapshotSchemaError",
 ]
