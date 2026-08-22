@@ -146,9 +146,11 @@ function jobRecords(payload: JobDto[] | { jobs: JobDto[] }): WorkbenchJob[] {
   return records.map((job) => ({
     id: job.job_id,
     label: String(job.payload?.label ?? job.kind),
-    state: ['queued', 'running', 'complete', 'failed', 'cancelled'].includes(job.state)
-      ? job.state as WorkbenchJob['state']
-      : 'failed',
+    state: job.state === 'succeeded'
+      ? 'complete'
+      : ['queued', 'running', 'complete', 'failed', 'cancelled'].includes(job.state)
+        ? job.state as WorkbenchJob['state']
+        : 'failed',
     phase: job.phase,
     progress: job.progress,
     cancellable: !job.cancellation_requested && (job.state === 'queued' || job.state === 'running'),

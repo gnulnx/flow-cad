@@ -94,4 +94,26 @@ describe('workbench HTTP adapter', () => {
 
     expect(message).toMatchObject({ id: 'assistant-event', turnId: 'turn-1', state: 'streaming' })
   })
+
+  it('maps durable succeeded jobs to the completed UI state', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({
+      jobs: [{
+        job_id: 'job-1',
+        kind: 'exact-topology',
+        state: 'succeeded',
+        phase: 'complete',
+        progress: 1,
+        message: 'Complete',
+        elapsed_seconds: 0.2,
+        updated_at: '2026-08-22T00:00:00Z',
+        cancellation_requested: false,
+        payload: { label: 'Exact topology' },
+      }],
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const jobs = await createHttpWorkbenchClient('').getJobs()
+
+    expect(jobs[0]).toMatchObject({ id: 'job-1', label: 'Exact topology', state: 'complete' })
+  })
 })
