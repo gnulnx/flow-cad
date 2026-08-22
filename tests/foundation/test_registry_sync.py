@@ -78,6 +78,25 @@ def test_sync_is_idempotent_and_reconstructs_a_deleted_index(tmp_path: Path) -> 
     assert [part.key for part in list_parts(root)] == ["alpha_panel"]
 
 
+def test_sync_content_indexes_existing_undeclared_artifacts(tmp_path: Path) -> None:
+    root = _copy_fixture(tmp_path)
+    artifact_path = root / "exports/step/alpha_panel.step"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"committed-step-artifact")
+
+    result = sync_project(root)
+
+    with sqlite3.connect(result.database_path) as connection:
+        row = connection.execute(
+            "SELECT sha256, byte_count, state FROM artifacts WHERE kind = 'step'"
+        ).fetchone()
+    assert row == (
+        "26e8b51881d5970368e02d5ef87176220934b44ee8daa94807d54f5547c3ca6c",
+        23,
+        "indexed",
+    )
+
+
 def test_part_queries_are_read_only_and_resolve_aliases(tmp_path: Path) -> None:
     root = _copy_fixture(tmp_path)
     sync_project(root)

@@ -191,12 +191,11 @@ def _populate(
         )
         for artifact in part.artifacts:
             artifact_path = root / artifact.path
-            if not artifact_path.is_file():
-                state = "missing"
-            elif artifact.sha256 is None:
-                state = "unverified"
-            else:
-                state = "indexed"
+            digest, byte_count, state = _artifact_identity(
+                artifact_path,
+                declared_sha256=artifact.sha256,
+                declared_byte_count=artifact.byte_count,
+            )
             connection.execute(
                 """
                 INSERT INTO artifacts(part_uuid, kind, relative_path, sha256, byte_count, state)
@@ -206,8 +205,8 @@ def _populate(
                     part_uuid,
                     artifact.kind,
                     artifact.path,
-                    artifact.sha256,
-                    artifact.byte_count,
+                    digest,
+                    byte_count,
                     state,
                 ),
             )
@@ -233,12 +232,11 @@ def _populate(
             )
         for artifact in assembly.artifacts:
             artifact_path = root / artifact.path
-            if not artifact_path.is_file():
-                state = "missing"
-            elif artifact.sha256 is None:
-                state = "unverified"
-            else:
-                state = "indexed"
+            digest, byte_count, state = _artifact_identity(
+                artifact_path,
+                declared_sha256=artifact.sha256,
+                declared_byte_count=artifact.byte_count,
+            )
             connection.execute(
                 """
                 INSERT INTO assembly_artifacts(
@@ -251,11 +249,31 @@ def _populate(
                     assembly.key,
                     artifact.kind,
                     artifact.path,
-                    artifact.sha256,
-                    artifact.byte_count,
+                    digest,
+                    byte_count,
                     state,
                 ),
             )
+
+
+def _artifact_identity(
+    path: Path,
+    *,
+    declared_sha256: str | None,
+    declared_byte_count: int | None,
+) -> tuple[str | None, int | None, str]:
+    if not path.is_file():
+        return declared_sha256, declared_byte_count, "missing"
+    if declared_sha256 is not None:
+        return declared_sha256, declared_byte_count, "indexed"
+
+    digest = hashlib.sha256()
+    byte_count = 0
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+            byte_count += len(chunk)
+    return digest.hexdigest(), byte_count, "indexed"
 
 
 def _result(
