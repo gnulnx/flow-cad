@@ -17,10 +17,14 @@ from typing import Any
 from flow_cad.jobs import JobContext
 from flow_cad.jobs.service import JobWork
 
+from .publication import publish_part_build
 from .service import BuildArtifactTarget, ScopedPartBuildPlan
 
 
 _PROJECT_IMPORT_LOCK = threading.RLock()
+# Build123d otherwise writes the wall clock into FILE_NAME, invalidating an
+# unchanged part's content identity and every downstream immutable model URL.
+_DETERMINISTIC_STEP_TIMESTAMP = "2000-01-01T00:00:00+00:00"
 
 
 class PartBuildWorkerError(RuntimeError):
@@ -96,7 +100,15 @@ def _run_scoped_part_build(
             phase_started = time.perf_counter()
             staged_path = work_dir / f"artifact-{index}{target.destination.suffix.lower()}"
             exporter = export_step if target.kind == "step" else export_stl
-            if exporter(shape, staged_path) is not True:
+            if target.kind == "step":
+                exported = exporter(
+                    shape,
+                    staged_path,
+                    timestamp=_DETERMINISTIC_STEP_TIMESTAMP,
+                )
+            else:
+                exported = exporter(shape, staged_path)
+            if exported is not True:
                 raise PartBuildWorkerError(
                     f"{target.kind.upper()} exporter reported failure for {target.relative_path}"
                 )
@@ -132,11 +144,17 @@ def _run_scoped_part_build(
         context.checkpoint()
         phase_started = time.perf_counter()
         _publish_all(plan.project_root, staged)
+        publication = publish_part_build(
+            plan.project_root,
+            part_uuid=plan.part_uuid,
+            artifacts=artifacts,
+        )
         timings["publish"] = _elapsed_ms(phase_started)
         context.report(
             "publish",
             0.99,
-            f"Published fresh artifacts atomically in {timings['publish']:.1f} ms",
+            f"Published fresh artifacts at viewer revision {publication.revision} "
+            f"in {timings['publish']:.1f} ms",
         )
 
         elapsed_ms = _elapsed_ms(started)
@@ -148,6 +166,8 @@ def _run_scoped_part_build(
             "generator": plan.generator,
             "parameter_provider": plan.parameter_provider,
             "artifacts": artifacts,
+            "viewer_revision": publication.revision,
+            "artifact_changed": publication.changed,
             "phase_timings_ms": timings,
             "elapsed_ms": elapsed_ms,
         }

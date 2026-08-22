@@ -9,6 +9,7 @@ from typing import Iterable
 from uuid import UUID
 
 from flow_cad.jobs import JobService, JobSubmission
+from flow_cad.registry.db import database_path
 from flow_cad.sdk import ManifestPart, PartStatus, ProjectManifest, load_manifest
 
 
@@ -86,6 +87,11 @@ class PartBuildService:
 
     def submit(self, *, request_id: str, part_key_or_uuid: str) -> JobSubmission:
         plan = self.plan(part_key_or_uuid)
+        index_path = database_path(self.project_root)
+        if not index_path.is_file():
+            raise BuildContractError(
+                f"registry index not found: {index_path}; run `flow sync` before building"
+            )
         from .worker import scoped_part_build_work
 
         return self.jobs.submit(

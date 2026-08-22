@@ -484,6 +484,89 @@ def _resolve_build_mode(
         return "assembly-preview"
     return "default"
 
+
+def _replacement_project_root(start: Path) -> Path | None:
+    """Return a strict SDK-manifest root while leaving legacy manifests alone."""
+
+    from flow_cad.registry import find_manifest
+    from flow_cad.sdk import ManifestError, load_manifest
+
+    try:
+        manifest_path = find_manifest(start)
+        load_manifest(manifest_path)
+    except (ManifestError, OSError, RuntimeError):
+        return None
+    return manifest_path.parent
+
+
+def _run_replacement_part_build(
+    project_root: Path,
+    *,
+    part: str,
+    request_id: str | None,
+) -> None:
+    """Run the replacement job with visible phase progress for CLI callers."""
+
+    import time
+    import uuid
+
+    from flow_cad.build import BuildContractError, PartBuildService
+    from flow_cad.jobs import JobService, JobState, JobStoreError
+    from flow_cad.registry import sync_project
+
+    resolved_request_id = request_id or f"cli-part-build-{uuid.uuid4().hex}"
+    try:
+        sync_project(project_root)
+        with JobService(
+            project_root,
+            max_concurrency=1,
+            recover_interrupted=False,
+        ) as jobs:
+            submission = PartBuildService(project_root, jobs).submit(
+                request_id=resolved_request_id,
+                part_key_or_uuid=part,
+            )
+            click.echo(
+                f"{'Submitted' if submission.created else 'Reused'} build job "
+                f"{submission.job.job_id} request_id={resolved_request_id}"
+            )
+            cursor = 0
+            while True:
+                for event in jobs.events(
+                    job_id=submission.job.job_id,
+                    after_sequence=cursor,
+                    limit=100,
+                ):
+                    cursor = event.sequence
+                    if event.message:
+                        click.echo(
+                            f"[{event.phase}] {event.progress * 100:.0f}% {event.message}"
+                        )
+                record = jobs.get(submission.job.job_id)
+                if record.state.terminal:
+                    break
+                time.sleep(0.05)
+    except (BuildContractError, JobStoreError) as error:
+        raise click.ClickException(str(error)) from error
+
+    if record.state is JobState.FAILED:
+        raise click.ClickException(record.error or "scoped part build failed")
+    if record.state is JobState.CANCELLED:
+        raise click.ClickException("scoped part build was cancelled")
+    result = record.result or {}
+    click.echo(
+        f"Built {result.get('part_key', part)} at viewer revision "
+        f"{result.get('viewer_revision')} elapsed_ms={float(result.get('elapsed_ms', 0.0)):.3f}"
+    )
+    artifacts = result.get("artifacts")
+    if isinstance(artifacts, list):
+        for artifact in artifacts:
+            if isinstance(artifact, dict):
+                click.echo(
+                    f"artifact {artifact.get('kind')} {artifact.get('path')} "
+                    f"bytes={artifact.get('byte_count')} sha256={artifact.get('sha256')}"
+                )
+
 @click.group()
 def cli():
     """Flow CAD package CLI."""
@@ -498,6 +581,7 @@ def cli():
 @click.option("--snapshots-only", is_flag=True, default=False, help="Only regenerate SVG snapshots without rebuilding STEP geometry.")
 @click.option("--run-tests", is_flag=True, default=False, help="Run project pytest after build.")
 @click.option("--part", default=None, help="Build one part and its direct facts.")
+@click.option("--request-id", default=None, help="Idempotency key for a replacement scoped part build.")
 @click.option("--changed", is_flag=True, default=False, help="Rebuild parts whose source changed since the last cached build.")
 @click.option("--assembly-preview", is_flag=True, default=False, help="Rebuild placement data for an updated viewer cache without handoff packaging.")
 @click.option("--profile", default="all", show_default=True, help="Export profile: all, active, or a project version such as b3_v2.")
@@ -513,20 +597,31 @@ def build(
     snapshots_only,
     run_tests,
     part,
+    request_id,
     changed,
     assembly_preview,
     profile,
     handoff,
 ):
     """Build parts and exports from the active project."""
-    project = load_project(Path.cwd())
-    build_profile = (profile or "all").strip() or "all"
     build_mode = _resolve_build_mode(
         handoff=bool(handoff),
         part=part,
         changed=bool(changed),
         assembly_preview=bool(assembly_preview),
     )
+    if build_mode == "part":
+        replacement_root = _replacement_project_root(Path.cwd())
+        if replacement_root is not None:
+            _run_replacement_part_build(
+                replacement_root,
+                part=part,
+                request_id=request_id,
+            )
+            return
+
+    project = load_project(Path.cwd())
+    build_profile = (profile or "all").strip() or "all"
     profiler = FlowCadProfiler(
         project_id=project.project_id,
         project_root=project.root,

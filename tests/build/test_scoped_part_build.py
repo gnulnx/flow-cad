@@ -15,6 +15,7 @@ from flow_cad.build import (
     plan_scoped_part_build,
 )
 from flow_cad.jobs import JobService, JobState
+from flow_cad.registry import sync_project
 from flow_cad.sdk import (
     ArtifactSpec,
     ManifestPart,
@@ -99,6 +100,7 @@ def make_panel(params):
     )
     manifest = _manifest("scoped_build_fixture", stl=True)
     (root / "flowcad.project.yaml").write_text(dump_manifest(manifest), encoding="utf-8")
+    initial_revision = sync_project(root).revision
     step_path = root / "exports" / "step" / "panel.step"
     stl_path = root / "exports" / "stl" / "panel.stl"
     step_path.parent.mkdir(parents=True)
@@ -111,9 +113,21 @@ def make_panel(params):
         submission = service.submit(request_id="build-panel-1", part_key_or_uuid="panel")
         completed = jobs.wait(submission.job.job_id, timeout=20.0)
         events = jobs.events(job_id=submission.job.job_id, limit=100)
+        repeated_submission = service.submit(
+            request_id="build-panel-2",
+            part_key_or_uuid="panel",
+        )
+        repeated = jobs.wait(repeated_submission.job.job_id, timeout=20.0)
 
     assert completed.state is JobState.SUCCEEDED
     assert completed.result is not None
+    assert completed.result["viewer_revision"] == initial_revision + 1
+    assert completed.result["artifact_changed"] is True
+    assert repeated.state is JobState.SUCCEEDED
+    assert repeated.result is not None
+    assert repeated.result["artifacts"] == completed.result["artifacts"]
+    assert repeated.result["viewer_revision"] == completed.result["viewer_revision"]
+    assert repeated.result["artifact_changed"] is False
     artifacts = completed.result["artifacts"]
     assert isinstance(artifacts, list)
     assert [artifact["kind"] for artifact in artifacts] == ["step", "stl"]
@@ -210,6 +224,7 @@ def test_failed_generation_leaves_existing_output_untouched(tmp_path: Path) -> N
     )
     manifest = _manifest("failed_build_fixture", stl=False)
     (root / "flowcad.project.yaml").write_text(dump_manifest(manifest), encoding="utf-8")
+    sync_project(root)
     output = root / "exports" / "step" / "panel.step"
     output.parent.mkdir(parents=True)
     output.write_bytes(b"known-good")

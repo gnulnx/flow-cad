@@ -14,13 +14,17 @@ from .service import (
     ScopedPartBuildPlan,
     plan_scoped_part_build,
 )
+from .publication import BuildPublication, BuildPublicationError, publish_part_build
 
 __all__ = [
     "BuildArtifactTarget",
     "BuildContractError",
+    "BuildPublication",
+    "BuildPublicationError",
     "PartBuildService",
     "PartNotBuildableError",
     "PartNotFoundError",
     "ScopedPartBuildPlan",
     "plan_scoped_part_build",
+    "publish_part_build",
 ]
