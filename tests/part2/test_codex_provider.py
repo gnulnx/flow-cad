@@ -11,6 +11,7 @@ from flow_cad.chat.codex_provider import (
     CodexTransportError,
 )
 from flow_cad.chat.providers import ChatProvider, ProviderCancellation
+from flow_cad.chat.tools import ChatTool, ChatToolRegistry
 
 
 class FakeAppServerTransport:
@@ -234,6 +235,12 @@ def test_starts_durable_thread_sends_cad_context_and_maps_bounded_events(
     assert start_params["ephemeral"] is False
     assert start_params["sandbox"] == "read-only"
     assert start_params["approvalPolicy"] == "never"
+    assert {tool["name"] for tool in start_params["dynamicTools"]} == {
+        "flow_current_view",
+        "flow_inspect_part",
+        "flow_inspect_placement",
+        "flow_request_build",
+    }
 
     turn_params = next(
         message["params"] for message in fake.sent if message.get("method") == "turn/start"
@@ -435,3 +442,73 @@ def test_transport_failure_becomes_retryable_provider_event(tmp_path: Path) -> N
     assert events[-1].kind == "failed"
     assert events[-1].details == {"retryable": True, "reason": "transport_error"}
     assert "raw process details" not in repr(events)
+
+
+def test_registered_dynamic_tool_call_returns_bounded_application_result(
+    tmp_path: Path,
+) -> None:
+    fake = FakeAppServerTransport(
+        turn_notifications=[
+            {
+                "id": "tool-request-1",
+                "method": "item/tool/call",
+                "params": {
+                    "threadId": "provider-thread-1",
+                    "turnId": "provider-turn-1",
+                    "callId": "call-1",
+                    "namespace": None,
+                    "tool": "flow_probe",
+                    "arguments": {"identity": "guard"},
+                },
+            },
+            _turn_completed("provider-thread-1", "provider-turn-1", "completed"),
+        ]
+    )
+    registry = ChatToolRegistry(
+        (
+            ChatTool(
+                "flow_probe",
+                "Inspect a bounded fixture.",
+                {"type": "object"},
+                lambda arguments, context: {
+                    "identity": arguments["identity"],
+                    "selected": context["selected_part_uuid"],
+                },
+            ),
+        )
+    )
+    provider = CodexAppServerProvider(
+        tmp_path,
+        transport_factory=lambda: fake,
+        request_timeout=0.1,
+        tool_registry=registry,
+    )
+
+    events = list(
+        provider.stream_turn(
+            thread_id="default",
+            turn_id="local-tool-turn",
+            prompt="Inspect",
+            context={"selected_part_uuid": "guard-uuid"},
+            cancellation=ProviderCancellation(),
+        )
+    )
+
+    response = next(message for message in fake.sent if message.get("id") == "tool-request-1")
+    assert response == {
+        "id": "tool-request-1",
+        "result": {
+            "success": True,
+            "contentItems": [
+                {
+                    "type": "inputText",
+                    "text": '{"identity":"guard","selected":"guard-uuid"}',
+                }
+            ],
+        },
+    }
+    assert any(
+        event.kind == "tool"
+        and event.details == {"phase": "tool_completed", "tool": "flow_probe"}
+        for event in events
+    )

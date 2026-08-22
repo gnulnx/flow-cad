@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Protocol, TextIO, cast
 
 from .providers import ProviderCancellation, ProviderEvent
+from .tools import ChatToolRegistry, default_chat_tools
 
 
 APP_SERVER_PROTOCOL = "v2"
@@ -253,6 +254,7 @@ class CodexAppServerProvider:
         executable: str = "codex",
         bindings_path: Path | None = None,
         request_timeout: float = _REQUEST_TIMEOUT_SECONDS,
+        tool_registry: ChatToolRegistry | None = None,
     ) -> None:
         self.project_root = project_root.resolve()
         self._executable = executable
@@ -267,6 +269,7 @@ class CodexAppServerProvider:
             bindings_path or self.project_root / ".flow" / "codex-thread-bindings.json"
         )
         self._request_timeout = request_timeout
+        self._tool_registry = tool_registry or default_chat_tools(self.project_root)
 
     @property
     def available(self) -> bool:
@@ -318,7 +321,15 @@ class CodexAppServerProvider:
                 {"phase": "connecting", "protocol": APP_SERVER_PROTOCOL},
             )
             transport = self._transport_factory()
-            client = _CodexRpcClient(transport, request_timeout=self._request_timeout)
+            client = _CodexRpcClient(
+                transport,
+                request_timeout=self._request_timeout,
+                tool_handler=lambda name, arguments: self._tool_registry.execute(
+                    name,
+                    arguments,
+                    normalized_context,
+                ),
+            )
             client.initialize()
 
             provider_thread_id, resumed = self._start_or_resume_thread(client, thread_id)
@@ -439,6 +450,7 @@ class CodexAppServerProvider:
                 "approvalsReviewer": "user",
                 "sandbox": "read-only",
                 "experimentalRawEvents": False,
+                "dynamicTools": self._tool_registry.provider_specs,
                 "developerInstructions": (
                     "You are assisting inside Flow CAD. Treat the flow_cad additionalContext as "
                     "authoritative CAD review context. Do not mutate files or request elevated "
@@ -452,12 +464,19 @@ class CodexAppServerProvider:
 
 
 class _CodexRpcClient:
-    def __init__(self, transport: JsonRpcTransport, *, request_timeout: float) -> None:
+    def __init__(
+        self,
+        transport: JsonRpcTransport,
+        *,
+        request_timeout: float,
+        tool_handler: Callable[[str, object], Mapping[str, object]] | None = None,
+    ) -> None:
         self.transport = transport
         self.request_timeout = request_timeout
         self._next_request_id = 1
         self._pending_messages: deque[Mapping[str, object]] = deque()
         self.provider_events: deque[ProviderEvent] = deque()
+        self._tool_handler = tool_handler
 
     def initialize(self) -> None:
         self.request(
@@ -584,14 +603,34 @@ class _CodexRpcClient:
             )
             return
         if method == "item/tool/call":
+            params = message.get("params")
+            tool_name = params.get("tool") if isinstance(params, Mapping) else None
+            arguments = params.get("arguments") if isinstance(params, Mapping) else None
+            if self._tool_handler is None or not isinstance(tool_name, str):
+                result = {"error": "The requested Flow CAD operation is not registered."}
+                success = False
+                phase = "tool_rejected"
+            else:
+                try:
+                    result = dict(self._tool_handler(tool_name, arguments))
+                    success = True
+                    phase = "tool_completed"
+                except (KeyError, ValueError, RuntimeError):
+                    result = {"error": "The Flow CAD operation could not be completed."}
+                    success = False
+                    phase = "tool_failed"
             self._respond(
                 request_id,
                 {
-                    "success": False,
+                    "success": success,
                     "contentItems": [
                         {
                             "type": "inputText",
-                            "text": "This Flow CAD chat provider has no registered dynamic tools.",
+                            "text": json.dumps(
+                                result,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ),
                         }
                     ],
                 },
@@ -599,8 +638,15 @@ class _CodexRpcClient:
             self.provider_events.append(
                 ProviderEvent(
                     "tool",
-                    "A non-registered tool request was rejected.",
-                    {"phase": "tool_rejected"},
+                    (
+                        "Flow CAD operation completed."
+                        if success
+                        else "Flow CAD operation failed."
+                    ),
+                    {
+                        "phase": phase,
+                        "tool": tool_name if isinstance(tool_name, str) else None,
+                    },
                 )
             )
             return
