@@ -179,6 +179,24 @@ def test_manifest_rejects_invalid_project_owned_metadata(
         loads_manifest(source.replace(needle, replacement), source="metadata.yaml")
 
 
+def test_manifest_round_trips_historical_assembly_artifacts() -> None:
+    source = _manifest_yaml().replace(
+        "  active:\n    occurrences:",
+        """  active:
+    artifacts:
+      step:
+        path: exports/step/sample_assembly.step
+        sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        byte_count: 456
+    occurrences:""",
+    )
+
+    manifest = loads_manifest(source, source="assembly-artifact.yaml")
+
+    assert manifest.assemblies[0].artifacts[0].path == "exports/step/sample_assembly.step"
+    assert loads_manifest(dump_manifest(manifest)) == manifest
+
+
 def _manifest_yaml(*, generator: str = "sample.generators:make_part") -> str:
     return f"""schema_version: 1
 project_id: sample

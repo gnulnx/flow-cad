@@ -74,6 +74,17 @@ CREATE TABLE assembly_occurrences (
     PRIMARY KEY (project_id, assembly_key, occurrence_id)
 );
 
+CREATE TABLE assembly_artifacts (
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    assembly_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    sha256 TEXT,
+    byte_count INTEGER,
+    state TEXT NOT NULL,
+    PRIMARY KEY (project_id, assembly_key, kind)
+);
+
 CREATE TABLE builds (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
@@ -137,5 +148,6 @@ CREATE TABLE thread_summaries (
 CREATE INDEX idx_parts_project_status_key ON parts(project_id, status, key);
 CREATE INDEX idx_aliases_part_uuid ON part_aliases(part_uuid);
 CREATE INDEX idx_occurrences_part_uuid ON assembly_occurrences(part_uuid);
+CREATE INDEX idx_assembly_artifacts_state ON assembly_artifacts(state);
 CREATE INDEX idx_artifacts_state ON artifacts(state);
 """

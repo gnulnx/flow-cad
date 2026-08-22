@@ -95,6 +95,7 @@ class AssemblySpec:
 
     key: str
     occurrences: tuple[AssemblyOccurrence, ...]
+    artifacts: tuple[ArtifactSpec, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

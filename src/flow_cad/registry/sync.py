@@ -231,6 +231,31 @@ def _populate(
                     *occurrence.rotation_deg,
                 ),
             )
+        for artifact in assembly.artifacts:
+            artifact_path = root / artifact.path
+            if not artifact_path.is_file():
+                state = "missing"
+            elif artifact.sha256 is None:
+                state = "unverified"
+            else:
+                state = "indexed"
+            connection.execute(
+                """
+                INSERT INTO assembly_artifacts(
+                    project_id, assembly_key, kind, relative_path,
+                    sha256, byte_count, state
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    manifest.project_id,
+                    assembly.key,
+                    artifact.kind,
+                    artifact.path,
+                    artifact.sha256,
+                    artifact.byte_count,
+                    state,
+                ),
+            )
 
 
 def _result(

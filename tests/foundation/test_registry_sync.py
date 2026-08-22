@@ -52,6 +52,7 @@ def test_sync_builds_all_contract_tables_without_importing_geometry(tmp_path: Pa
         "part_aliases",
         "source_definitions",
         "assembly_occurrences",
+        "assembly_artifacts",
         "builds",
         "build_jobs",
         "artifacts",

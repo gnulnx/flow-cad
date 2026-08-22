@@ -77,7 +77,17 @@ def dump_manifest(manifest: ProjectManifest) -> str:
         "parts": [_dump_part(part) for part in manifest.parts],
         "assemblies": {
             assembly.key: {
-                "occurrences": [_dump_occurrence(occurrence) for occurrence in assembly.occurrences]
+                "occurrences": [_dump_occurrence(occurrence) for occurrence in assembly.occurrences],
+                **(
+                    {
+                        "artifacts": {
+                            artifact.kind: _dump_artifact(artifact)
+                            for artifact in assembly.artifacts
+                        }
+                    }
+                    if assembly.artifacts
+                    else {}
+                ),
             }
             for assembly in manifest.assemblies
         },
@@ -310,7 +320,13 @@ def _parse_artifact(kind: Any, raw: Any, source: str | Path, location: str) -> A
 def _parse_assembly(key: Any, raw: Any, source: str | Path, location: str) -> AssemblySpec:
     assembly_key = _identifier(key, source, "assemblies")
     data = _mapping(raw, source, location)
-    _keys(data, source, location, required={"occurrences"}, allowed={"occurrences"})
+    _keys(
+        data,
+        source,
+        location,
+        required={"occurrences"},
+        allowed={"occurrences", "artifacts"},
+    )
     raw_occurrences = _sequence(data["occurrences"], source, f"{location}.occurrences")
     occurrences = tuple(
         _parse_occurrence(value, source, f"{location}.occurrences[{index}]")
@@ -319,7 +335,12 @@ def _parse_assembly(key: Any, raw: Any, source: str | Path, location: str) -> As
     occurrence_ids = [occurrence.id for occurrence in occurrences]
     if len(set(occurrence_ids)) != len(occurrence_ids):
         _fail(source, f"{location}.occurrences", "occurrence ids must be unique within an assembly")
-    return AssemblySpec(key=assembly_key, occurrences=occurrences)
+    artifact_map = _mapping(data.get("artifacts", {}), source, f"{location}.artifacts")
+    artifacts = tuple(
+        _parse_artifact(kind, value, source, f"{location}.artifacts.{kind}")
+        for kind, value in artifact_map.items()
+    )
+    return AssemblySpec(key=assembly_key, occurrences=occurrences, artifacts=artifacts)
 
 
 def _parse_occurrence(raw: Any, source: str | Path, location: str) -> AssemblyOccurrence:
