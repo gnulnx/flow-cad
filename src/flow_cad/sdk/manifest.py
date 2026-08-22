@@ -74,6 +74,11 @@ def dump_manifest(manifest: ProjectManifest) -> str:
         "schema_version": manifest.schema_version,
         "project_id": manifest.project_id,
         "python_package": manifest.python_package,
+        **(
+            {"parameter_provider": manifest.parameter_provider}
+            if manifest.parameter_provider is not None
+            else {}
+        ),
         "parts": [_dump_part(part) for part in manifest.parts],
         "assemblies": {
             assembly.key: {
@@ -102,7 +107,14 @@ def _parse_project(raw: Any, source: str | Path) -> ProjectManifest:
         source,
         "root",
         required={"schema_version", "project_id", "python_package", "parts", "assemblies"},
-        allowed={"schema_version", "project_id", "python_package", "parts", "assemblies"},
+        allowed={
+            "schema_version",
+            "project_id",
+            "python_package",
+            "parameter_provider",
+            "parts",
+            "assemblies",
+        },
     )
     schema_version = data["schema_version"]
     if type(schema_version) is not int or schema_version != SCHEMA_VERSION:
@@ -112,6 +124,11 @@ def _parse_project(raw: Any, source: str | Path) -> ProjectManifest:
     python_package = _nonempty_string(data["python_package"], source, "python_package")
     if _PYTHON_PACKAGE_RE.fullmatch(python_package) is None:
         _fail(source, "python_package", "must be a dotted Python package name")
+    parameter_provider = data.get("parameter_provider")
+    if parameter_provider is not None:
+        parameter_provider = _nonempty_string(
+            parameter_provider, source, "parameter_provider"
+        )
 
     raw_parts = _sequence(data["parts"], source, "parts")
     parts = tuple(_parse_part(value, source, f"parts[{index}]") for index, value in enumerate(raw_parts))
@@ -130,6 +147,7 @@ def _parse_project(raw: Any, source: str | Path) -> ProjectManifest:
         python_package=python_package,
         parts=parts,
         assemblies=assemblies,
+        parameter_provider=parameter_provider,
     )
 
 

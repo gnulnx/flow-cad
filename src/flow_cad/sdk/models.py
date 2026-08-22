@@ -107,3 +107,4 @@ class ProjectManifest:
     python_package: str
     parts: tuple[ManifestPart, ...]
     assemblies: tuple[AssemblySpec, ...]
+    parameter_provider: str | None = None

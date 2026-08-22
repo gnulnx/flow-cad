@@ -118,6 +118,7 @@ def _manifest_template(project_id: str, python_package: str) -> str:
         "schema_version: 1\n"
         f"project_id: {json.dumps(project_id)}\n"
         f"python_package: {json.dumps(python_package)}\n"
+        f"parameter_provider: {python_package}.params:ProjectParams\n"
         "parts: []\n"
         "assemblies:\n"
         "  active:\n"

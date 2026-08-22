@@ -39,6 +39,18 @@ def test_manifest_preserves_generator_reference_as_an_opaque_string() -> None:
     assert manifest.parts[0].generator == "not an importable module reference"
 
 
+def test_manifest_round_trips_explicit_project_parameter_provider() -> None:
+    manifest = loads_manifest(
+        _manifest_yaml().replace(
+            "python_package: sample\n",
+            "python_package: sample\nparameter_provider: sample.params:ProjectParams\n",
+        )
+    )
+
+    assert manifest.parameter_provider == "sample.params:ProjectParams"
+    assert loads_manifest(dump_manifest(manifest)) == manifest
+
+
 def test_manifest_requires_exact_schema_version() -> None:
     with pytest.raises(ManifestError, match=r"example.yaml:schema_version: expected integer 1"):
         loads_manifest(_manifest_yaml().replace("schema_version: 1", "schema_version: 2"), source="example.yaml")

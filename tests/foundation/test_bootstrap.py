@@ -36,6 +36,7 @@ def test_replacement_init_creates_only_project_owned_layout(tmp_path: Path) -> N
     manifest = load_manifest(root / PROJECT_MANIFEST)
     assert manifest.project_id == "flow_b2"
     assert manifest.python_package == "flow_b2"
+    assert manifest.parameter_provider == "flow_b2.params:ProjectParams"
     assert manifest.parts == ()
     assert manifest.assemblies[0].key == "active"
 

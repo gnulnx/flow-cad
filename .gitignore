@@ -28,7 +28,7 @@ ENV/
 Thumbs.db
 
 # Build / distribution
-build/
+/build/
 dist/
 node_modules/
 *.egg-info/
