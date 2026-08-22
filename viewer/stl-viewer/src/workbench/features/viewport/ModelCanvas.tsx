@@ -3,8 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import type { Bounds3 } from '../../contracts'
+import { deriveApproximateMeshFeatures } from '../measurement/approximate'
 import { MeasurementScene } from '../measurement/MeasurementScene'
-import type { MeasurementProjectionSource, MeasurementResult, SnapCandidate } from '../measurement/measurement'
+import { featureLabel, type ApproximateMeasurementSource, type MeasurementProjectionSource, type MeasurementResult, type SnapCandidate } from '../measurement/measurement'
 import { mergeBounds, transformBounds } from './assembly'
 import { NavigationControls } from './NavigationControls'
 import type { LiveViewportSource } from './agentScreen'
@@ -22,6 +23,7 @@ interface ModelCanvasProps {
   onPartError(partUuid: string, message: string): void
   registerLiveViewport(source: (() => LiveViewportSource) | null): void
   registerMeasurementProjection(source: MeasurementProjectionSource | null): void
+  registerApproximateMeasurementSource(source: ApproximateMeasurementSource | null): void
   measureMode: boolean
   measurementHover: SnapCandidate | null
   measurementStart: SnapCandidate | null
@@ -93,6 +95,7 @@ export default function ModelCanvas({
   onPartError,
   registerLiveViewport,
   registerMeasurementProjection,
+  registerApproximateMeasurementSource,
   measureMode,
   measurementHover,
   measurementStart,
@@ -100,14 +103,14 @@ export default function ModelCanvas({
   currentPartUuid,
   currentArtifactRevision,
 }: ModelCanvasProps) {
-  const [boundsByKey, setBoundsByKey] = useState<Record<string, Bounds3>>({})
-  const modelReady = useCallback((key: string, partUuid: string, bounds: Bounds3) => {
-    setBoundsByKey((current) => current[key] === bounds ? current : { ...current, [key]: bounds })
+  const [geometryByKey, setGeometryByKey] = useState<Record<string, { bounds: Bounds3; geometry: THREE.BufferGeometry }>>({})
+  const modelReady = useCallback((key: string, partUuid: string, bounds: Bounds3, geometry: THREE.BufferGeometry) => {
+    setGeometryByKey((current) => current[key]?.geometry === geometry ? current : { ...current, [key]: { bounds, geometry } })
     onPartReady(partUuid)
     onReady()
   }, [onPartReady, onReady])
   const removeModel = useCallback((key: string) => {
-    setBoundsByKey((current) => {
+    setGeometryByKey((current) => {
       if (!(key in current)) return current
       const next = { ...current }
       delete next[key]
@@ -115,15 +118,20 @@ export default function ModelCanvas({
     })
   }, [])
   const visibleBounds = useMemo(() => mergeBounds(models.flatMap((model) => {
-    const bounds = boundsByKey[model.key]
-    return bounds ? model.occurrences.map((occurrence) => transformBounds(bounds, occurrence)) : []
-  })), [boundsByKey, models])
+    const info = geometryByKey[model.key]
+    return info ? model.occurrences.map((occurrence) => transformBounds(info.bounds, occurrence)) : []
+  })), [geometryByKey, models])
   const selectedBounds = useMemo(() => mergeBounds(models
     .filter((model) => model.part.uuid === selectedPartUuid)
     .flatMap((model) => {
-      const bounds = boundsByKey[model.key]
-      return bounds ? model.occurrences.map((occurrence) => transformBounds(bounds, occurrence)) : []
-    })), [boundsByKey, models, selectedPartUuid])
+      const info = geometryByKey[model.key]
+      return info ? model.occurrences.map((occurrence) => transformBounds(info.bounds, occurrence)) : []
+    })), [geometryByKey, models, selectedPartUuid])
+  const approximateSelection = useMemo(() => {
+    const model = models.find((candidate) => candidate.part.uuid === selectedPartUuid && candidate.part.geometryAuthority === 'mesh')
+    const info = model ? geometryByKey[model.key] : null
+    return model && info ? { model, geometry: info.geometry } : null
+  }, [geometryByKey, models, selectedPartUuid])
 
   return (
     <Canvas
@@ -165,6 +173,7 @@ export default function ModelCanvas({
       />
       <LiveViewportBridge register={registerLiveViewport} />
       <MeasurementProjectionBridge register={registerMeasurementProjection} />
+      <ApproximateMeasurementBridge selected={approximateSelection} register={registerApproximateMeasurementSource} />
     </Canvas>
   )
 }
@@ -178,7 +187,7 @@ function AssemblyModel({
 }: {
   model: LoadedAssemblyPart
   selected: boolean
-  onReady(key: string, partUuid: string, bounds: Bounds3): void
+  onReady(key: string, partUuid: string, bounds: Bounds3, geometry: THREE.BufferGeometry): void
   onRemoved(key: string): void
   onError(partUuid: string, message: string): void
 }) {
@@ -197,7 +206,7 @@ function AssemblyModel({
   }, [model.artifactBytes])
 
   useEffect(() => {
-    if (parsed.geometry && parsed.bounds) onReady(model.key, model.part.uuid, parsed.bounds)
+    if (parsed.geometry && parsed.bounds) onReady(model.key, model.part.uuid, parsed.bounds, parsed.geometry)
     else if (parsed.error) onError(model.part.uuid, parsed.error)
     return () => {
       parsed.geometry?.dispose()
@@ -228,4 +237,85 @@ function AssemblyModel({
       ))}
     </group>
   )
+}
+
+function ApproximateMeasurementBridge({
+  selected,
+  register,
+}: {
+  selected: { model: LoadedAssemblyPart; geometry: THREE.BufferGeometry } | null
+  register(source: ApproximateMeasurementSource | null): void
+}) {
+  const { camera, gl } = useThree()
+  const selectedGeometry = selected?.geometry ?? null
+  const occurrence = selected?.model.occurrences[0] ?? null
+  const selectedPartUuid = selected?.model.part.uuid ?? null
+  const artifactRevision = selected?.model.part.displayArtifact?.contentHash ?? null
+  const target = useMemo(() => {
+    const position = selectedGeometry?.getAttribute('position')
+    if (!selectedGeometry || !occurrence || !position || !selectedPartUuid || !artifactRevision) return null
+    const derived = deriveApproximateMeshFeatures(position.array, occurrence)
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(derived.pickPositions, 3))
+    geometry.computeBoundingSphere()
+    const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(...occurrence.translationMm)
+    mesh.rotation.set(...occurrence.rotationDeg.map((value) => THREE.MathUtils.degToRad(value)) as [number, number, number])
+    mesh.updateMatrixWorld(true)
+    return {
+      derived,
+      geometry,
+      material,
+      mesh,
+      partUuid: selectedPartUuid,
+      artifactRevision,
+    }
+  }, [artifactRevision, occurrence, selectedGeometry, selectedPartUuid])
+
+  useEffect(() => {
+    if (!target) {
+      register(null)
+      return
+    }
+    const raycaster = new THREE.Raycaster()
+    const ndc = new THREE.Vector2()
+    const projected = new THREE.Vector3()
+    register({
+      partUuid: target.partUuid,
+      artifactRevision: target.artifactRevision,
+      features: target.derived.features,
+      pickFreePoint: (clientX, clientY) => {
+        const rect = gl.domElement.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) return null
+        ndc.set(
+          ((clientX - rect.left) / rect.width) * 2 - 1,
+          1 - ((clientY - rect.top) / rect.height) * 2,
+        )
+        camera.updateMatrixWorld()
+        target.mesh.updateMatrixWorld(true)
+        raycaster.setFromCamera(ndc, camera)
+        const hit = raycaster.intersectObject(target.mesh, false)[0]
+        if (!hit) return null
+        projected.copy(hit.point).project(camera)
+        const pointMm = hit.point.toArray() as [number, number, number]
+        return {
+          featureId: `mesh_free:${pointMm.map((value) => value.toFixed(4)).join(':')}`,
+          kind: 'free_point',
+          quality: 'Approximate',
+          label: featureLabel('free_point', 'Approximate'),
+          pointMm,
+          screen: { x: clientX, y: clientY, depth: projected.z, visible: true },
+          distancePx: 0,
+        }
+      },
+    })
+    return () => {
+      register(null)
+      target.geometry.dispose()
+      target.material.dispose()
+    }
+  }, [camera, gl.domElement, register, target])
+
+  return null
 }

@@ -1,5 +1,13 @@
 import type { ExactFeature, ExactFeatureKind, Point3 } from '../../contracts'
 
+export type MeasurementQuality = 'Exact' | 'Approximate'
+export type MeasurementSnapKind = ExactFeatureKind | 'free_point'
+
+export interface MeasurementFeature extends Omit<ExactFeature, 'quality' | 'source'> {
+  quality: 'exact' | 'approximate'
+  source: 'step_topology' | 'mesh_sample'
+}
+
 export interface ScreenPoint {
   x: number
   y: number
@@ -13,9 +21,17 @@ export interface MeasurementProjectionSource {
   createProjector(): PointProjector
 }
 
+export interface ApproximateMeasurementSource {
+  partUuid: string
+  artifactRevision: string
+  features: MeasurementFeature[]
+  pickFreePoint(clientX: number, clientY: number): SnapCandidate | null
+}
+
 export interface SnapCandidate {
   featureId: string
-  kind: ExactFeatureKind
+  kind: MeasurementSnapKind
+  quality: MeasurementQuality
   label: string
   pointMm: Point3
   screen: ScreenPoint
@@ -37,7 +53,7 @@ export interface MeasurementResult {
   id: string
   kind: 'distance' | 'edge_length'
   title: string
-  quality: 'Exact' | 'Approximate'
+  quality: MeasurementQuality
   startMm: Point3
   endMm: Point3
   totalMm: number
@@ -48,25 +64,29 @@ export interface MeasurementResult {
   offsetPx: [number, number]
 }
 
-const KIND_PRIORITY: Record<ExactFeatureKind, number> = {
+const KIND_PRIORITY: Record<MeasurementSnapKind, number> = {
   vertex: 0,
   circle_center: 1,
   edge_midpoint: 2,
   line_edge: 3,
+  free_point: 4,
 }
+
+const QUALITY_PRIORITY: Record<MeasurementQuality, number> = { Exact: 0, Approximate: 1 }
 
 export const DEFAULT_SNAP_RADIUS_PX = 16
 
-export function featureLabel(kind: ExactFeatureKind): string {
-  if (kind === 'vertex') return 'Exact vertex'
-  if (kind === 'edge_midpoint') return 'Exact edge midpoint'
-  if (kind === 'circle_center') return 'Exact circle center'
-  return 'Exact line edge'
+export function featureLabel(kind: MeasurementSnapKind, quality: MeasurementQuality = 'Exact'): string {
+  if (kind === 'vertex') return `${quality} vertex`
+  if (kind === 'edge_midpoint') return `${quality} edge midpoint`
+  if (kind === 'circle_center') return `${quality} circle center`
+  if (kind === 'free_point') return `${quality} free point`
+  return `${quality} line edge`
 }
 
 export function findScreenSpaceSnap(
   pointer: { x: number; y: number },
-  features: ExactFeature[],
+  features: readonly (MeasurementFeature | ExactFeature)[],
   project: PointProjector,
   radiusPx = DEFAULT_SNAP_RADIUS_PX,
 ): SnapCandidate | null {
@@ -75,9 +95,10 @@ export function findScreenSpaceSnap(
     const candidate = candidateForFeature(pointer, feature, project)
     if (!candidate || candidate.distancePx > radiusPx) continue
     if (!best
-      || candidate.distancePx < best.distancePx
-      || (candidate.distancePx === best.distancePx && KIND_PRIORITY[candidate.kind] < KIND_PRIORITY[best.kind])
-      || (candidate.distancePx === best.distancePx
+      || QUALITY_PRIORITY[candidate.quality] < QUALITY_PRIORITY[best.quality]
+      || (candidate.quality === best.quality && candidate.distancePx < best.distancePx)
+      || (candidate.quality === best.quality && candidate.distancePx === best.distancePx && KIND_PRIORITY[candidate.kind] < KIND_PRIORITY[best.kind])
+      || (candidate.quality === best.quality && candidate.distancePx === best.distancePx
         && KIND_PRIORITY[candidate.kind] === KIND_PRIORITY[best.kind]
         && candidate.featureId.localeCompare(best.featureId) < 0)) {
       best = candidate
@@ -88,7 +109,7 @@ export function findScreenSpaceSnap(
 
 function candidateForFeature(
   pointer: { x: number; y: number },
-  feature: ExactFeature,
+  feature: MeasurementFeature | ExactFeature,
   project: PointProjector,
 ): SnapCandidate | null {
   if (feature.kind === 'line_edge') {
@@ -97,10 +118,12 @@ function candidateForFeature(
     const end = project(feature.endMm)
     if (!start?.visible || !end?.visible) return null
     const nearest = nearestPointOnSegment(pointer, start, end)
+    const quality = feature.quality === 'exact' ? 'Exact' : 'Approximate'
     return {
       featureId: feature.id,
       kind: feature.kind,
-      label: `${featureLabel(feature.kind)} · ${formatMm(feature.lengthMm)}`,
+      quality,
+      label: `${featureLabel(feature.kind, quality)} · ${formatMm(feature.lengthMm)}`,
       pointMm: lerpPoint(feature.startMm, feature.endMm, nearest.t),
       screen: { x: nearest.x, y: nearest.y, depth: start.depth + (end.depth - start.depth) * nearest.t, visible: true },
       distancePx: nearest.distance,
@@ -112,10 +135,12 @@ function candidateForFeature(
   if (!point) return null
   const screen = project(point)
   if (!screen?.visible) return null
+  const quality = feature.quality === 'exact' ? 'Exact' : 'Approximate'
   return {
     featureId: feature.id,
     kind: feature.kind,
-    label: featureLabel(feature.kind),
+    quality,
+    label: featureLabel(feature.kind, quality),
     pointMm: point,
     screen,
     distancePx: Math.hypot(pointer.x - screen.x, pointer.y - screen.y),
@@ -129,11 +154,12 @@ export function createDistanceMeasurement(
   binding: Omit<MeasurementBinding, 'featureIds'>,
 ): MeasurementResult {
   const deltaMm = subtract(end.pointMm, start.pointMm)
+  const quality: MeasurementQuality = start.quality === 'Exact' && end.quality === 'Exact' ? 'Exact' : 'Approximate'
   return {
     id,
     kind: 'distance',
-    title: `${featureLabel(start.kind)} to ${featureLabel(end.kind)}`,
-    quality: 'Exact',
+    title: `${featureLabel(start.kind, start.quality)} to ${featureLabel(end.kind, end.quality)}`,
+    quality,
     startMm: start.pointMm,
     endMm: end.pointMm,
     totalMm: length(deltaMm),
@@ -154,8 +180,8 @@ export function createEdgeLengthMeasurement(
   return {
     id,
     kind: 'edge_length',
-    title: 'Exact edge length',
-    quality: 'Exact',
+    title: `${target.quality} edge length`,
+    quality: target.quality,
     startMm: target.edge.startMm,
     endMm: target.edge.endMm,
     totalMm: target.edge.lengthMm,

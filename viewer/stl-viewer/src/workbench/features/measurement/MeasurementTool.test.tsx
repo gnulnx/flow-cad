@@ -34,7 +34,7 @@ describe('replacement MeasurementTool', () => {
     const toggle = vi.fn()
     render(<><input aria-label="Editor" /><MeasurementToolButton active={false} state={idle} onToggle={toggle} /></>)
 
-    await user.click(screen.getByRole('button', { name: 'Measure exact geometry' }))
+    await user.click(screen.getByRole('button', { name: 'Measure geometry' }))
     await user.keyboard('m')
     expect(toggle).toHaveBeenCalledTimes(2)
 
@@ -83,5 +83,38 @@ describe('replacement MeasurementTool', () => {
     expect(toggleHidden).toHaveBeenCalledOnce()
     expect(deleteMeasurement).toHaveBeenCalledOnce()
     expect(clear).toHaveBeenCalledOnce()
+  })
+
+  it('labels mesh fallback hover and persisted results unmistakably Approximate', () => {
+    render(
+      <MeasurementOverlay
+        active
+        state={{ status: 'approximate', targetCount: 42 }}
+        hover={{
+          featureId: 'mesh_vertex:1',
+          kind: 'vertex',
+          quality: 'Approximate',
+          label: 'Approximate vertex',
+          pointMm: [1, 2, 3],
+          screen: { x: 50, y: 60, depth: 0, visible: true },
+          distancePx: 2,
+        }}
+        start={null}
+        measurements={[result({ quality: 'Approximate', title: 'Approximate vertex to Approximate free point' })]}
+        currentPartUuid="part-1"
+        currentArtifactRevision="revision-1"
+        stageRect={{ left: 0, top: 0 } as DOMRect}
+        onClear={vi.fn()}
+        onDelete={vi.fn()}
+        onToggleHidden={vi.fn()}
+        onTogglePinned={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Measure · Approximate')).toBeInTheDocument()
+    expect(screen.getByText('Approximate vertex')).toBeInTheDocument()
+    expect(screen.getByText('Approximate vertex to Approximate free point')).toBeInTheDocument()
+    expect(screen.getByText('Approximate', { selector: '.quality-tag' })).toBeInTheDocument()
   })
 })

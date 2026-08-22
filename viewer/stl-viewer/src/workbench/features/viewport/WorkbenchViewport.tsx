@@ -5,11 +5,12 @@ import { AnnotationOverlay } from '../annotation/AnnotationOverlay'
 import { saveAnnotationSnapshot } from '../annotation/client'
 import { createAnnotationSnapshotInput } from '../annotation/context'
 import type { AnnotationMark } from '../annotation/contracts'
-import { MeasurementOverlay, MeasurementToolButton } from '../measurement/MeasurementTool'
+import { MeasurementOverlay, MeasurementToolButton, type MeasurementToolState } from '../measurement/MeasurementTool'
 import {
   createDistanceMeasurement,
   createEdgeLengthMeasurement,
   findScreenSpaceSnap,
+  type ApproximateMeasurementSource,
   type MeasurementProjectionSource,
   type MeasurementResult,
   type SnapCandidate,
@@ -17,8 +18,11 @@ import {
 import { useExactFeatures } from '../measurement/useExactFeatures'
 import { transformExactFeature } from './assembly'
 import type { RotationMode } from './navigation'
-import { useAgentScreenCapture, type LiveViewportSource } from './agentScreen'
+import { useAgentScreenCapture, type LiveCanvasCaptureMetadata, type LiveViewportSource } from './agentScreen'
 import { useAssemblyDisplayQueue } from './useAssemblyDisplayQueue'
+import { useViewportContextEmitter, type WorkbenchViewportContext } from './viewportContext'
+
+export type { WorkbenchViewportContext } from './viewportContext'
 
 type ModelLoadState = 'empty' | 'loading' | 'partial' | 'ready' | 'failed'
 const ModelCanvas = lazy(() => import('./ModelCanvas'))
@@ -64,10 +68,11 @@ interface WorkbenchViewportProps {
   threadId?: string | null
   onAssemblyStateChange?(snapshot: AssemblyViewportSnapshot): void
   onMeasurementsChange?(measurements: MeasurementResult[]): void
+  onViewportContextChange?(context: WorkbenchViewportContext): void
   measurementRestore?: { key: string; measurements: MeasurementResult[] } | null
 }
 
-export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, measurementRestore = null }: WorkbenchViewportProps) {
+export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, measurementRestore = null }: WorkbenchViewportProps) {
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -77,12 +82,16 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
   const [hoverTarget, setHoverTarget] = useState<SnapCandidate | null>(null)
   const [startTarget, setStartTarget] = useState<SnapCandidate | null>(null)
   const [measurements, setMeasurements] = useState<MeasurementResult[]>([])
+  const [approximateSource, setApproximateSource] = useState<ApproximateMeasurementSource | null>(null)
+  const [annotationSnapshot, setAnnotationSnapshot] = useState<{ marks: AnnotationMark[]; hidden: boolean }>({ marks: [], hidden: false })
+  const [latestCapture, setLatestCapture] = useState<LiveCanvasCaptureMetadata | null>(null)
   const measurementSequence = useRef(0)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const annotationOverlayRef = useRef<SVGSVGElement>(null)
   const measurementProjectionRef = useRef<MeasurementProjectionSource | null>(null)
   const liveViewportRef = useRef<(() => LiveViewportSource) | null>(null)
   const assembly = useAssemblyDisplayQueue(parts, activeAssemblyId, part?.uuid ?? null)
+  const selectedArtifactRevision = part?.authorityHash ?? part?.displayArtifact?.contentHash ?? null
   const modelSetKey = assembly.models.map((model) => model.key).join('|')
   const displayState: ModelLoadState = rendererError
     ? 'failed'
@@ -110,6 +119,15 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
         },
       }
     : exactFeatures, [assembly.selectedOccurrence, exactFeatures])
+  const selectedApproximateSource = approximateSource && approximateSource.partUuid === part?.uuid
+    && approximateSource.artifactRevision === selectedArtifactRevision
+    ? approximateSource
+    : null
+  const measurementToolState: MeasurementToolState = part?.geometryAuthority === 'mesh'
+    ? selectedApproximateSource
+      ? { status: 'approximate', targetCount: selectedApproximateSource.features.length }
+      : { status: 'mesh-loading' }
+    : transformedExactFeatures
   const rendererBecameReady = useCallback(() => setRendererReady(true), [])
   const rendererFailed = useCallback((message: string) => setRendererError(message), [])
   const registerLiveViewport = useCallback((source: (() => LiveViewportSource) | null) => {
@@ -118,6 +136,13 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
   const registerMeasurementProjection = useCallback((source: MeasurementProjectionSource | null) => {
     measurementProjectionRef.current = source
   }, [])
+  const registerApproximateMeasurementSource = useCallback((source: ApproximateMeasurementSource | null) => {
+    setApproximateSource((current) => current === source ? current : source)
+  }, [])
+  const annotationsChanged = useCallback((marks: AnnotationMark[], hidden: boolean) => {
+    setAnnotationSnapshot({ marks, hidden })
+  }, [])
+  const liveCaptureCompleted = useCallback((metadata: LiveCanvasCaptureMetadata) => setLatestCapture(metadata), [])
   const getLiveViewport = useCallback(() => liveViewportRef.current?.() ?? null, [])
   const getAnnotationOverlay = useCallback(() => annotationOverlayRef.current, [])
   useAgentScreenCapture({
@@ -128,6 +153,15 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
     getAnnotationOverlay,
     visibleOccurrenceIds: assembly.visibleOccurrenceIds,
     renderedParts: assembly.models.map((model) => model.part),
+    onCaptured: liveCaptureCompleted,
+  })
+  useViewportContextEmitter({
+    getLiveViewport,
+    measurements,
+    annotationMarks: annotationSnapshot.marks,
+    annotationsHidden: annotationSnapshot.hidden,
+    latestCapture,
+    onChange: onViewportContextChange,
   })
 
   useEffect(() => {
@@ -171,13 +205,16 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
   }, [])
 
   const snapAtPointer = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!measureMode || transformedExactFeatures.status !== 'ready' || !measurementProjectionRef.current) return null
-    return findScreenSpaceSnap(
-      { x: event.clientX, y: event.clientY },
-      transformedExactFeatures.featureSet.features,
-      measurementProjectionRef.current.createProjector(),
-    )
-  }, [measureMode, transformedExactFeatures])
+    if (!measureMode || !measurementProjectionRef.current) return null
+    const pointer = { x: event.clientX, y: event.clientY }
+    const projector = measurementProjectionRef.current.createProjector()
+    if (transformedExactFeatures.status === 'ready') {
+      return findScreenSpaceSnap(pointer, transformedExactFeatures.featureSet.features, projector)
+    }
+    if (part?.geometryAuthority !== 'mesh' || !selectedApproximateSource) return null
+    return findScreenSpaceSnap(pointer, selectedApproximateSource.features, projector)
+      ?? selectedApproximateSource.pickFreePoint(event.clientX, event.clientY)
+  }, [measureMode, part?.geometryAuthority, selectedApproximateSource, transformedExactFeatures])
 
   const pointerMoved = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if ((event.target as Element).closest?.('.measurement-labels')) return
@@ -187,11 +224,11 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
   const pointerClicked = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (!measureMode || event.button !== 0 || (event.target as Element).closest?.('.measurement-labels')) return
     const target = snapAtPointer(event)
-    if (!target || !part?.authorityHash) return
-    const binding = { partUuid: part.uuid, artifactRevision: part.authorityHash }
+    if (!target || !part || !selectedArtifactRevision) return
+    const binding = { partUuid: part.uuid, artifactRevision: selectedArtifactRevision }
     measurementSequence.current += 1
     const id = `${part.uuid}:measurement:${measurementSequence.current}`
-    if (target.kind === 'line_edge' && !startTarget) {
+    if (target.quality === 'Exact' && target.kind === 'line_edge' && !startTarget) {
       const edge = createEdgeLengthMeasurement(id, target, binding)
       if (edge) setMeasurements((current) => [...current, edge])
       return
@@ -202,13 +239,12 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
     }
     setMeasurements((current) => [...current, createDistanceMeasurement(id, startTarget, target, binding)])
     setStartTarget(null)
-  }, [measureMode, part, snapAtPointer, startTarget])
+  }, [measureMode, part, selectedArtifactRevision, snapAtPointer, startTarget])
 
   const updateMeasurement = useCallback((id: string, update: (record: MeasurementResult) => MeasurementResult) => {
     setMeasurements((current) => current.map((record) => record.id === id ? update(record) : record))
   }, [])
 
-  const selectedArtifactRevision = part?.authorityHash ?? part?.displayArtifact?.contentHash ?? null
   const saveAnnotations = useCallback(async (marks: AnnotationMark[], hidden: boolean) => {
     const source = liveViewportRef.current?.()
     if (!threadId || !part || !selectedArtifactRevision || backendRevision === null || !source) {
@@ -253,7 +289,7 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
           </div>
           <button type="button" className="tool-button" onClick={() => setFitRequest((request) => request + 1)}>Fit</button>
           <button type="button" className="tool-button" onClick={() => setFrameSelectedRequest((request) => request + 1)}>Frame part</button>
-          <MeasurementToolButton active={measureMode} state={transformedExactFeatures} onToggle={toggleMeasureMode} />
+          <MeasurementToolButton active={measureMode} state={measurementToolState} onToggle={toggleMeasureMode} />
         </div>
       </div>
       <div
@@ -283,12 +319,13 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
                 onPartError={assembly.reportParseFailure}
                 registerLiveViewport={registerLiveViewport}
                 registerMeasurementProjection={registerMeasurementProjection}
+                registerApproximateMeasurementSource={registerApproximateMeasurementSource}
                 measureMode={measureMode}
                 measurementHover={hoverTarget}
                 measurementStart={startTarget}
                 measurements={measurements}
                 currentPartUuid={part?.uuid ?? null}
-                currentArtifactRevision={part?.authorityHash ?? null}
+                currentArtifactRevision={selectedArtifactRevision}
               />
             </Suspense>
           </ModelErrorBoundary>
@@ -321,12 +358,12 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
         <div className="navigation-hint">{measureMode ? 'Left select · Right / middle pan · Wheel dolly · Z-up' : 'Left rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
         <MeasurementOverlay
           active={measureMode}
-          state={transformedExactFeatures}
+          state={measurementToolState}
           hover={hoverTarget}
           start={startTarget}
           measurements={measurements}
           currentPartUuid={part?.uuid ?? null}
-          currentArtifactRevision={part?.authorityHash ?? null}
+          currentArtifactRevision={selectedArtifactRevision}
           stageRect={stageRef.current?.getBoundingClientRect() ?? null}
           onClear={() => setMeasurements([])}
           onDelete={(id) => setMeasurements((current) => current.filter((record) => record.id !== id))}
@@ -339,6 +376,7 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
         />
         <AnnotationOverlay
           overlayRef={annotationOverlayRef}
+          onChange={annotationsChanged}
           onSave={threadId && part && selectedArtifactRevision && backendRevision !== null && assembly.partStates[part.uuid] === 'visible'
             ? saveAnnotations
             : undefined}

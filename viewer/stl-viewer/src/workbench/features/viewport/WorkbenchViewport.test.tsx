@@ -1,11 +1,14 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorkbenchPart } from '../../contracts'
 import { createTestWorkbenchClient } from '../../testClient'
 import { WorkbenchViewport } from './WorkbenchViewport'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
 
 function assemblyPart(index: number): WorkbenchPart {
   return {
@@ -42,7 +45,7 @@ describe('WorkbenchViewport measurement integration', () => {
     const user = userEvent.setup()
     render(<WorkbenchViewport client={createTestWorkbenchClient()} part={null} backendRevision={7} />)
 
-    const button = screen.getByRole('button', { name: 'Measure exact geometry' })
+    const button = screen.getByRole('button', { name: 'Measure geometry' })
     expect(screen.getByRole('button', { name: 'Annotate' })).toHaveAttribute('aria-pressed', 'false')
     expect(button).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByText(/Left rotate/)).toBeInTheDocument()
@@ -55,6 +58,28 @@ describe('WorkbenchViewport measurement integration', () => {
     await user.click(button)
     expect(button).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByText(/Left rotate/)).toBeInTheDocument()
+  })
+
+  it('exposes a debounced local context snapshot without requiring shared app contracts', () => {
+    vi.useFakeTimers()
+    const onViewportContextChange = vi.fn()
+    render(
+      <WorkbenchViewport
+        client={createTestWorkbenchClient()}
+        part={null}
+        backendRevision={7}
+        onViewportContextChange={onViewportContextChange}
+      />,
+    )
+
+    expect(onViewportContextChange).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(120))
+    expect(onViewportContextChange).toHaveBeenCalledWith({
+      camera: null,
+      measurements: [],
+      annotations: { marks: [], hidden: false },
+      latestCapture: null,
+    })
   })
 
   it('shows progressive assembly feedback and holds network fan-out to three models', async () => {

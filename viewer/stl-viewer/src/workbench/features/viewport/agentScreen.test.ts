@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { WorkbenchPart } from '../../contracts'
-import { buildAgentScreenPayload, captureAgentScreenPayload } from './agentScreen'
+import { buildAgentScreenPayload, captureAgentScreenPayload, liveCaptureMetadata } from './agentScreen'
 
 describe('live agent-screen capture payload', () => {
   it('binds the live canvas, camera, selected occurrence, artifact, and revision', () => {
@@ -85,5 +85,28 @@ describe('live agent-screen capture payload', () => {
     expect(payload.data_url).toBe('data:image/png;base64,composited')
     expect(payload.metadata.annotation_overlay).toBe(true)
     expect(payload.viewport.render_context).toBe('viewport-canvas')
+  })
+
+  it('exposes narrow attachment metadata without carrying PNG bytes into chat context', () => {
+    expect(liveCaptureMetadata({
+      capture_id: 'screen-one',
+      request_id: 'review-one',
+      image_url: '/api/agent-screen/captures/screen-one/image',
+      content_type: 'image/png',
+      width: 1280,
+      height: 720,
+      created_at: '2026-08-22T12:00:00Z',
+      viewport: { render_context: 'viewport-canvas' },
+      data_url: 'must-not-leak',
+    })).toEqual({
+      captureId: 'screen-one',
+      requestId: 'review-one',
+      imageUrl: '/api/agent-screen/captures/screen-one/image',
+      contentType: 'image/png',
+      width: 1280,
+      height: 720,
+      createdAt: '2026-08-22T12:00:00Z',
+      renderContext: 'viewport-canvas',
+    })
   })
 })

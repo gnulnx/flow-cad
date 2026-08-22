@@ -8,6 +8,7 @@ import {
   formatMm,
   isMeasurementStale,
   type ScreenPoint,
+  type MeasurementFeature,
   type SnapCandidate,
 } from './measurement'
 
@@ -22,11 +23,12 @@ function pointFeature(id: string, kind: 'vertex' | 'edge_midpoint' | 'circle_cen
   return { id, kind, pointMm, quality: 'exact', source: 'step_topology' }
 }
 
-function candidate(id: string, kind: SnapCandidate['kind'], pointMm: Point3): SnapCandidate {
+function candidate(id: string, kind: SnapCandidate['kind'], pointMm: Point3, quality: SnapCandidate['quality'] = 'Exact'): SnapCandidate {
   return {
     featureId: id,
     kind,
-    label: featureLabel(kind),
+    quality,
+    label: featureLabel(kind, quality),
     pointMm,
     screen: project(pointMm),
     distancePx: 0,
@@ -105,6 +107,38 @@ describe('replacement exact measurement math', () => {
     expect(isMeasurementStale(measurement, 'part-1', 'revision-2')).toBe(true)
     expect(isMeasurementStale(measurement, 'part-2', 'revision-1')).toBe(true)
     expect(formatMm(measurement.deltaMm[0])).toBe('3.00 mm')
+  })
+
+  it('keeps exact topology ahead of a closer approximate mesh sample', () => {
+    const approximate: MeasurementFeature = {
+      id: 'mesh_vertex:0',
+      kind: 'vertex',
+      quality: 'approximate',
+      source: 'mesh_sample',
+      pointMm: [10, 10, 0],
+    }
+    const exact = pointFeature('vertex:exact', 'vertex', [10.5, 10, 0])
+
+    expect(findScreenSpaceSnap({ x: 100, y: 100 }, [approximate, exact], project)).toMatchObject({
+      featureId: 'vertex:exact',
+      quality: 'Exact',
+    })
+  })
+
+  it('creates an Approximate two-click result from sampled mesh and free-point targets', () => {
+    const measurement = createDistanceMeasurement(
+      'mesh-distance',
+      candidate('mesh_edge:1', 'line_edge', [0, 0, 0], 'Approximate'),
+      candidate('mesh_free:2', 'free_point', [0, 3, 4], 'Approximate'),
+      { partUuid: 'mesh-part', artifactRevision: 'mesh-revision' },
+    )
+
+    expect(measurement).toMatchObject({
+      title: 'Approximate line edge to Approximate free point',
+      quality: 'Approximate',
+      totalMm: 5,
+      binding: { featureIds: ['mesh_edge:1', 'mesh_free:2'] },
+    })
   })
 
   it('keeps projected snap search inside the interaction SLO for a dense selected part', () => {

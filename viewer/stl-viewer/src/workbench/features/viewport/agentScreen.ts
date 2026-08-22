@@ -26,6 +26,18 @@ interface UseAgentScreenCaptureOptions {
   backendRevision: number | null
   visibleOccurrenceIds?: string[]
   renderedParts?: WorkbenchPart[]
+  onCaptured?(metadata: LiveCanvasCaptureMetadata): void
+}
+
+export interface LiveCanvasCaptureMetadata {
+  captureId: string
+  requestId: string | null
+  imageUrl: string
+  contentType: string
+  width: number | null
+  height: number | null
+  createdAt: string | null
+  renderContext: 'viewport-canvas'
 }
 
 interface AgentScreenCaptureOptions {
@@ -97,7 +109,20 @@ export async function captureAgentScreenPayload(
   })
 }
 
-export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay, part, backendRevision, visibleOccurrenceIds, renderedParts }: UseAgentScreenCaptureOptions) {
+export function liveCaptureMetadata(payload: Record<string, unknown>): LiveCanvasCaptureMetadata {
+  return {
+    captureId: String(payload.capture_id ?? ''),
+    requestId: typeof payload.request_id === 'string' ? payload.request_id : null,
+    imageUrl: String(payload.image_url ?? ''),
+    contentType: String(payload.content_type ?? 'image/png'),
+    width: typeof payload.width === 'number' ? payload.width : null,
+    height: typeof payload.height === 'number' ? payload.height : null,
+    createdAt: typeof payload.created_at === 'string' ? payload.created_at : null,
+    renderContext: 'viewport-canvas',
+  }
+}
+
+export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay, part, backendRevision, visibleOccurrenceIds, renderedParts, onCaptured }: UseAgentScreenCaptureOptions) {
   const inFlightRef = useRef(new Set<string>())
   const sceneKey = `${visibleOccurrenceIds?.join('|') ?? ''}:${renderedParts?.map((item) => item.displayArtifact?.contentHash ?? '').join('|') ?? ''}`
 
@@ -134,6 +159,7 @@ export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay
             signal: controller.signal,
           })
           if (!capture.ok) throw new Error(await capture.text())
+          onCaptured?.(liveCaptureMetadata(await capture.json() as Record<string, unknown>))
         } catch (reason) {
           if (!controller.signal.aborted) {
             await fetch(applicationApiUrl(`/api/agent-screen/requests/${encodeURIComponent(request.request_id)}/fail`), {
@@ -158,5 +184,5 @@ export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay
       window.cancelAnimationFrame(firstFrame)
       window.clearInterval(timer)
     }
-  }, [backendRevision, enabled, getAnnotationOverlay, getSource, part, sceneKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [backendRevision, enabled, getAnnotationOverlay, getSource, onCaptured, part, sceneKey]) // eslint-disable-line react-hooks/exhaustive-deps
 }

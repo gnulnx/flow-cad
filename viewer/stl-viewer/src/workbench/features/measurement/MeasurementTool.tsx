@@ -2,9 +2,13 @@ import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react
 import type { ExactFeatureLoadState } from './useExactFeatures'
 import { formatMm, isMeasurementStale, type MeasurementResult, type SnapCandidate } from './measurement'
 
+export type MeasurementToolState = ExactFeatureLoadState
+  | { status: 'approximate'; targetCount: number }
+  | { status: 'mesh-loading' }
+
 interface MeasurementToolButtonProps {
   active: boolean
-  state: ExactFeatureLoadState
+  state: MeasurementToolState
   onToggle(): void
 }
 
@@ -21,17 +25,19 @@ export function MeasurementToolButton({ active, state, onToggle }: MeasurementTo
 
   const status = state.status === 'ready'
     ? `${state.featureSet.features.length} exact targets`
-    : state.status === 'extracting' ? 'Extracting exact targets'
-      : state.status === 'loading' ? 'Loading exact targets'
-        : state.status === 'failed' ? 'Exact targets unavailable'
-          : 'Select a visible STEP part'
+    : state.status === 'approximate' ? `${state.targetCount} bounded approximate mesh targets`
+      : state.status === 'mesh-loading' ? 'Preparing approximate mesh targets'
+        : state.status === 'extracting' ? 'Extracting exact targets'
+          : state.status === 'loading' ? 'Loading exact targets'
+            : state.status === 'failed' ? 'Exact targets unavailable'
+              : 'Select a visible STEP part'
 
   return (
     <button
       type="button"
       className="tool-button measurement-tool-button"
       aria-pressed={active}
-      aria-label="Measure exact geometry"
+      aria-label="Measure geometry"
       title={`${status} · Shortcut M`}
       onClick={onToggle}
     >
@@ -44,7 +50,7 @@ export function MeasurementToolButton({ active, state, onToggle }: MeasurementTo
 
 interface MeasurementOverlayProps {
   active: boolean
-  state: ExactFeatureLoadState
+  state: MeasurementToolState
   hover: SnapCandidate | null
   start: SnapCandidate | null
   measurements: MeasurementResult[]
@@ -80,10 +86,10 @@ export function MeasurementOverlay({
   } : undefined
 
   return (
-    <div className="measurement-layer" aria-label="Exact measurement overlay">
+    <div className="measurement-layer" aria-label="Measurement overlay">
       {active ? (
         <div className="measurement-mode-status" role="status">
-          <strong>Measure · Exact</strong>
+          <strong>Measure · {measurementQuality(state, start)}</strong>
           <span>{measurementStatus(state, start)}</span>
         </div>
       ) : null}
@@ -91,7 +97,9 @@ export function MeasurementOverlay({
         <div className={`measurement-hover measurement-hover--${hover.kind}`} style={hoverStyle}>
           <span className="measurement-snap-dot" aria-hidden="true" />
           <strong>{hover.label}</strong>
-          <span>{hover.kind === 'line_edge' ? 'Click for exact edge length' : start ? 'Click to finish distance' : 'Click to pin start'}</span>
+          <span>{hover.quality === 'Exact' && hover.kind === 'line_edge'
+            ? 'Click for exact edge length'
+            : start ? 'Click to finish distance' : 'Click to pin start'}</span>
         </div>
       ) : null}
       {measurements.length ? (
@@ -168,7 +176,9 @@ function MeasurementLabel({
           onPointerCancel={endDrag}
         >⋮⋮</button>
         <strong>{measurement.title}</strong>
-        <span className={stale ? 'quality-tag quality-tag--stale' : 'quality-tag'}>{stale ? 'Stale' : measurement.quality}</span>
+        <span className={stale
+          ? 'quality-tag quality-tag--stale'
+          : `quality-tag${measurement.quality === 'Approximate' ? ' quality-tag--approximate' : ''}`}>{stale ? 'Stale' : measurement.quality}</span>
       </header>
       {!measurement.hidden ? (
         <div className="measurement-label__facts">
@@ -187,13 +197,20 @@ function MeasurementLabel({
   )
 }
 
-function measurementStatus(state: ExactFeatureLoadState, start: SnapCandidate | null): string {
+function measurementStatus(state: MeasurementToolState, start: SnapCandidate | null): string {
   if (start) return `${start.label} pinned · choose second point`
   if (state.status === 'ready') return 'Hover an exact target · line edges measure in one click'
+  if (state.status === 'approximate') return 'Hover a sampled mesh vertex or edge, or click a visible face · two clicks measure'
+  if (state.status === 'mesh-loading') return 'Preparing bounded browser mesh targets…'
   if (state.status === 'extracting') return 'Extracting STEP topology in a cancellable job…'
   if (state.status === 'loading') return 'Checking revision-bound exact targets…'
   if (state.status === 'failed') return state.error
   return 'Select a visible STEP-backed part'
+}
+
+function measurementQuality(state: MeasurementToolState, start: SnapCandidate | null): 'Exact' | 'Approximate' {
+  if (start) return start.quality
+  return state.status === 'approximate' || state.status === 'mesh-loading' ? 'Approximate' : 'Exact'
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

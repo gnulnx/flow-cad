@@ -20,20 +20,24 @@ export function MeasurementScene({
 }: MeasurementSceneProps) {
   return (
     <group renderOrder={50}>
-      {hover?.edge ? <ExactLine start={hover.edge.startMm} end={hover.edge.endMm} color="#79cbd1" opacity={0.78} /> : null}
-      {hover ? <ExactMarker point={hover.pointMm} color="#79cbd1" scale={1.7} /> : null}
-      {start ? <ExactMarker point={start.pointMm} color="#f0c983" scale={2.1} /> : null}
+      {hover?.edge ? <ExactLine start={hover.edge.startMm} end={hover.edge.endMm} color={qualityColor(hover.quality)} opacity={0.78} /> : null}
+      {hover ? <ExactMarker point={hover.pointMm} color={qualityColor(hover.quality)} scale={1.7} /> : null}
+      {start ? <ExactMarker point={start.pointMm} color={qualityColor(start.quality)} scale={2.1} /> : null}
       {measurements.map((measurement) => measurement.hidden ? null : (
         <ExactLine
           key={measurement.id}
           start={measurement.startMm}
           end={measurement.endMm}
-          color={isMeasurementStale(measurement, currentPartUuid, currentArtifactRevision) ? '#e6b66a' : '#f0c983'}
+          color={isMeasurementStale(measurement, currentPartUuid, currentArtifactRevision) || measurement.quality === 'Approximate' ? '#e6b66a' : '#f0c983'}
           opacity={0.95}
         />
       ))}
     </group>
   )
+}
+
+function qualityColor(quality: 'Exact' | 'Approximate') {
+  return quality === 'Exact' ? '#79cbd1' : '#e6b66a'
 }
 
 function ExactMarker({ point, color, scale }: { point: Point3; color: string; scale: number }) {

@@ -286,6 +286,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .measurement-label .measurement-label__drag:active { cursor: grabbing; }
 .quality-tag { padding: 2px 4px; color: var(--green); font-size: 7px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; border: 1px solid rgb(111 202 155 / 28%); border-radius: 4px; }
 .quality-tag--stale { color: var(--amber); border-color: rgb(230 182 106 / 36%); }
+.quality-tag--approximate { color: var(--amber); border-color: rgb(230 182 106 / 36%); }
 .measurement-label--stale { border-color: rgb(230 182 106 / 42%); }
 .measurement-label__facts { display: grid; grid-template-columns: minmax(74px, 1fr) repeat(3, auto); gap: 7px; align-items: baseline; font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
 .measurement-label__facts strong { color: var(--gold-soft); font-size: 13px; }
