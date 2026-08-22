@@ -205,6 +205,7 @@ def part_retire(key_or_alias: str) -> None:
 @click.option("--frontend-port", default=3000, show_default=True, type=int)
 @click.option("--port-search-span", default=50, show_default=True, type=int)
 @click.option("--open-browser/--no-open-browser", default=True, show_default=True)
+@click.option("--api-only", is_flag=True, default=False, help="Start only the workbench API without Node or a browser.")
 def start(
     backend_host: str,
     backend_port: int,
@@ -212,6 +213,7 @@ def start(
     frontend_port: int,
     port_search_span: int,
     open_browser: bool,
+    api_only: bool,
 ) -> None:
     """Start the Flow CAD workbench for the current project."""
 
@@ -233,6 +235,7 @@ def start(
         open_browser=open_browser,
         backend_application="flow_cad.viewer.api.app:create_app_from_environment",
         backend_factory=True,
+        start_frontend=not api_only,
     )
 
 

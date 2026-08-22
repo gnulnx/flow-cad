@@ -33,9 +33,10 @@ def start_viewer(
     open_browser: bool = True,
     backend_application: str = "flow_cad.viewer.app:app",
     backend_factory: bool = False,
+    start_frontend: bool = True,
 ) -> None:
     viewer_dir = PROJECT_ROOT / "viewer" / "stl-viewer"
-    if not (viewer_dir / "node_modules").exists():
+    if start_frontend and not (viewer_dir / "node_modules").exists():
         raise click.ClickException("Viewer dependencies are missing. Run: npm --prefix viewer/stl-viewer install")
 
     backend_port, frontend_port = _resolve_viewer_ports(
@@ -46,7 +47,7 @@ def start_viewer(
         search_span=port_search_span,
     )
     backend_url = f"http://{backend_host}:{backend_port}"
-    frontend_url = f"http://{frontend_host}:{frontend_port}/?api={backend_url}"
+    frontend_url = f"http://{frontend_host}:{frontend_port}/?api={backend_url}" if start_frontend else None
     env = _viewer_env(project_root, backend_url)
 
     backend_cmd = [
@@ -75,10 +76,13 @@ def start_viewer(
     ]
 
     click.echo(f"Viewer API: {backend_url}")
-    click.echo(f"Viewer UI:  {frontend_url}")
+    if frontend_url:
+        click.echo(f"Viewer UI:  {frontend_url}")
+    else:
+        click.echo("Viewer UI:  disabled (--api-only)")
     click.echo("Starting workbench services...")
     backend_proc = subprocess.Popen(backend_cmd, cwd=project_root, env=env)
-    frontend_proc = subprocess.Popen(frontend_cmd, cwd=viewer_dir, env=env)
+    frontend_proc = subprocess.Popen(frontend_cmd, cwd=viewer_dir, env=env) if start_frontend else None
     _write_viewer_runtime(
         project_root,
         {
@@ -86,7 +90,7 @@ def start_viewer(
             "backend_url": backend_url,
             "frontend_url": frontend_url,
             "backend_pid": backend_proc.pid,
-            "frontend_pid": frontend_proc.pid,
+            "frontend_pid": frontend_proc.pid if frontend_proc is not None else None,
             "started_at": time.time(),
         },
     )
@@ -94,20 +98,21 @@ def start_viewer(
     try:
         backend_elapsed = _wait_for_backend_ready(backend_url, backend_proc, timeout=3.0)
         click.echo(f"Workbench API ready in {backend_elapsed * 1000.0:.1f} ms")
-        if open_browser:
+        if open_browser and frontend_url:
             webbrowser.open(frontend_url)
         while True:
             backend_status = backend_proc.poll()
-            frontend_status = frontend_proc.poll()
+            frontend_status = frontend_proc.poll() if frontend_proc is not None else None
             if backend_status is not None:
                 raise click.ClickException(f"Viewer backend exited with status {backend_status}")
-            if frontend_status is not None:
+            if frontend_proc is not None and frontend_status is not None:
                 raise click.ClickException(f"Viewer frontend exited with status {frontend_status}")
             time.sleep(0.5)
     except KeyboardInterrupt:
         click.echo("Stopping viewer...")
     finally:
-        _terminate_process(frontend_proc)
+        if frontend_proc is not None:
+            _terminate_process(frontend_proc)
         _terminate_process(backend_proc)
         _clear_viewer_runtime(project_root, backend_url=backend_url)
 

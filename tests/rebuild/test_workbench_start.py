@@ -38,3 +38,30 @@ def test_flow_start_uses_replacement_manifest_and_api_factory(tmp_path: Path, mo
     )
     assert captured["backend_factory"] is True
     assert captured["open_browser"] is False
+    assert captured["start_frontend"] is True
+
+
+def test_flow_start_api_only_disables_frontend(tmp_path: Path, monkeypatch) -> None:
+    manifest = {
+        "schema_version": 1,
+        "project_id": "api_fixture",
+        "python_package": "api_fixture",
+        "parts": [],
+        "assemblies": {},
+    }
+    (tmp_path / "flowcad.project.yaml").write_text(json.dumps(manifest), encoding="utf-8")
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "flow_cad.viewer.cli.start_viewer",
+        lambda **kwargs: captured.update(kwargs),
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        flow,
+        ["start", "--api-only", "--no-open-browser"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert captured["start_frontend"] is False
