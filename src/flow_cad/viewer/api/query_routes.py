@@ -38,6 +38,7 @@ def create_query_router(
         return {
             "status": "ready" if inventory.index_path.is_file() else "needs_sync",
             "registry_available": inventory.index_path.is_file(),
+            "project_root": str(root),
         }
 
     @router.get("/project")

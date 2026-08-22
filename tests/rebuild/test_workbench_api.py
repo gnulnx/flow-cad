@@ -208,7 +208,11 @@ def test_health_is_available_before_sync(tmp_path: Path) -> None:
     inventory = client.get("/api/parts")
 
     assert health.status_code == 200
-    assert health.json() == {"status": "needs_sync", "registry_available": False}
+    assert health.json() == {
+        "status": "needs_sync",
+        "registry_available": False,
+        "project_root": str(tmp_path.resolve()),
+    }
     assert inventory.status_code == 503
 
 

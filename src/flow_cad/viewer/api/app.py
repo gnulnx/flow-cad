@@ -7,6 +7,9 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from flow_cad.chat import ChatStore
+from flow_cad.chat.api import create_chat_command_router, create_chat_query_router
+
 from .query_routes import create_query_router
 
 
@@ -22,7 +25,7 @@ def create_workbench_app(
         CORSMiddleware,
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_credentials=True,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
     app.include_router(
@@ -31,4 +34,8 @@ def create_workbench_app(
             max_concurrent_model_verifications=max_concurrent_model_verifications,
         )
     )
+    chat_store = ChatStore(project_root)
+    app.include_router(create_chat_query_router(chat_store))
+    app.include_router(create_chat_command_router(chat_store))
+    app.state.project_root = project_root.resolve()
     return app
