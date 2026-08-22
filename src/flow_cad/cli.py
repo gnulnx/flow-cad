@@ -225,6 +225,7 @@ def part_retire(key_or_alias: str) -> None:
 @click.option("--frontend-host", default="127.0.0.1", show_default=True)
 @click.option("--frontend-port", default=3000, show_default=True, type=int)
 @click.option("--port-search-span", default=50, show_default=True, type=int)
+@click.option("--startup-timeout", default=10.0, show_default=True, type=float)
 @click.option("--open-browser/--no-open-browser", default=True, show_default=True)
 @click.option("--api-only", is_flag=True, default=False, help="Start only the workbench API without Node or a browser.")
 def start(
@@ -233,6 +234,7 @@ def start(
     frontend_host: str,
     frontend_port: int,
     port_search_span: int,
+    startup_timeout: float,
     open_browser: bool,
     api_only: bool,
 ) -> None:
@@ -253,6 +255,7 @@ def start(
         frontend_host=frontend_host,
         frontend_port=frontend_port,
         port_search_span=port_search_span,
+        startup_timeout=startup_timeout,
         open_browser=open_browser,
         backend_application="flow_cad.viewer.api.app:create_app_from_environment",
         backend_factory=True,

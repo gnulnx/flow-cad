@@ -37,6 +37,7 @@ def test_flow_start_uses_replacement_manifest_and_api_factory(tmp_path: Path, mo
         "flow_cad.viewer.api.app:create_app_from_environment"
     )
     assert captured["backend_factory"] is True
+    assert captured["startup_timeout"] == 10.0
     assert captured["open_browser"] is False
     assert captured["start_frontend"] is True
 

@@ -34,6 +34,7 @@ def start_viewer(
     backend_application: str = "flow_cad.viewer.app:app",
     backend_factory: bool = False,
     start_frontend: bool = True,
+    startup_timeout: float = 10.0,
 ) -> None:
     viewer_dir = PROJECT_ROOT / "viewer" / "stl-viewer"
     if start_frontend and not (viewer_dir / "node_modules").exists():
@@ -96,7 +97,11 @@ def start_viewer(
     )
 
     try:
-        backend_elapsed = _wait_for_backend_ready(backend_url, backend_proc, timeout=3.0)
+        backend_elapsed = _wait_for_backend_ready(
+            backend_url,
+            backend_proc,
+            timeout=startup_timeout,
+        )
         click.echo(f"Workbench API ready in {backend_elapsed * 1000.0:.1f} ms")
         if open_browser and frontend_url:
             webbrowser.open(frontend_url)
