@@ -1,6 +1,6 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { applicationApiUrl } from '../../client'
-import type { DisplayArtifact, WorkbenchClient, WorkbenchPart } from '../../contracts'
+import type { ArtifactState, WorkbenchClient, WorkbenchPart } from '../../contracts'
 import { AnnotationOverlay } from '../annotation/AnnotationOverlay'
 import { saveAnnotationSnapshot } from '../annotation/client'
 import { createAnnotationSnapshotInput } from '../annotation/context'
@@ -15,10 +15,12 @@ import {
   type SnapCandidate,
 } from '../measurement/measurement'
 import { useExactFeatures } from '../measurement/useExactFeatures'
+import { transformExactFeature } from './assembly'
 import type { RotationMode } from './navigation'
 import { useAgentScreenCapture, type LiveViewportSource } from './agentScreen'
+import { useAssemblyDisplayQueue } from './useAssemblyDisplayQueue'
 
-type ModelLoadState = 'empty' | 'loading' | 'ready' | 'failed'
+type ModelLoadState = 'empty' | 'loading' | 'partial' | 'ready' | 'failed'
 const ModelCanvas = lazy(() => import('./ModelCanvas'))
 
 interface ModelErrorBoundaryProps {
@@ -47,55 +49,25 @@ class ModelErrorBoundary extends Component<ModelErrorBoundaryProps, { failed: bo
   }
 }
 
-function useDisplayArtifact(artifact: DisplayArtifact | null) {
-  const [artifactBytes, setArtifactBytes] = useState<ArrayBuffer | null>(null)
-  const [state, setState] = useState<ModelLoadState>('empty')
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    if (!artifact) {
-      setArtifactBytes(null)
-      setState('empty')
-      setError(null)
-      return () => controller.abort()
-    }
-
-    setArtifactBytes(null)
-    setState('loading')
-    setError(null)
-    fetch(artifact.url, { signal: controller.signal }).then(async (response) => {
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
-      return response.arrayBuffer()
-    }).then((buffer) => {
-      if (controller.signal.aborted) return
-      setArtifactBytes(buffer)
-      setState('ready')
-    }).catch((reason: unknown) => {
-      if (controller.signal.aborted) return
-      setState('failed')
-      setError(reason instanceof Error ? reason.message : 'Display artifact could not be loaded')
-    })
-
-    return () => {
-      controller.abort()
-    }
-  }, [artifact])
-
-  return { artifactBytes, state, error }
+export interface AssemblyViewportSnapshot {
+  partStates: Record<string, ArtifactState>
+  visibleOccurrenceIds: string[]
+  artifactHashes: Record<string, string>
 }
 
 interface WorkbenchViewportProps {
   client: WorkbenchClient
+  parts?: WorkbenchPart[]
   part: WorkbenchPart | null
+  activeAssemblyId?: string | null
   backendRevision: number | null
   threadId?: string | null
-  onVisibilityChange?(partUuid: string, visible: boolean): void
+  onAssemblyStateChange?(snapshot: AssemblyViewportSnapshot): void
   onMeasurementsChange?(measurements: MeasurementResult[]): void
   measurementRestore?: { key: string; measurements: MeasurementResult[] } | null
 }
 
-export function WorkbenchViewport({ client, part, backendRevision, threadId = null, onVisibilityChange, onMeasurementsChange, measurementRestore = null }: WorkbenchViewportProps) {
+export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, measurementRestore = null }: WorkbenchViewportProps) {
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -110,14 +82,34 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
   const annotationOverlayRef = useRef<SVGSVGElement>(null)
   const measurementProjectionRef = useRef<MeasurementProjectionSource | null>(null)
   const liveViewportRef = useRef<(() => LiveViewportSource) | null>(null)
-  const { artifactBytes, state, error } = useDisplayArtifact(part?.displayArtifact ?? null)
-  const displayState: ModelLoadState = rendererError ? 'failed' : state === 'ready' && !rendererReady ? 'loading' : state
+  const assembly = useAssemblyDisplayQueue(parts, activeAssemblyId, part?.uuid ?? null)
+  const modelSetKey = assembly.models.map((model) => model.key).join('|')
+  const displayState: ModelLoadState = rendererError
+    ? 'failed'
+    : assembly.progress.visible === assembly.progress.total && assembly.progress.total > 0
+      ? 'ready'
+      : assembly.progress.visible > 0
+        ? 'partial'
+        : assembly.progress.loading > 0 || assembly.progress.queued > 0
+          ? 'loading'
+          : assembly.progress.failed > 0
+            ? 'failed'
+            : 'empty'
   const exactFeatures = useExactFeatures(
     client,
     part?.uuid ?? null,
     part?.authorityHash ?? null,
-    displayState === 'ready' && part?.geometryAuthority === 'step',
+    assembly.partStates[part?.uuid ?? ''] === 'visible' && part?.geometryAuthority === 'step',
   )
+  const transformedExactFeatures = useMemo(() => exactFeatures.status === 'ready' && assembly.selectedOccurrence
+    ? {
+        ...exactFeatures,
+        featureSet: {
+          ...exactFeatures.featureSet,
+          features: exactFeatures.featureSet.features.map((feature) => transformExactFeature(feature, assembly.selectedOccurrence!)),
+        },
+      }
+    : exactFeatures, [assembly.selectedOccurrence, exactFeatures])
   const rendererBecameReady = useCallback(() => setRendererReady(true), [])
   const rendererFailed = useCallback((message: string) => setRendererError(message), [])
   const registerLiveViewport = useCallback((source: (() => LiveViewportSource) | null) => {
@@ -129,17 +121,28 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
   const getLiveViewport = useCallback(() => liveViewportRef.current?.() ?? null, [])
   const getAnnotationOverlay = useCallback(() => annotationOverlayRef.current, [])
   useAgentScreenCapture({
-    enabled: rendererReady && !rendererError,
+    enabled: rendererReady && !rendererError && assembly.models.length > 0,
     getSource: getLiveViewport,
     part,
     backendRevision,
     getAnnotationOverlay,
+    visibleOccurrenceIds: assembly.visibleOccurrenceIds,
+    renderedParts: assembly.models.map((model) => model.part),
   })
 
   useEffect(() => {
-    setRendererReady(false)
-    setRendererError(null)
-  }, [part?.displayArtifact?.contentHash])
+    if (assembly.models.length === 0) setRendererReady(false)
+  }, [assembly.models.length])
+
+  useEffect(() => setRendererError(null), [modelSetKey])
+
+  useEffect(() => {
+    onAssemblyStateChange?.({
+      partStates: assembly.partStates,
+      visibleOccurrenceIds: assembly.visibleOccurrenceIds,
+      artifactHashes: assembly.artifactHashes,
+    })
+  }, [assembly.artifactHashes, assembly.partStates, assembly.visibleOccurrenceIds, onAssemblyStateChange])
 
   useEffect(() => {
     setHoverTarget(null)
@@ -157,11 +160,6 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
     setStartTarget(null)
   }, [measurementRestore])
 
-  useEffect(() => {
-    if (!part) return
-    onVisibilityChange?.(part.uuid, displayState === 'ready')
-  }, [displayState, onVisibilityChange, part])
-
   const toggleMeasureMode = useCallback(() => {
     setMeasureMode((active) => {
       if (active) {
@@ -173,13 +171,13 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
   }, [])
 
   const snapAtPointer = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!measureMode || exactFeatures.status !== 'ready' || !measurementProjectionRef.current) return null
+    if (!measureMode || transformedExactFeatures.status !== 'ready' || !measurementProjectionRef.current) return null
     return findScreenSpaceSnap(
       { x: event.clientX, y: event.clientY },
-      exactFeatures.featureSet.features,
+      transformedExactFeatures.featureSet.features,
       measurementProjectionRef.current.createProjector(),
     )
-  }, [exactFeatures, measureMode])
+  }, [measureMode, transformedExactFeatures])
 
   const pointerMoved = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if ((event.target as Element).closest?.('.measurement-labels')) return
@@ -224,10 +222,10 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
       source,
       part,
       artifactRevision: selectedArtifactRevision,
-      visibleOccurrenceIds: displayState === 'ready' ? part.occurrenceIds : [],
+      visibleOccurrenceIds: assembly.visibleOccurrenceIds,
       backendRevision,
     }))
-  }, [backendRevision, displayState, part, selectedArtifactRevision, threadId])
+  }, [assembly.visibleOccurrenceIds, backendRevision, part, selectedArtifactRevision, threadId])
 
   return (
     <section className="viewport-panel" aria-labelledby="viewport-title">
@@ -255,7 +253,7 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
           </div>
           <button type="button" className="tool-button" onClick={() => setFitRequest((request) => request + 1)}>Fit</button>
           <button type="button" className="tool-button" onClick={() => setFrameSelectedRequest((request) => request + 1)}>Frame part</button>
-          <MeasurementToolButton active={measureMode} state={exactFeatures} onToggle={toggleMeasureMode} />
+          <MeasurementToolButton active={measureMode} state={transformedExactFeatures} onToggle={toggleMeasureMode} />
         </div>
       </div>
       <div
@@ -265,8 +263,8 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
         onPointerLeave={() => setHoverTarget(null)}
         onClick={pointerClicked}
       >
-        {artifactBytes ? (
-          <ModelErrorBoundary resetKey={part?.displayArtifact?.contentHash ?? null} onError={rendererFailed}>
+        {assembly.models.length > 0 ? (
+          <ModelErrorBoundary resetKey={modelSetKey} onError={rendererFailed}>
             <Suspense fallback={(
               <div className="viewport-state viewport-state--loading" aria-live="polite">
                 <div className="viewport-state__glyph" aria-hidden="true"><span /></div>
@@ -275,12 +273,14 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
               </div>
             )}>
               <ModelCanvas
-                artifactBytes={artifactBytes}
+                models={assembly.models}
+                selectedPartUuid={part?.uuid ?? null}
                 rotationMode={rotationMode}
-                boundsHint={part?.bounds ?? null}
                 fitRequest={fitRequest}
                 frameSelectedRequest={frameSelectedRequest}
                 onReady={rendererBecameReady}
+                onPartReady={assembly.reportVisible}
+                onPartError={assembly.reportParseFailure}
                 registerLiveViewport={registerLiveViewport}
                 registerMeasurementProjection={registerMeasurementProjection}
                 measureMode={measureMode}
@@ -293,12 +293,12 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
             </Suspense>
           </ModelErrorBoundary>
         ) : (
-          <div className={`viewport-state viewport-state--${state}`} aria-live="polite">
+          <div className={`viewport-state viewport-state--${displayState}`} aria-live="polite">
             <div className="viewport-state__glyph" aria-hidden="true"><span /></div>
-            {state === 'loading' ? (
-              <><strong>Loading selected display artifact</strong><span>{part?.key} · content-addressed model</span></>
-            ) : state === 'failed' ? (
-              <><strong>Display artifact failed</strong><span>{error ?? rendererError}</span></>
+            {displayState === 'loading' ? (
+              <><strong>Loading active assembly</strong><span>Selected geometry first · {assembly.progress.loading} loading · {assembly.progress.queued} queued</span></>
+            ) : displayState === 'failed' ? (
+              <><strong>Display artifacts failed</strong><span>{assembly.progress.failed} model{assembly.progress.failed === 1 ? '' : 's'} could not be loaded</span></>
             ) : part ? (
               <><strong>No display artifact available</strong><span>{part.artifactState} · {part.qualityLabel}</span></>
             ) : (
@@ -314,13 +314,14 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
           </div>
         ) : null}
         <div className="viewport-progress" data-state={displayState}>
-          <span className={`artifact-state artifact-state--${displayState === 'ready' ? 'visible' : displayState}`} />
-          <span>{displayState === 'ready' ? 'Display artifact visible' : displayState === 'loading' ? 'Loading model' : displayState === 'failed' ? 'Model failed' : 'Viewport ready'}</span>
+          <span className={`artifact-state artifact-state--${displayState === 'ready' || displayState === 'partial' ? 'visible' : displayState}`} />
+          <span>{assemblyProgressLabel(assembly.progress)}</span>
+          {assembly.progress.total > 0 ? <progress value={assembly.progress.visible + assembly.progress.failed} max={assembly.progress.total} aria-label="Assembly loading progress" /> : null}
         </div>
         <div className="navigation-hint">{measureMode ? 'Left select · Right / middle pan · Wheel dolly · Z-up' : 'Left rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
         <MeasurementOverlay
           active={measureMode}
-          state={exactFeatures}
+          state={transformedExactFeatures}
           hover={hoverTarget}
           start={startTarget}
           measurements={measurements}
@@ -338,11 +339,22 @@ export function WorkbenchViewport({ client, part, backendRevision, threadId = nu
         />
         <AnnotationOverlay
           overlayRef={annotationOverlayRef}
-          onSave={threadId && part && selectedArtifactRevision && backendRevision !== null && displayState === 'ready'
+          onSave={threadId && part && selectedArtifactRevision && backendRevision !== null && assembly.partStates[part.uuid] === 'visible'
             ? saveAnnotations
             : undefined}
         />
       </div>
     </section>
   )
+}
+
+function assemblyProgressLabel(progress: { total: number; queued: number; loading: number; visible: number; failed: number }): string {
+  if (progress.total === 0) return 'Viewport ready'
+  if (progress.visible === progress.total) return `${progress.visible} of ${progress.total} assembly parts visible`
+  const activity = [
+    progress.loading ? `${progress.loading} loading` : '',
+    progress.queued ? `${progress.queued} queued` : '',
+    progress.failed ? `${progress.failed} failed` : '',
+  ].filter(Boolean).join(' · ')
+  return `${progress.visible} of ${progress.total} visible${activity ? ` · ${activity}` : ''}`
 }

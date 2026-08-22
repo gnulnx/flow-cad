@@ -1,21 +1,25 @@
 import { Canvas, useThree } from '@react-three/fiber'
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import type { Bounds3 } from '../../contracts'
 import { MeasurementScene } from '../measurement/MeasurementScene'
 import type { MeasurementProjectionSource, MeasurementResult, SnapCandidate } from '../measurement/measurement'
+import { mergeBounds, transformBounds } from './assembly'
 import { NavigationControls } from './NavigationControls'
 import type { LiveViewportSource } from './agentScreen'
 import type { RotationMode } from './navigation'
+import type { LoadedAssemblyPart } from './useAssemblyDisplayQueue'
 
 interface ModelCanvasProps {
-  artifactBytes: ArrayBuffer
+  models: LoadedAssemblyPart[]
+  selectedPartUuid: string | null
   rotationMode: RotationMode
-  boundsHint: Bounds3 | null
   fitRequest: number
   frameSelectedRequest: number
   onReady(): void
+  onPartReady(partUuid: string): void
+  onPartError(partUuid: string, message: string): void
   registerLiveViewport(source: (() => LiveViewportSource) | null): void
   registerMeasurementProjection(source: MeasurementProjectionSource | null): void
   measureMode: boolean
@@ -68,10 +72,10 @@ function MeasurementProjectionBridge({ register }: { register(source: Measuremen
   return null
 }
 
-function geometryBounds(geometry: THREE.BufferGeometry): Bounds3 | null {
+function geometryBounds(geometry: THREE.BufferGeometry): Bounds3 {
   geometry.computeBoundingBox()
   const box = geometry.boundingBox
-  if (!box) return null
+  if (!box) return { min: [0, 0, 0], max: [0, 0, 0] }
   return {
     min: [box.min.x, box.min.y, box.min.z],
     max: [box.max.x, box.max.y, box.max.z],
@@ -79,12 +83,14 @@ function geometryBounds(geometry: THREE.BufferGeometry): Bounds3 | null {
 }
 
 export default function ModelCanvas({
-  artifactBytes,
+  models,
+  selectedPartUuid,
   rotationMode,
-  boundsHint,
   fitRequest,
   frameSelectedRequest,
   onReady,
+  onPartReady,
+  onPartError,
   registerLiveViewport,
   registerMeasurementProjection,
   measureMode,
@@ -94,17 +100,30 @@ export default function ModelCanvas({
   currentPartUuid,
   currentArtifactRevision,
 }: ModelCanvasProps) {
-  const geometry = useMemo(() => {
-    const parsed = new STLLoader().parse(artifactBytes)
-    parsed.computeVertexNormals()
-    return parsed
-  }, [artifactBytes])
-  const bounds = useMemo(() => geometryBounds(geometry) ?? boundsHint, [boundsHint, geometry])
-
-  useEffect(() => {
+  const [boundsByKey, setBoundsByKey] = useState<Record<string, Bounds3>>({})
+  const modelReady = useCallback((key: string, partUuid: string, bounds: Bounds3) => {
+    setBoundsByKey((current) => current[key] === bounds ? current : { ...current, [key]: bounds })
+    onPartReady(partUuid)
     onReady()
-    return () => geometry.dispose()
-  }, [geometry, onReady])
+  }, [onPartReady, onReady])
+  const removeModel = useCallback((key: string) => {
+    setBoundsByKey((current) => {
+      if (!(key in current)) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }, [])
+  const visibleBounds = useMemo(() => mergeBounds(models.flatMap((model) => {
+    const bounds = boundsByKey[model.key]
+    return bounds ? model.occurrences.map((occurrence) => transformBounds(bounds, occurrence)) : []
+  })), [boundsByKey, models])
+  const selectedBounds = useMemo(() => mergeBounds(models
+    .filter((model) => model.part.uuid === selectedPartUuid)
+    .flatMap((model) => {
+      const bounds = boundsByKey[model.key]
+      return bounds ? model.occurrences.map((occurrence) => transformBounds(bounds, occurrence)) : []
+    })), [boundsByKey, models, selectedPartUuid])
 
   return (
     <Canvas
@@ -119,9 +138,16 @@ export default function ModelCanvas({
       <directionalLight position={[-80, 100, 50]} intensity={1.1} />
       <gridHelper args={[1000, 40, '#40505d', '#25313b']} rotation={[Math.PI / 2, 0, 0]} />
       <axesHelper args={[45]} />
-      <mesh geometry={geometry} castShadow receiveShadow>
-        <meshStandardMaterial color="#d8a861" metalness={0.08} roughness={0.58} />
-      </mesh>
+      {models.map((model) => (
+        <AssemblyModel
+          key={model.key}
+          model={model}
+          selected={model.part.uuid === selectedPartUuid}
+          onReady={modelReady}
+          onRemoved={removeModel}
+          onError={onPartError}
+        />
+      ))}
       <MeasurementScene
         hover={measurementHover}
         start={measurementStart}
@@ -131,8 +157,8 @@ export default function ModelCanvas({
       />
       <NavigationControls
         rotationMode={rotationMode}
-        visibleBounds={bounds}
-        selectedBounds={bounds}
+        visibleBounds={visibleBounds}
+        selectedBounds={selectedBounds}
         fitRequest={fitRequest}
         frameSelectedRequest={frameSelectedRequest}
         measureMode={measureMode}
@@ -140,5 +166,66 @@ export default function ModelCanvas({
       <LiveViewportBridge register={registerLiveViewport} />
       <MeasurementProjectionBridge register={registerMeasurementProjection} />
     </Canvas>
+  )
+}
+
+function AssemblyModel({
+  model,
+  selected,
+  onReady,
+  onRemoved,
+  onError,
+}: {
+  model: LoadedAssemblyPart
+  selected: boolean
+  onReady(key: string, partUuid: string, bounds: Bounds3): void
+  onRemoved(key: string): void
+  onError(partUuid: string, message: string): void
+}) {
+  const parsed = useMemo(() => {
+    try {
+      const geometry = new STLLoader().parse(model.artifactBytes)
+      geometry.computeVertexNormals()
+      return { geometry, bounds: geometryBounds(geometry), error: null }
+    } catch (reason) {
+      return {
+        geometry: null,
+        bounds: null,
+        error: reason instanceof Error ? reason.message : 'Display artifact could not be parsed',
+      }
+    }
+  }, [model.artifactBytes])
+
+  useEffect(() => {
+    if (parsed.geometry && parsed.bounds) onReady(model.key, model.part.uuid, parsed.bounds)
+    else if (parsed.error) onError(model.part.uuid, parsed.error)
+    return () => {
+      parsed.geometry?.dispose()
+      onRemoved(model.key)
+    }
+  }, [model.key, model.part.uuid, onError, onReady, onRemoved, parsed])
+
+  if (!parsed.geometry) return null
+  return (
+    <group>
+      {model.occurrences.map((occurrence) => (
+        <mesh
+          key={`${model.key}:${occurrence.id}`}
+          geometry={parsed.geometry!}
+          position={occurrence.translationMm}
+          rotation={occurrence.rotationDeg.map((value) => THREE.MathUtils.degToRad(value)) as [number, number, number]}
+          castShadow
+          receiveShadow
+        >
+          <meshStandardMaterial
+            color={selected ? '#d8a861' : '#7792a3'}
+            metalness={0.08}
+            roughness={0.58}
+            transparent={model.part.role === 'reference'}
+            opacity={model.part.role === 'reference' ? 0.52 : 1}
+          />
+        </mesh>
+      ))}
+    </group>
   )
 }

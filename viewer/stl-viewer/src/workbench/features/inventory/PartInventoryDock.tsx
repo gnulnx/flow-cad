@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { InventorySnapshot, WorkbenchClient, WorkbenchPart } from '../../contracts'
+import type { ArtifactState, InventorySnapshot, WorkbenchClient, WorkbenchPart } from '../../contracts'
 
 interface PartInventoryDockProps {
   client: WorkbenchClient
   activePartUuid: string | null
   onSelect(part: WorkbenchPart): void
+  onInventoryChange?(snapshot: InventorySnapshot): void
+  loadStates?: Record<string, ArtifactState>
 }
 
-function statusLabel(part: WorkbenchPart) {
-  return part.artifactState.replace('-', ' ')
+function statusLabel(part: WorkbenchPart, loadStates: Record<string, ArtifactState>) {
+  return (loadStates[part.uuid] ?? part.artifactState).replace('-', ' ')
 }
 
-export function PartInventoryDock({ client, activePartUuid, onSelect }: PartInventoryDockProps) {
+export function PartInventoryDock({ client, activePartUuid, onSelect, onInventoryChange, loadStates = {} }: PartInventoryDockProps) {
   const [snapshot, setSnapshot] = useState<InventorySnapshot | null>(null)
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -25,6 +27,7 @@ export function PartInventoryDock({ client, activePartUuid, onSelect }: PartInve
     const controller = new AbortController()
     client.getInventory(controller.signal).then((nextSnapshot) => {
       setSnapshot(nextSnapshot)
+      onInventoryChange?.(nextSnapshot)
       setError(null)
       if (!activePartUuidRef.current && nextSnapshot.parts.length > 0) {
         const preferred = nextSnapshot.parts.find((part) => part.status === 'active') ?? nextSnapshot.parts[0]
@@ -35,7 +38,7 @@ export function PartInventoryDock({ client, activePartUuid, onSelect }: PartInve
       setError(reason instanceof Error ? reason.message : 'Part inventory unavailable')
     })
     return () => controller.abort()
-  }, [client, onSelect])
+  }, [client, onInventoryChange, onSelect])
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()
@@ -87,7 +90,9 @@ export function PartInventoryDock({ client, activePartUuid, onSelect }: PartInve
             <strong>No matching parts</strong>
             <span>Try a part key, alias, or role.</span>
           </div>
-        ) : filtered.map((part) => (
+        ) : filtered.map((part) => {
+          const displayState = loadStates[part.uuid] ?? part.artifactState
+          return (
           <button
             type="button"
             role="option"
@@ -96,14 +101,15 @@ export function PartInventoryDock({ client, activePartUuid, onSelect }: PartInve
             key={part.uuid}
             onClick={() => onSelect(part)}
           >
-            <span className={`artifact-state artifact-state--${part.artifactState}`} title={statusLabel(part)} />
+            <span className={`artifact-state artifact-state--${displayState}`} title={statusLabel(part, loadStates)} aria-label={statusLabel(part, loadStates)} />
             <span className="part-row__identity">
               <strong>{part.key}</strong>
               <small>{part.role} · {part.occurrenceCount} occurrence{part.occurrenceCount === 1 ? '' : 's'}</small>
             </span>
             <span className={`authority-tag authority-tag--${part.geometryAuthority}`}>{part.qualityLabel}</span>
           </button>
-        ))}
+          )
+        })}
       </div>
     </section>
   )

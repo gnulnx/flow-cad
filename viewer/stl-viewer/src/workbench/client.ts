@@ -34,6 +34,7 @@ interface ProjectDto {
   revision: number
   part_count: number
   occurrence_count: number
+  active_assembly_id?: string | null
 }
 
 interface PartDto {
@@ -47,7 +48,12 @@ interface PartDto {
     sha256: string | null
     state: string
   }>
-  occurrences: Array<{ id: string }>
+  occurrences: Array<{
+    assembly_key: string
+    id: string
+    translation_mm: [number, number, number]
+    rotation_deg: [number, number, number]
+  }>
   geometry_authority: string
   quality_label: string
   capabilities: {
@@ -332,14 +338,19 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
     projectId: dto.project_id,
     projectName: dto.project_id,
     revision: dto.revision,
-    activeAssemblyId: null,
+    activeAssemblyId: dto.active_assembly_id ?? null,
     gitCommit: null,
     gitDirty: false,
     chatAvailable: true,
   })
-  const inventorySnapshot = (dto: InventoryDto): InventorySnapshot => ({
-    revision: dto.revision,
-    parts: dto.parts.map((part) => {
+  const inventorySnapshot = (dto: InventoryDto): InventorySnapshot => {
+    const assemblyIds = dto.parts.flatMap((part) => part.occurrences.map((occurrence) => occurrence.assembly_key))
+    const activeAssemblyId = dto.active_assembly_id
+      ?? (assemblyIds.includes('active') ? 'active' : assemblyIds[0] ?? null)
+    return {
+      revision: dto.revision,
+      activeAssemblyId,
+      parts: dto.parts.map((part) => {
       const displayArtifact = part.artifacts.find((artifact) => artifact.kind.toLocaleLowerCase() === 'stl')
       const rawState = displayArtifact?.state ?? (part.model_url ? 'indexed' : 'missing')
       const artifactState = ['indexed', 'queued', 'loading', 'visible', 'stale', 'missing', 'failed'].includes(rawState)
@@ -363,6 +374,12 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         qualityLabel,
         occurrenceCount: part.occurrences.length,
         occurrenceIds: part.occurrences.map((occurrence) => occurrence.id),
+        occurrences: part.occurrences.map((occurrence) => ({
+          assemblyId: occurrence.assembly_key,
+          id: occurrence.id,
+          translationMm: occurrence.translation_mm,
+          rotationDeg: occurrence.rotation_deg,
+        })),
         authorityHash: part.artifact_revision,
         displayArtifact: part.model_url && part.display_revision
           ? {
@@ -375,8 +392,9 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         bounds: null,
         warnings: part.warnings,
       }
-    }),
-  })
+      }),
+    }
+  }
   return {
     getProject: (signal) => fetch(`${applicationUrl}/api/project`, { signal }).then(readJson<ProjectDto>).then(projectSummary),
     getInventory: (signal) => fetch(`${applicationUrl}/api/parts`, { signal }).then(readJson<InventoryDto>).then(inventorySnapshot),

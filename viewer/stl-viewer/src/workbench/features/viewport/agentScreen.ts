@@ -24,11 +24,15 @@ interface UseAgentScreenCaptureOptions {
   getAnnotationOverlay?(): SVGSVGElement | null
   part: WorkbenchPart | null
   backendRevision: number | null
+  visibleOccurrenceIds?: string[]
+  renderedParts?: WorkbenchPart[]
 }
 
 interface AgentScreenCaptureOptions {
   dataUrl?: string
   annotationOverlay?: boolean
+  visibleOccurrenceIds?: string[]
+  renderedParts?: WorkbenchPart[]
 }
 
 export function buildAgentScreenPayload(
@@ -47,14 +51,16 @@ export function buildAgentScreenPayload(
     width: source.canvas.width,
     height: source.canvas.height,
     selected_ids: part ? [part.uuid] : [],
-    visible_ids: part?.occurrenceIds ?? [],
+    visible_ids: options.visibleOccurrenceIds ?? part?.occurrenceIds ?? [],
     active_part_id: part?.uuid ?? null,
     backend_revision: backendRevision,
-    rendered_artifacts: part?.displayArtifact ? [{
-      part_uuid: part.uuid,
-      content_hash: part.displayArtifact.contentHash,
-      revision: part.displayArtifact.revision,
-    }] : [],
+    rendered_artifacts: (options.renderedParts ?? (part ? [part] : [])).flatMap((renderedPart) => (
+      renderedPart.displayArtifact ? [{
+        part_uuid: renderedPart.uuid,
+        content_hash: renderedPart.displayArtifact.contentHash,
+        revision: renderedPart.displayArtifact.revision,
+      }] : []
+    )),
     viewport: {
       width: source.canvas.width,
       height: source.canvas.height,
@@ -76,6 +82,7 @@ export async function captureAgentScreenPayload(
   backendRevision: number | null,
   overlay: SVGSVGElement | null,
   capture: typeof captureViewportWithAnnotations = captureViewportWithAnnotations,
+  options: Pick<AgentScreenCaptureOptions, 'visibleOccurrenceIds' | 'renderedParts'> = {},
 ) {
   const annotationOverlay = Boolean(
     overlay
@@ -86,11 +93,13 @@ export async function captureAgentScreenPayload(
   return buildAgentScreenPayload(requestId, source, part, backendRevision, {
     dataUrl,
     annotationOverlay,
+    ...options,
   })
 }
 
-export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay, part, backendRevision }: UseAgentScreenCaptureOptions) {
+export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay, part, backendRevision, visibleOccurrenceIds, renderedParts }: UseAgentScreenCaptureOptions) {
   const inFlightRef = useRef(new Set<string>())
+  const sceneKey = `${visibleOccurrenceIds?.join('|') ?? ''}:${renderedParts?.map((item) => item.displayArtifact?.contentHash ?? '').join('|') ?? ''}`
 
   useEffect(() => {
     if (!enabled) return
@@ -115,6 +124,8 @@ export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay
             part,
             backendRevision,
             getAnnotationOverlay?.() ?? null,
+            captureViewportWithAnnotations,
+            { visibleOccurrenceIds, renderedParts },
           )
           const capture = await fetch(applicationApiUrl('/api/agent-screen/capture'), {
             method: 'POST',
@@ -147,5 +158,5 @@ export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay
       window.cancelAnimationFrame(firstFrame)
       window.clearInterval(timer)
     }
-  }, [backendRevision, enabled, getAnnotationOverlay, getSource, part])
+  }, [backendRevision, enabled, getAnnotationOverlay, getSource, part, sceneKey]) // eslint-disable-line react-hooks/exhaustive-deps
 }

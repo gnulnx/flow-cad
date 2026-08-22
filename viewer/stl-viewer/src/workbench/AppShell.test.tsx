@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import AppShell from './AppShell'
-import type { InventorySnapshot, WorkbenchPart } from './contracts'
+import type { InventorySnapshot, SaveMeasurementSnapshotInput, WorkbenchPart } from './contracts'
 import { createTestWorkbenchClient } from './testClient'
 
 function part(key: string, overrides: Partial<WorkbenchPart> = {}): WorkbenchPart {
@@ -17,6 +17,12 @@ function part(key: string, overrides: Partial<WorkbenchPart> = {}): WorkbenchPar
     qualityLabel: 'Exact',
     occurrenceCount: 1,
     occurrenceIds: [`${key}-occurrence`],
+    occurrences: [{
+      assemblyId: 'active',
+      id: `${key}-occurrence`,
+      translationMm: [0, 0, 0],
+      rotationDeg: [0, 0, 0],
+    }],
     authorityHash: `${key}-step-sha`,
     displayArtifact: null,
     bounds: null,
@@ -43,7 +49,7 @@ describe('replacement AppShell', () => {
     expect(screen.getByText('Loading metadata…')).toBeInTheDocument()
     expect(screen.getByText('Select a part to begin')).toBeInTheDocument()
 
-    inventory.resolve({ revision: 7, parts: [part('unitree_l2_arch_guard')] })
+    inventory.resolve({ revision: 7, activeAssemblyId: 'active', parts: [part('unitree_l2_arch_guard')] })
     expect(await screen.findByRole('option', { name: /unitree_l2_arch_guard/ })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'unitree_l2_arch_guard' })).toBeInTheDocument()
   })
@@ -53,6 +59,7 @@ describe('replacement AppShell', () => {
     render(<AppShell client={createTestWorkbenchClient({
       inventory: {
         revision: 9,
+        activeAssemblyId: 'active',
         parts: [
           part('arch_guard', { aliases: ['unitree_l2_arch_guard'] }),
           part('missing_bracket', {
@@ -78,11 +85,11 @@ describe('replacement AppShell', () => {
 
   it('restores and durably saves thread-bound measurement label state', async () => {
     const user = userEvent.setup()
-    const saveMeasurementSnapshot = vi.fn(async () => undefined)
+    const saveMeasurementSnapshot = vi.fn(async (_input: SaveMeasurementSnapshotInput) => undefined)
     const partUuid = '11111111-1111-4111-8111-111111111111'
     const revision = 'a'.repeat(64)
     render(<AppShell client={createTestWorkbenchClient({
-      inventory: { revision: 9, parts: [part('arch_guard', { uuid: partUuid, authorityHash: revision })] },
+      inventory: { revision: 9, activeAssemblyId: 'active', parts: [part('arch_guard', { uuid: partUuid, authorityHash: revision })] },
       latestMeasurementSnapshot: {
         threadId: 'default',
         partUuid,

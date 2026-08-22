@@ -21,6 +21,13 @@ export interface DisplayArtifact {
   revision: number
 }
 
+export interface WorkbenchOccurrence {
+  assemblyId: string
+  id: string
+  translationMm: Point3
+  rotationDeg: Point3
+}
+
 export interface WorkbenchPart {
   uuid: string
   key: string
@@ -32,6 +39,7 @@ export interface WorkbenchPart {
   qualityLabel: 'Exact' | 'Approximate' | 'Missing'
   occurrenceCount: number
   occurrenceIds: string[]
+  occurrences: WorkbenchOccurrence[]
   authorityHash: string | null
   displayArtifact: DisplayArtifact | null
   bounds: Bounds3 | null
@@ -50,6 +58,7 @@ export interface ProjectSummary {
 
 export interface InventorySnapshot {
   revision: number
+  activeAssemblyId: string | null
   parts: WorkbenchPart[]
 }
 

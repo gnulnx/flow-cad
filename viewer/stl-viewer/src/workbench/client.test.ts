@@ -31,7 +31,12 @@ describe('workbench HTTP adapter', () => {
             { kind: 'step', sha256: 'step-sha', state: 'indexed' },
             { kind: 'stl', sha256: 'stl-sha', state: 'indexed' },
           ],
-          occurrences: [{ id: 'guard-main' }],
+          occurrences: [{
+            assembly_key: 'active',
+            id: 'guard-main',
+            translation_mm: [1, 2, 3],
+            rotation_deg: [0, 90, 0],
+          }],
           geometry_authority: 'step_kernel',
           quality_label: 'exact',
           capabilities: { exact_topology: true, mesh_only: false },
@@ -45,10 +50,17 @@ describe('workbench HTTP adapter', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const snapshot = await createHttpWorkbenchClient().getInventory()
+    expect(snapshot.activeAssemblyId).toBe('active')
     expect(snapshot.parts[0]).toMatchObject({
       geometryAuthority: 'step',
       qualityLabel: 'Exact',
       occurrenceIds: ['guard-main'],
+      occurrences: [{
+        assemblyId: 'active',
+        id: 'guard-main',
+        translationMm: [1, 2, 3],
+        rotationDeg: [0, 90, 0],
+      }],
       authorityHash: 'step-sha',
       displayArtifact: {
         contentHash: 'stl-sha',

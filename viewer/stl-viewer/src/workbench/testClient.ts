@@ -42,7 +42,7 @@ const thread: DefaultThread = {
 export function createTestWorkbenchClient(overrides: TestClientOverrides = {}): WorkbenchClient {
   return {
     getProject: async () => overrides.project ?? project,
-    getInventory: async () => overrides.inventory ?? { revision: 7, parts: [] },
+    getInventory: async () => overrides.inventory ?? { revision: 7, activeAssemblyId: 'active', parts: [] },
     getJobs: async () => overrides.jobs ?? [],
     getDefaultThread: async () => overrides.defaultThread ?? thread,
     sendTurn: async (input) => overrides.sendTurn?.(input) ?? {

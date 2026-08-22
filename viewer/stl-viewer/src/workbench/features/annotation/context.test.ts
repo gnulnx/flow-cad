@@ -13,6 +13,7 @@ const part: WorkbenchPart = {
   qualityLabel: 'Exact',
   occurrenceCount: 1,
   occurrenceIds: ['guard-main'],
+  occurrences: [{ assemblyId: 'active', id: 'guard-main', translationMm: [0, 0, 0], rotationDeg: [0, 0, 0] }],
   authorityHash: 'step-sha',
   displayArtifact: { contentHash: 'stl-sha', format: 'stl', url: '/api/models/stl-sha', revision: 9 },
   bounds: null,

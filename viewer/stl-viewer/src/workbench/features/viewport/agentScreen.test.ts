@@ -20,6 +20,7 @@ describe('live agent-screen capture payload', () => {
       qualityLabel: 'Exact',
       occurrenceCount: 1,
       occurrenceIds: ['guard-main'],
+      occurrences: [{ assemblyId: 'active', id: 'guard-main', translationMm: [0, 0, 0], rotationDeg: [0, 0, 0] }],
       authorityHash: 'step-sha',
       displayArtifact: { contentHash: 'stl-sha', format: 'stl', url: '/api/models/stl-sha', revision: 9 },
       bounds: null,
@@ -33,7 +34,17 @@ describe('live agent-screen capture payload', () => {
         quaternion: [0, 0, 0, 1],
         fov: 42,
       },
-    }, part, 9)
+    }, part, 9, {
+      visibleOccurrenceIds: ['guard-main', 'chassis-main'],
+      renderedParts: [part, {
+        ...part,
+        uuid: 'chassis-uuid',
+        key: 'chassis',
+        occurrenceIds: ['chassis-main'],
+        occurrences: [{ assemblyId: 'active', id: 'chassis-main', translationMm: [0, 0, 0], rotationDeg: [0, 0, 0] }],
+        displayArtifact: { contentHash: 'chassis-stl-sha', format: 'stl', url: '/api/models/chassis-stl-sha', revision: 9 },
+      }],
+    })
 
     expect(canvas.toDataURL).toHaveBeenCalledWith('image/png')
     expect(payload).toMatchObject({
@@ -41,9 +52,12 @@ describe('live agent-screen capture payload', () => {
       width: 1280,
       height: 720,
       selected_ids: ['guard-uuid'],
-      visible_ids: ['guard-main'],
+      visible_ids: ['guard-main', 'chassis-main'],
       backend_revision: 9,
-      rendered_artifacts: [{ part_uuid: 'guard-uuid', content_hash: 'stl-sha', revision: 9 }],
+      rendered_artifacts: [
+        { part_uuid: 'guard-uuid', content_hash: 'stl-sha', revision: 9 },
+        { part_uuid: 'chassis-uuid', content_hash: 'chassis-stl-sha', revision: 9 },
+      ],
       viewport: { render_context: 'viewport-canvas', camera: { up: [0, 0, 1] } },
       metadata: { render_context: 'viewport-canvas', capture_source: 'live-browser-workbench', annotation_overlay: false },
     })
