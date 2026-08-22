@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { configuredWorkbenchClient } from './client'
-import type { InventorySnapshot, ProjectSummary, WorkbenchClient, WorkbenchJob, WorkbenchPart } from './contracts'
+import type { ChatProviderStatus, InventorySnapshot, ProjectSummary, WorkbenchClient, WorkbenchJob, WorkbenchPart } from './contracts'
 import { ChatDock } from './features/chat/ChatDock'
 import { PartInventoryDock } from './features/inventory/PartInventoryDock'
+import { applyPartSelection, type PartSelectionMode, type PartSelectionState } from './features/inventory/selection'
 import { InspectorDock } from './features/inspector/InspectorDock'
 import { JobDrawer } from './features/jobs/JobDrawer'
 import type { MeasurementResult } from './features/measurement/measurement'
 import { measurementFingerprint, restoredMeasurements, savedLabels } from './features/measurement/persistence'
 import { ProjectStatusBar } from './features/project/ProjectStatusBar'
 import { WorkbenchViewport, type AssemblyViewportSnapshot } from './features/viewport/WorkbenchViewport'
+import { planAssemblyLoads } from './features/viewport/assembly'
 import type { WorkbenchViewportContext } from './features/viewport/viewportContext'
 import './workbench.css'
 
@@ -22,9 +24,13 @@ export default function AppShell({ client }: AppShellProps) {
   const workbenchClient = useMemo(() => client ?? configuredWorkbenchClient(), [client])
   const [project, setProject] = useState<ProjectSummary | null>(null)
   const [inventory, setInventory] = useState<InventorySnapshot | null>(null)
-  const [activePart, setActivePart] = useState<WorkbenchPart | null>(null)
+  const [selection, setSelection] = useState<PartSelectionState>({
+    activePartUuid: null,
+    explicitVisiblePartUuids: null,
+  })
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
-  const [chatProviderAvailable, setChatProviderAvailable] = useState<boolean | null>(null)
+  const [chatProviderStatus, setChatProviderStatus] = useState<ChatProviderStatus | null>(null)
+  const [chatProviderRefreshToken, setChatProviderRefreshToken] = useState(0)
   const [chatMeasurements, setChatMeasurements] = useState<MeasurementResult[]>([])
   const [viewportContext, setViewportContext] = useState<WorkbenchViewportContext | null>(null)
   const [watchedBuildJobId, setWatchedBuildJobId] = useState<string | null>(null)
@@ -39,7 +45,17 @@ export default function AppShell({ client }: AppShellProps) {
   const [measurementSaveError, setMeasurementSaveError] = useState<string | null>(null)
   const savedMeasurementFingerprint = useRef<{ key: string; fingerprint: string } | null>(null)
   const measurementSaveTimer = useRef<number | null>(null)
-  const selectPart = useCallback((part: WorkbenchPart) => setActivePart(part), [])
+  const parts = inventory?.parts ?? EMPTY_PARTS
+  const activeAssemblyId = project?.activeAssemblyId ?? inventory?.activeAssemblyId ?? null
+  const defaultVisiblePartUuids = useMemo(
+    () => planAssemblyLoads(parts, activeAssemblyId, null).map((item) => item.part.uuid),
+    [activeAssemblyId, parts],
+  )
+  const visiblePartUuids = selection.explicitVisiblePartUuids ?? defaultVisiblePartUuids
+  const activePart = parts.find((part) => part.uuid === selection.activePartUuid) ?? null
+  const selectPart = useCallback((part: WorkbenchPart, mode: PartSelectionMode) => {
+    setSelection((current) => applyPartSelection(current, part.uuid, mode, defaultVisiblePartUuids))
+  }, [defaultVisiblePartUuids])
   const projectChanged = useCallback((nextProject: ProjectSummary | null) => setProject(nextProject), [])
   const inventoryChanged = useCallback((snapshot: InventorySnapshot) => setInventory(snapshot), [])
   const assemblyChanged = useCallback((snapshot: AssemblyViewportSnapshot) => setAssemblyState(snapshot), [])
@@ -61,12 +77,12 @@ export default function AppShell({ client }: AppShellProps) {
   useEffect(() => {
     const controller = new AbortController()
     workbenchClient.getChatProvider(controller.signal)
-      .then((provider) => setChatProviderAvailable(provider.available))
+      .then(setChatProviderStatus)
       .catch(() => {
-        if (!controller.signal.aborted) setChatProviderAvailable(false)
+        if (!controller.signal.aborted) setChatProviderStatus({ provider: null, available: false, status: 'unavailable' })
       })
     return () => controller.abort()
-  }, [workbenchClient])
+  }, [chatProviderRefreshToken, workbenchClient])
 
   useEffect(() => {
     if (measurementSaveTimer.current !== null) window.clearTimeout(measurementSaveTimer.current)
@@ -130,12 +146,22 @@ export default function AppShell({ client }: AppShellProps) {
 
   return (
     <div className="workbench-shell">
-      <ProjectStatusBar client={workbenchClient} onProjectChange={projectChanged} refreshToken={inventoryRefreshToken} />
+      <ProjectStatusBar
+        client={workbenchClient}
+        onProjectChange={projectChanged}
+        chatProviderStatus={chatProviderStatus}
+        onRetryChatProvider={() => {
+          setChatProviderStatus(null)
+          setChatProviderRefreshToken((value) => value + 1)
+        }}
+        refreshToken={inventoryRefreshToken}
+      />
       <div className="workbench-shell__body">
         <aside className="left-workbench-dock">
           <PartInventoryDock
             client={workbenchClient}
             activePartUuid={activePart?.uuid ?? null}
+            visiblePartUuids={visiblePartUuids}
             onSelect={selectPart}
             onInventoryChange={inventoryChanged}
             loadStates={assemblyState.partStates}
@@ -148,7 +174,8 @@ export default function AppShell({ client }: AppShellProps) {
             client={workbenchClient}
             parts={inventory?.parts ?? EMPTY_PARTS}
             part={activePart}
-            activeAssemblyId={project?.activeAssemblyId ?? inventory?.activeAssemblyId ?? null}
+            visiblePartUuids={visiblePartUuids}
+            activeAssemblyId={activeAssemblyId}
             backendRevision={project?.revision ?? null}
             threadId={activeThreadId}
             onAssemblyStateChange={assemblyChanged}
@@ -162,7 +189,7 @@ export default function AppShell({ client }: AppShellProps) {
         </main>
         <ChatDock
           client={workbenchClient}
-          available={chatProviderAvailable ?? project?.chatAvailable ?? false}
+          available={chatProviderStatus?.available ?? project?.chatAvailable ?? false}
           onThreadChange={setActiveThreadId}
           draftRequest={chatDraftRequest}
           context={{

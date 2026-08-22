@@ -84,6 +84,13 @@ interface ChatProviderDto {
   provider: string | null
   available: boolean
   status: string
+  diagnostics?: {
+    executable_available?: boolean
+    authenticated?: boolean
+    auth_method?: string | null
+    last_failure_reason?: string | null
+    last_rpc_method?: string | null
+  }
 }
 
 interface ThreadDto {
@@ -505,6 +512,13 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         status: ['ready', 'busy', 'unavailable', 'stopping'].includes(dto.status)
           ? dto.status as ChatProviderStatus['status']
           : 'unavailable',
+        diagnostics: dto.diagnostics ? {
+          executableAvailable: dto.diagnostics.executable_available ?? null,
+          authenticated: dto.diagnostics.authenticated ?? null,
+          authMethod: dto.diagnostics.auth_method ?? null,
+          lastFailureReason: dto.diagnostics.last_failure_reason ?? null,
+          lastRpcMethod: dto.diagnostics.last_rpc_method ?? null,
+        } : undefined,
       })),
     sendTurn: (input: SendTurnInput, signal) => fetch(`${applicationUrl}/api/chat/threads/${encodeURIComponent(input.threadId)}/turns`, {
       method: 'POST',

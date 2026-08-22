@@ -162,6 +162,13 @@ export interface ChatProviderStatus {
   provider: string | null
   available: boolean
   status: 'ready' | 'busy' | 'unavailable' | 'stopping'
+  diagnostics?: {
+    executableAvailable: boolean | null
+    authenticated: boolean | null
+    authMethod: string | null
+    lastFailureReason: string | null
+    lastRpcMethod: string | null
+  }
 }
 
 export interface ChatTurnEvent {

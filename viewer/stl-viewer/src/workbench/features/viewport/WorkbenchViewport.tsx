@@ -63,6 +63,7 @@ interface WorkbenchViewportProps {
   client: WorkbenchClient
   parts?: WorkbenchPart[]
   part: WorkbenchPart | null
+  visiblePartUuids?: readonly string[] | null
   activeAssemblyId?: string | null
   backendRevision: number | null
   threadId?: string | null
@@ -73,7 +74,7 @@ interface WorkbenchViewportProps {
   measurementRestore?: { key: string; measurements: MeasurementResult[] } | null
 }
 
-export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null }: WorkbenchViewportProps) {
+export function WorkbenchViewport({ client, parts = [], part, visiblePartUuids = null, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null }: WorkbenchViewportProps) {
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -91,7 +92,7 @@ export function WorkbenchViewport({ client, parts = [], part, activeAssemblyId =
   const annotationOverlayRef = useRef<SVGSVGElement>(null)
   const measurementProjectionRef = useRef<MeasurementProjectionSource | null>(null)
   const liveViewportRef = useRef<(() => LiveViewportSource) | null>(null)
-  const assembly = useAssemblyDisplayQueue(parts, activeAssemblyId, part?.uuid ?? null)
+  const assembly = useAssemblyDisplayQueue(parts, activeAssemblyId, part?.uuid ?? null, visiblePartUuids)
   const selectedArtifactRevision = part?.authorityHash ?? part?.displayArtifact?.contentHash ?? null
   const modelSetKey = assembly.models.map((model) => model.key).join('|')
   const displayState: ModelLoadState = rendererError

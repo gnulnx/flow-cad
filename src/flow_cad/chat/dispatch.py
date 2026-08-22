@@ -79,9 +79,28 @@ class ChatDispatchService:
         with self._lock:
             queued = sum(turn.state == "queued" for turn in self._active.values())
             running = sum(turn.state == "running" for turn in self._active.values())
+            provider_diagnostics: dict[str, object] = {}
+            diagnostics = getattr(self.provider, "diagnostics", None)
+            if callable(diagnostics):
+                try:
+                    reported = diagnostics()
+                    if isinstance(reported, dict):
+                        provider_diagnostics = reported
+                except Exception:
+                    provider_diagnostics = {}
+            if {
+                "executable_available",
+                "authenticated",
+            }.issubset(provider_diagnostics):
+                provider_available = bool(
+                    provider_diagnostics["executable_available"]
+                    and provider_diagnostics["authenticated"]
+                )
+            else:
+                provider_available = self.provider_available
             if self._closed:
                 status = "stopping"
-            elif not self.provider_available:
+            elif not provider_available:
                 status = "unavailable"
             elif running or queued:
                 status = "busy"
@@ -89,7 +108,7 @@ class ChatDispatchService:
                 status = "ready"
             return {
                 "provider": self.provider_name,
-                "available": self.provider_available and not self._closed,
+                "available": provider_available and not self._closed,
                 "status": status,
                 "running_turns": running,
                 "queued_turns": queued,
@@ -99,6 +118,7 @@ class ChatDispatchService:
                     "sandbox": "read-only",
                     "approval_policy": "never",
                 },
+                "diagnostics": provider_diagnostics,
             }
 
     def start_turn(self, thread_id: str, turn_id: str) -> dict[str, object]:

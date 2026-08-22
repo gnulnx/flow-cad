@@ -270,12 +270,62 @@ class CodexAppServerProvider:
         )
         self._request_timeout = request_timeout
         self._tool_registry = tool_registry or default_chat_tools(self.project_root)
+        self._diagnostic_lock = threading.Lock()
+        self._last_failure_reason: str | None = None
+        self._last_rpc_method: str | None = None
 
     @property
     def available(self) -> bool:
-        """Report whether the configured app-server transport can be started."""
+        """Report whether the app server exists and has usable authentication."""
 
-        return self._custom_transport or shutil.which(self._executable) is not None
+        diagnostics = self.diagnostics()
+        return bool(
+            diagnostics["executable_available"] and diagnostics["authenticated"]
+        )
+
+    def diagnostics(self) -> dict[str, object]:
+        """Return bounded connection facts without exposing credentials or CLI output."""
+
+        executable_available = self._custom_transport or shutil.which(self._executable) is not None
+        authenticated = self._custom_transport
+        auth_method: str | None = "test-transport" if self._custom_transport else None
+        if executable_available and not self._custom_transport:
+            try:
+                completed = subprocess.run(
+                    [self._executable, "login", "status"],
+                    cwd=self.project_root,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=3.0,
+                    check=False,
+                )
+                authenticated = completed.returncode == 0
+                normalized = completed.stdout.casefold()
+                if authenticated:
+                    if "chatgpt" in normalized:
+                        auth_method = "chatgpt"
+                    elif "api key" in normalized or "api-key" in normalized:
+                        auth_method = "api-key"
+                    elif "access token" in normalized:
+                        auth_method = "access-token"
+                    else:
+                        auth_method = "authenticated"
+            except (OSError, subprocess.TimeoutExpired):
+                authenticated = False
+        with self._diagnostic_lock:
+            last_failure_reason = self._last_failure_reason
+            last_rpc_method = self._last_rpc_method
+        return {
+            "executable_available": executable_available,
+            "authenticated": authenticated,
+            "auth_method": auth_method,
+            "last_failure_reason": last_failure_reason,
+            "last_rpc_method": last_rpc_method,
+        }
 
     def stream_turn(
         self,
@@ -347,12 +397,20 @@ class CodexAppServerProvider:
                 terminal = True
                 return
 
+            context_value = json.dumps(
+                normalized_context,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
             result = client.request(
                 "turn/start",
                 {
                     "threadId": provider_thread_id,
                     "input": [{"type": "text", "text": prompt, "text_elements": []}],
-                    "additionalContext": {"flow_cad": normalized_context},
+                    "additionalContext": {
+                        "flow_cad": {"kind": "application", "value": context_value}
+                    },
                     "clientUserMessageId": turn_id,
                     "cwd": str(self.project_root),
                     "approvalPolicy": "never",
@@ -395,13 +453,26 @@ class CodexAppServerProvider:
                 for event, is_terminal in mapper.map(message):
                     yield event
                     terminal = terminal or is_terminal
+            if terminal:
+                with self._diagnostic_lock:
+                    self._last_failure_reason = None
+                    self._last_rpc_method = None
         except CodexProviderError as error:
+            failure_reason = _failure_reason(error)
+            with self._diagnostic_lock:
+                self._last_failure_reason = failure_reason
+                self._last_rpc_method = error.method if isinstance(error, CodexRpcError) else None
             yield ProviderEvent(
                 "failed",
                 "Codex provider is unavailable.",
                 {
                     "retryable": True,
-                    "reason": _failure_reason(error),
+                    "reason": failure_reason,
+                    **(
+                        {"rpc_method": error.method}
+                        if isinstance(error, CodexRpcError)
+                        else {}
+                    ),
                 },
             )
         finally:

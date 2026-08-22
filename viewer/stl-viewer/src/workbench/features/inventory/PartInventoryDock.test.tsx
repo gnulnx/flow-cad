@@ -1,4 +1,5 @@
-import { render, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { WorkbenchPart } from '../../contracts'
 import { createTestWorkbenchClient } from '../../testClient'
@@ -20,10 +21,26 @@ describe('PartInventoryDock refresh', () => {
     const client = createTestWorkbenchClient()
     client.getInventory = getInventory
     const onSelect = vi.fn()
-    const view = render(<PartInventoryDock client={client} activePartUuid="guard-uuid" onSelect={onSelect} refreshToken={0} />)
-    await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ authorityHash: 'old-sha' })))
+    const view = render(<PartInventoryDock client={client} activePartUuid="guard-uuid" visiblePartUuids={['guard-uuid']} onSelect={onSelect} refreshToken={0} />)
+    await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ authorityHash: 'old-sha' }), 'focus'))
 
-    view.rerender(<PartInventoryDock client={client} activePartUuid="guard-uuid" onSelect={onSelect} refreshToken={1} />)
-    await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ authorityHash: 'new-sha' })))
+    view.rerender(<PartInventoryDock client={client} activePartUuid="guard-uuid" visiblePartUuids={['guard-uuid']} onSelect={onSelect} refreshToken={1} />)
+    await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ authorityHash: 'new-sha' }), 'focus'))
+  })
+
+  it('emits replace for click and toggle for Ctrl or Command click', async () => {
+    const user = userEvent.setup()
+    const client = createTestWorkbenchClient({ inventory: { revision: 1, activeAssemblyId: 'active', parts: [part('sha')] } })
+    const onSelect = vi.fn()
+    render(<PartInventoryDock client={client} activePartUuid={null} visiblePartUuids={[]} onSelect={onSelect} />)
+    const option = await screen.findByRole('option', { name: /arch_guard/ })
+    onSelect.mockClear()
+
+    await user.click(option)
+    expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ uuid: 'guard-uuid' }), 'replace')
+    await user.keyboard('{Control>}')
+    await user.click(option)
+    await user.keyboard('{/Control}')
+    expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ uuid: 'guard-uuid' }), 'toggle')
   })
 })

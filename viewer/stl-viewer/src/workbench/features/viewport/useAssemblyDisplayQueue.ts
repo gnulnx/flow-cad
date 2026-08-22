@@ -40,11 +40,12 @@ export function useAssemblyDisplayQueue(
   parts: WorkbenchPart[],
   activeAssemblyId: string | null,
   selectedPartUuid: string | null,
+  visiblePartUuids: readonly string[] | null = null,
   concurrency = ASSEMBLY_LOAD_CONCURRENCY,
 ): AssemblyDisplayState {
   const plan = useMemo(
-    () => planAssemblyLoads(parts, activeAssemblyId, selectedPartUuid),
-    [activeAssemblyId, parts, selectedPartUuid],
+    () => planAssemblyLoads(parts, activeAssemblyId, selectedPartUuid, visiblePartUuids),
+    [activeAssemblyId, parts, selectedPartUuid, visiblePartUuids],
   )
   const planKey = plan.map((item) => item.key).join('|')
   const planRef = useRef(plan)

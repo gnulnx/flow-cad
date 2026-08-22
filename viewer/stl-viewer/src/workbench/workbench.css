@@ -114,6 +114,30 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 }
 
 .project-status-bar__health code { padding: 3px 6px; color: #b9c3ca; border: 1px solid var(--line); border-radius: 5px; background: #080c10; }
+.settings-button, .settings-close { color: var(--muted); border: 1px solid var(--line); border-radius: 5px; background: #111820; cursor: pointer; }
+.settings-button { padding: 4px 7px; font-size: 9px; }
+.settings-button:hover, .settings-close:hover { color: var(--ink); border-color: var(--line-bright); }
+.settings-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgb(3 7 10 / 72%); backdrop-filter: blur(6px); }
+.connection-settings { width: min(560px, 100%); max-height: calc(100vh - 48px); padding: 18px; overflow: auto; border: 1px solid var(--line-bright); border-radius: 11px; background: #101820; box-shadow: 0 24px 70px rgb(0 0 0 / 55%); }
+.connection-settings > header { display: flex; align-items: flex-start; justify-content: space-between; }
+.connection-settings h2 { margin: 3px 0 0; font-size: 18px; }
+.settings-close { width: 30px; height: 30px; font-size: 19px; }
+.connection-state { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: 18px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #0b1218; }
+.connection-state > div { display: grid; gap: 2px; }
+.connection-state strong { font-size: 12px; }
+.connection-state span { color: var(--muted); font-size: 9px; }
+.connection-facts { margin: 14px 0 0; }
+.connection-facts > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+.connection-facts dt { color: var(--quiet); font-size: 9px; text-transform: uppercase; }
+.connection-facts dd { margin: 0; color: #c5cfd5; font-size: 10px; }
+.connection-facts__warning dd { color: var(--amber); }
+.connection-setup { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #0b1218; }
+.connection-setup h3 { margin: 0 0 10px; font-size: 12px; }
+.connection-setup ol { margin: 0; padding-left: 20px; color: #b8c3ca; font-size: 10px; line-height: 1.75; }
+.connection-setup p { color: var(--muted); font-size: 9px; line-height: 1.55; }
+.connection-setup code { padding: 2px 4px; color: var(--gold-soft); border: 1px solid var(--line); border-radius: 3px; background: #080d12; }
+.connection-setup .connection-secret-note { color: var(--green); }
+.connection-setup a { color: var(--cyan); font-size: 10px; }
 
 .health-dot, .artifact-state {
   display: inline-block;
@@ -149,7 +173,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 }
 
 .inventory-dock, .inspector-dock, .chat-dock { min-height: 0; }
-.inventory-dock { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); }
+.inventory-dock { display: grid; grid-template-rows: auto auto auto auto minmax(0, 1fr); }
 
 .dock-heading {
   display: flex;
@@ -181,6 +205,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .inventory-search input::placeholder { color: #53616c; }
 .inventory-search kbd { padding: 1px 5px; color: var(--quiet); font: 10px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; }
 .inventory-summary { padding: 0 13px 8px; color: var(--quiet); font-size: 10px; }
+.inventory-selection-hint { padding: 0 13px 8px; color: var(--gold); font-size: 8px; }
 
 .inventory-list { min-height: 0; overflow: auto; scrollbar-color: #33414c transparent; }
 

@@ -240,6 +240,7 @@ def test_workbench_api_exposes_provider_status_and_cancels_active_turn(
                 "sandbox": "read-only",
                 "approval_policy": "never",
             },
+            "diagnostics": {},
         }
 
         submitted = client.post(

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ArtifactState, InventorySnapshot, WorkbenchClient, WorkbenchPart } from '../../contracts'
+import type { PartSelectionMode } from './selection'
 
 interface PartInventoryDockProps {
   client: WorkbenchClient
   activePartUuid: string | null
-  onSelect(part: WorkbenchPart): void
+  visiblePartUuids?: readonly string[]
+  onSelect(part: WorkbenchPart, mode: PartSelectionMode): void
   onInventoryChange?(snapshot: InventorySnapshot): void
   loadStates?: Record<string, ArtifactState>
   refreshToken?: number
@@ -14,7 +16,7 @@ function statusLabel(part: WorkbenchPart, loadStates: Record<string, ArtifactSta
   return (loadStates[part.uuid] ?? part.artifactState).replace('-', ' ')
 }
 
-export function PartInventoryDock({ client, activePartUuid, onSelect, onInventoryChange, loadStates = {}, refreshToken = 0 }: PartInventoryDockProps) {
+export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [], onSelect, onInventoryChange, loadStates = {}, refreshToken = 0 }: PartInventoryDockProps) {
   const [snapshot, setSnapshot] = useState<InventorySnapshot | null>(null)
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -34,10 +36,10 @@ export function PartInventoryDock({ client, activePartUuid, onSelect, onInventor
         ? nextSnapshot.parts.find((part) => part.uuid === activePartUuidRef.current)
         : null
       if (refreshedSelection) {
-        onSelect(refreshedSelection)
+        onSelect(refreshedSelection, 'focus')
       } else if (!activePartUuidRef.current && nextSnapshot.parts.length > 0) {
         const preferred = nextSnapshot.parts.find((part) => part.status === 'active') ?? nextSnapshot.parts[0]
-        onSelect(preferred)
+        onSelect(preferred, 'focus')
       }
     }).catch((reason: unknown) => {
       if (controller.signal.aborted) return
@@ -83,7 +85,8 @@ export function PartInventoryDock({ client, activePartUuid, onSelect, onInventor
             ? `${filtered.length} shown · revision ${snapshot.revision}`
             : 'Loading metadata…'}
       </div>
-      <div className="inventory-list" role="listbox" aria-label="Project parts">
+      <div className="inventory-selection-hint">Click isolates · Ctrl/Cmd-click adds or removes</div>
+      <div className="inventory-list" role="listbox" aria-label="Project parts" aria-multiselectable="true">
         {error ? (
           <div className="dock-state dock-state--error">
             <strong>Could not load parts</strong>
@@ -102,10 +105,11 @@ export function PartInventoryDock({ client, activePartUuid, onSelect, onInventor
           <button
             type="button"
             role="option"
-            aria-selected={part.uuid === activePartUuid}
+            aria-selected={visiblePartUuids.includes(part.uuid)}
+            data-active={part.uuid === activePartUuid ? 'true' : 'false'}
             className="part-row"
             key={part.uuid}
-            onClick={() => onSelect(part)}
+            onClick={(event) => onSelect(part, event.ctrlKey || event.metaKey ? 'toggle' : 'replace')}
           >
             <span className={`artifact-state artifact-state--${displayState}`} title={statusLabel(part, loadStates)} aria-label={statusLabel(part, loadStates)} />
             <span className="part-row__identity">

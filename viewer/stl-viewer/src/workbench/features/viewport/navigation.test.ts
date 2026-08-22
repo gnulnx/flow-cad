@@ -14,6 +14,7 @@ import {
   WORLD_UP,
   type CameraFrame,
 } from './navigation'
+import { pendingFrameBounds } from './NavigationControls'
 
 function frame(): CameraFrame {
   return {
@@ -85,5 +86,13 @@ describe('replacement workbench navigation contract', () => {
     expect(fitted.pivot.toArray()).toEqual([10, 35, 14])
     expect(fitted.up.toArray()).toEqual([0, 0, 1])
     expect(fitted.position.distanceTo(fitted.pivot)).toBeGreaterThan(Math.sqrt(40 ** 2 + 30 ** 2 + 20 ** 2) / 2)
+  })
+
+  it('keeps an initial fit request pending until progressive geometry has bounds', () => {
+    const bounds = { min: [-10, 20, 4] as [number, number, number], max: [30, 50, 24] as [number, number, number] }
+
+    expect(pendingFrameBounds(-1, 0, null)).toBeNull()
+    expect(pendingFrameBounds(-1, 0, bounds)).toBe(bounds)
+    expect(pendingFrameBounds(0, 0, bounds)).toBeNull()
   })
 })

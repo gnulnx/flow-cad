@@ -69,6 +69,13 @@ def create_chat_query_router(
                     "sandbox": "read-only",
                     "approval_policy": "never",
                 },
+                "diagnostics": {
+                    "executable_available": False,
+                    "authenticated": False,
+                    "auth_method": None,
+                    "last_failure_reason": None,
+                    "last_rpc_method": None,
+                },
             }
         return dispatch.status()
 

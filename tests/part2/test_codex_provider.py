@@ -249,7 +249,12 @@ def test_starts_durable_thread_sends_cad_context_and_maps_bounded_events(
     assert turn_params["input"] == [
         {"type": "text", "text": "Inspect the selected guard", "text_elements": []}
     ]
-    assert turn_params["additionalContext"] == {"flow_cad": context}
+    assert turn_params["additionalContext"] == {
+        "flow_cad": {
+            "kind": "application",
+            "value": json.dumps(context, sort_keys=True, separators=(",", ":")),
+        }
+    }
     assert turn_params["clientUserMessageId"] == "local-turn-1"
 
     assert "content" in [event.kind for event in events]

@@ -57,6 +57,16 @@ describe('progressive active assembly planning', () => {
     expect(nextAssemblyLoadBatch(plan, records, 3)).toHaveLength(1)
   })
 
+  it('keeps multiple explicitly selected reference parts visible together', () => {
+    const lid = part('lid', 'reference', [occurrence('lid-main')])
+    const axleWheel = part('axle-wheel', 'reference', [occurrence('axle-wheel-main')])
+    const body = part('body', 'printable', [occurrence('body-main')])
+
+    const plan = planAssemblyLoads([body, lid, axleWheel], 'active', axleWheel.uuid, [lid.uuid, axleWheel.uuid])
+
+    expect(plan.map((item) => item.part.key)).toEqual(['axle-wheel', 'lid'])
+  })
+
   it('applies the same XYZ rotation and translation contract used by occurrence meshes', () => {
     const placement = {
       assemblyId: 'active',

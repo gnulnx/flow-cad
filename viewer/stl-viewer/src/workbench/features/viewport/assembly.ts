@@ -35,17 +35,20 @@ export function planAssemblyLoads(
   parts: WorkbenchPart[],
   activeAssemblyId: string | null,
   selectedPartUuid: string | null,
+  visiblePartUuids: readonly string[] | null = null,
 ): AssemblyLoadPlanItem[] {
   const assemblyId = resolveActiveAssemblyId(parts, activeAssemblyId)
+  const visible = visiblePartUuids === null ? null : new Set(visiblePartUuids)
   const plan: AssemblyLoadPlanItem[] = []
   for (const part of parts) {
     if (!part.displayArtifact || part.status === 'retired' || part.status === 'superseded') continue
     const selected = part.uuid === selectedPartUuid
+    if (visible && !visible.has(part.uuid)) continue
     const occurrences = assemblyId
       ? part.occurrences.filter((occurrence) => occurrence.assemblyId === assemblyId)
       : part.occurrences
-    if (part.role === 'reference' && !selected) continue
-    if (occurrences.length === 0 && !selected) continue
+    if (!visible && part.role === 'reference' && !selected) continue
+    if (occurrences.length === 0 && !selected && !visible?.has(part.uuid)) continue
     plan.push({
       key: `${part.uuid}:${part.displayArtifact.contentHash}`,
       part,

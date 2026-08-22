@@ -36,6 +36,15 @@ interface DragState {
   startArcball: THREE.Vector3
 }
 
+export function pendingFrameBounds(
+  lastRequest: number,
+  request: number,
+  bounds: Bounds3 | null,
+): Bounds3 | null {
+  if (lastRequest === request || !bounds) return null
+  return bounds
+}
+
 function frameFromCamera(camera: THREE.PerspectiveCamera, pivot: THREE.Vector3): CameraFrame {
   return { position: camera.position.clone(), pivot: pivot.clone(), up: camera.up.clone().normalize() }
 }
@@ -76,21 +85,23 @@ export function NavigationControls({
   }, [measureMode])
 
   useEffect(() => {
-    if (!(camera instanceof THREE.PerspectiveCamera) || fitRequestRef.current === fitRequest) return
+    if (!(camera instanceof THREE.PerspectiveCamera)) return
+    const bounds = pendingFrameBounds(fitRequestRef.current, fitRequest, visibleBounds)
+    if (!bounds) return
     fitRequestRef.current = fitRequest
-    if (!visibleBounds) return
-    const frame = fitFrameToBounds(visibleBounds, camera.fov)
+    const frame = fitFrameToBounds(bounds, camera.fov)
     pivotRef.current.copy(frame.pivot)
     applyFrame(camera, frame)
     invalidate()
   }, [camera, fitRequest, invalidate, visibleBounds])
 
   useEffect(() => {
-    if (!(camera instanceof THREE.PerspectiveCamera) || frameRequestRef.current === frameSelectedRequest) return
-    frameRequestRef.current = frameSelectedRequest
+    if (!(camera instanceof THREE.PerspectiveCamera)) return
     const bounds = selectedBounds ?? visibleBounds
-    if (!bounds) return
-    const frame = fitFrameToBounds(bounds, camera.fov)
+    const requestedBounds = pendingFrameBounds(frameRequestRef.current, frameSelectedRequest, bounds)
+    if (!requestedBounds) return
+    frameRequestRef.current = frameSelectedRequest
+    const frame = fitFrameToBounds(requestedBounds, camera.fov)
     pivotRef.current.copy(frame.pivot)
     applyFrame(camera, frame)
     invalidate()

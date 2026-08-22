@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react'
-import type { ProjectSummary, WorkbenchClient } from '../../contracts'
+import type { ChatProviderStatus, ProjectSummary, WorkbenchClient } from '../../contracts'
+import { CodexConnectionSettings } from './CodexConnectionSettings'
 
 interface ProjectStatusBarProps {
   client: WorkbenchClient
   onProjectChange(project: ProjectSummary | null): void
+  chatProviderStatus?: ChatProviderStatus | null
+  onRetryChatProvider?(): void
   refreshToken?: number
 }
 
-export function ProjectStatusBar({ client, onProjectChange, refreshToken = 0 }: ProjectStatusBarProps) {
+export function ProjectStatusBar({ client, onProjectChange, chatProviderStatus = null, onRetryChatProvider = () => undefined, refreshToken = 0 }: ProjectStatusBarProps) {
   const [project, setProject] = useState<ProjectSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -50,7 +54,9 @@ export function ProjectStatusBar({ client, onProjectChange, refreshToken = 0 }: 
         <span className={`health-dot ${error ? 'health-dot--error' : project ? 'health-dot--ready' : ''}`} />
         <span>{error ? 'Disconnected' : project ? 'Ready' : 'Connecting'}</span>
         {project?.gitCommit ? <code>{project.gitCommit.slice(0, 8)}{project.gitDirty ? '*' : ''}</code> : null}
+        <button type="button" className="settings-button" onClick={() => setSettingsOpen(true)}>Settings</button>
       </div>
+      {settingsOpen ? <CodexConnectionSettings status={chatProviderStatus} onRetry={onRetryChatProvider} onClose={() => setSettingsOpen(false)} /> : null}
     </header>
   )
 }
