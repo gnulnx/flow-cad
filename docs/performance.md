@@ -288,6 +288,46 @@ Required product behavior:
   the actual route/service registry.
 - User documentation should be generated or checked against those capabilities.
 
+### 17. The rebuilt CLI had no working full-build command
+
+The legacy command remained discoverable and accepted its options:
+
+```bash
+flow cad build --bundle --cache
+```
+
+However, only `flow cad build --part <key>` was routed into the strict-manifest
+replacement builder. Default, `--handoff`, `--changed`, and
+`--assembly-preview` modes still fell through to the preserved legacy
+`flow_cad.project` loader. That loader cannot parse the rebuilt manifest and
+failed at the first nested release-hook key:
+
+```text
+ProjectError: Nested key without a section in flowcad.project.yaml:
+  kind: validator
+```
+
+This was reproducible from both editable Python environments because both
+resolved to the same Flow CAD checkout; changing environments or reinstalling
+did not address it. The strict-manifest `flow release gate` can rebuild all
+active production parts, but it is not an equivalent replacement: it does not
+create the old exports bundle, it runs release hooks and tests, and an
+intentionally evolved part may fail a baseline-equivalence hook after artifact
+generation.
+
+Required product behavior:
+
+- Route every advertised build mode through the strict-manifest replacement
+  builder.
+- Preserve `flow cad build --bundle --cache` as a working compatibility command
+  or fail immediately with the exact supported replacement command.
+- Keep `flow cad build --handoff` as the complete build/cache/report/snapshot/
+  bundle operation for review.
+- Keep `flow release gate` separate as validation of freshly built production
+  artifacts, not the only mechanism capable of building the production set.
+- Add a real `flow_b2` integration test for default and `--handoff` builds so a
+  legacy-loader fallthrough cannot ship again.
+
 ## 3-5 Minute Acceptance Benchmark
 
 The benchmark is an edit to an existing plate: add one rounded through-cut,
@@ -336,5 +376,6 @@ performance success.
 5. Make preview/runtime capability discovery authoritative and keep docs tied to
    tested commits.
 6. Reduce refresh, install, and diff diagnostic noise.
-7. Add the 3-5 minute end-to-end benchmark to CI with separate draft, source,
+7. Restore strict-manifest default and handoff builds, including bundle output.
+8. Add the 3-5 minute end-to-end benchmark to CI with separate draft, source,
    and gate-loop timing.
