@@ -1,6 +1,7 @@
 """Small replacement viewer services with no CAD-kernel imports."""
 
 from .inventory import InventoryService
+from .preview_placement import PreviewPlacementError, PreviewPlacementStore
 from .models import (
     ArtifactChangedError,
     ContentAddressedModelService,
@@ -15,6 +16,8 @@ __all__ = [
     "ContentAddressedModelService",
     "InvalidArtifactDigestError",
     "InventoryService",
+    "PreviewPlacementError",
+    "PreviewPlacementStore",
     "ModelNotFoundError",
     "ResolvedModel",
     "UnsafeArtifactPathError",

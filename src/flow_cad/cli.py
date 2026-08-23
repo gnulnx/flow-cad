@@ -279,11 +279,15 @@ def reload(backend_url: str | None) -> None:
 @click.option("--backend-url", default=None)
 @click.option("--part", "part_id", default=None)
 @click.option("--force-model-refetch", is_flag=True, default=False)
+@click.option("--replace", "replace_part_id", default=None, help="Place --part at this part's assembly occurrences for temporary review.")
+@click.option("--clear-preview", is_flag=True, default=False, help="Clear the active temporary in-assembly preview replacement.")
 def refresh(
     project_root: Path | None,
     backend_url: str | None,
     part_id: str | None,
     force_model_refetch: bool,
+    replace_part_id: str | None,
+    clear_preview: bool,
 ) -> None:
     """Refresh the project-aware workbench and report rendered artifact identity."""
 
@@ -295,8 +299,19 @@ def refresh(
         project_root=root,
         part_id=part_id,
         force_model_refetch=force_model_refetch,
+        replace_part_id=replace_part_id,
+        clear_preview=clear_preview,
     )
     click.echo(f"Refreshed viewer revision {payload.get('revision')}")
+    placement = payload.get("preview_placement")
+    if isinstance(placement, dict):
+        click.echo(
+            "preview "
+            f"{placement.get('preview_part_key')} replaces {placement.get('target_part_key')} "
+            f"at {len(placement.get('occurrences') or [])} occurrence(s)"
+        )
+    if payload.get("preview_cleared"):
+        click.echo("Cleared temporary preview placement")
     artifacts = payload.get("rendered_artifacts")
     if isinstance(artifacts, list):
         for artifact in artifacts:

@@ -114,7 +114,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
             <span className={`artifact-state artifact-state--${displayState}`} title={statusLabel(part, loadStates)} aria-label={statusLabel(part, loadStates)} />
             <span className="part-row__identity">
               <strong>{part.key}</strong>
-              <small>{part.role} · {part.occurrenceCount} occurrence{part.occurrenceCount === 1 ? '' : 's'}</small>
+              <small>{part.previewOfUuid ? 'in-place preview' : part.role} · {part.occurrenceCount} occurrence{part.occurrenceCount === 1 ? '' : 's'}</small>
             </span>
             <span className={`authority-tag authority-tag--${part.geometryAuthority}`}>{part.qualityLabel}</span>
           </button>

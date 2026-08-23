@@ -34,6 +34,7 @@ interface ProjectDto {
   manifest_schema_version: number
   manifest_sha256: string
   revision: number
+  view_state_revision?: string | null
   part_count: number
   occurrence_count: number
   active_assembly_id?: string | null
@@ -56,6 +57,8 @@ interface PartDto {
     translation_mm: [number, number, number]
     rotation_deg: [number, number, number]
   }>
+  preview_of_uuid?: string | null
+  preview_replaced_by_uuid?: string | null
   geometry_authority: string
   quality_label: string
   capabilities: {
@@ -437,6 +440,7 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
     projectId: dto.project_id,
     projectName: dto.project_id,
     revision: dto.revision,
+    viewStateRevision: dto.view_state_revision ?? null,
     activeAssemblyId: dto.active_assembly_id ?? null,
     gitCommit: null,
     gitDirty: false,
@@ -479,6 +483,8 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
           translationMm: occurrence.translation_mm,
           rotationDeg: occurrence.rotation_deg,
         })),
+        previewOfUuid: part.preview_of_uuid ?? null,
+        previewReplacedByUuid: part.preview_replaced_by_uuid ?? null,
         authorityHash: part.artifact_revision,
         displayArtifact: part.model_url && part.display_revision
           ? {

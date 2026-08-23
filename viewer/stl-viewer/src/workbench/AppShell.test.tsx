@@ -83,6 +83,34 @@ describe('replacement AppShell', () => {
     expect(inventory.getByText('Missing')).toBeInTheDocument()
   })
 
+  it('keeps assembly context visible when an in-place preview is selected', async () => {
+    const user = userEvent.setup()
+    render(<AppShell client={createTestWorkbenchClient({
+      inventory: {
+        revision: 10,
+        activeAssemblyId: 'active',
+        parts: [
+          part('context', { displayArtifact: { contentHash: 'context-stl', format: 'stl', url: '/models/context', revision: 10 } }),
+          part('preview', {
+            previewOfUuid: 'target-uuid',
+            displayArtifact: { contentHash: 'preview-stl', format: 'stl', url: '/models/preview', revision: 10 },
+          }),
+        ],
+      },
+    })} />)
+
+    const context = await screen.findByRole('option', { name: /context/ })
+    const preview = screen.getByRole('option', { name: /preview/ })
+    expect(context).toHaveAttribute('aria-selected', 'true')
+    expect(preview).toHaveAttribute('aria-selected', 'true')
+
+    await user.click(preview)
+
+    expect(context).toHaveAttribute('aria-selected', 'true')
+    expect(preview).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { name: 'preview' })).toBeInTheDocument()
+  })
+
   it('restores and durably saves thread-bound measurement label state', async () => {
     const user = userEvent.setup()
     const saveMeasurementSnapshot = vi.fn(async (_input: SaveMeasurementSnapshotInput) => undefined)

@@ -9,17 +9,24 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from flow_cad.registry import sync_project
-from flow_cad.viewer.services import InventoryService
+from flow_cad.viewer.services import (
+    InventoryService,
+    PreviewPlacementError,
+    PreviewPlacementStore,
+)
 
 
 class RefreshRequest(BaseModel):
     part_id: str | None = None
     force_model_refetch: bool = False
+    replace_part_id: str | None = None
+    clear_preview: bool = False
 
 
 def create_workbench_command_router(project_root: Path) -> APIRouter:
     root = project_root.resolve()
     inventory = InventoryService(root)
+    preview_placements = PreviewPlacementStore(root)
     router = APIRouter(prefix="/api", tags=["workbench commands"])
 
     @router.post("/reload")
@@ -41,9 +48,30 @@ def create_workbench_command_router(project_root: Path) -> APIRouter:
 
     @router.post("/refresh")
     def refresh_project(request: RefreshRequest) -> dict[str, Any]:
+        if request.replace_part_id and not request.part_id:
+            raise HTTPException(status_code=400, detail="part_id is required when replace_part_id is set")
+        if request.replace_part_id and request.clear_preview:
+            raise HTTPException(status_code=400, detail="replace_part_id and clear_preview are mutually exclusive")
+        preview_cleared = False
         try:
-            result = sync_project(root)
-            snapshot = inventory.inventory(search=request.part_id) if request.part_id else inventory.inventory()
+            if request.clear_preview:
+                preview_cleared = preview_placements.clear()
+                snapshot = inventory.inventory()
+                changed = preview_cleared
+            elif request.replace_part_id:
+                preview_placements.activate(
+                    inventory.inventory(),
+                    preview_part_id=request.part_id or "",
+                    target_part_id=request.replace_part_id,
+                )
+                snapshot = inventory.inventory()
+                changed = True
+            else:
+                result = sync_project(root)
+                snapshot = inventory.inventory()
+                changed = result.changed
+        except PreviewPlacementError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
         except Exception as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         parts = snapshot["parts"]
@@ -57,10 +85,12 @@ def create_workbench_command_router(project_root: Path) -> APIRouter:
                 raise HTTPException(status_code=404, detail=f"part not found: {request.part_id}")
         return {
             "ok": True,
-            "revision": result.revision,
-            "changed": result.changed,
+            "revision": snapshot["revision"],
+            "changed": changed,
             "force_model_refetch": request.force_model_refetch,
             "rendered_artifacts": [_rendered_artifact(part) for part in parts],
+            "preview_placement": snapshot.get("preview_placement") if not request.clear_preview else None,
+            "preview_cleared": bool(request.clear_preview and preview_cleared),
         }
 
     return router

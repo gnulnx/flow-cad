@@ -40,6 +40,8 @@ export interface WorkbenchPart {
   occurrenceCount: number
   occurrenceIds: string[]
   occurrences: WorkbenchOccurrence[]
+  previewOfUuid?: string | null
+  previewReplacedByUuid?: string | null
   authorityHash: string | null
   displayArtifact: DisplayArtifact | null
   bounds: Bounds3 | null
@@ -50,6 +52,7 @@ export interface ProjectSummary {
   projectId: string
   projectName: string
   revision: number
+  viewStateRevision?: string | null
   activeAssemblyId: string | null
   gitCommit: string | null
   gitDirty: boolean

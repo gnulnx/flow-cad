@@ -116,6 +116,8 @@ def test_flow_refresh_verifies_project_root_and_reports_artifact(tmp_path, monke
         assert json.loads(request.data.decode("utf-8")) == {
             "part_id": "rear_panel",
             "force_model_refetch": True,
+            "replace_part_id": None,
+            "clear_preview": False,
         }
         return Response(
             {

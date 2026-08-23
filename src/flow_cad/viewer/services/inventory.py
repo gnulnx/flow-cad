@@ -10,6 +10,8 @@ from typing import Any
 
 from flow_cad.registry.db import connect_readonly, database_path
 
+from .preview_placement import PreviewPlacementStore
+
 
 _EXACT_CAPABILITIES = {
     "display_model": False,
@@ -52,6 +54,7 @@ class InventoryService:
     def __init__(self, project_root: Path):
         self.project_root = project_root.resolve()
         self.index_path = database_path(self.project_root)
+        self.preview_placements = PreviewPlacementStore(self.project_root)
 
     def project(self) -> dict[str, Any]:
         with closing(connect_readonly(self.index_path)) as connection:
@@ -72,7 +75,9 @@ class InventoryService:
                     (SELECT COUNT(*) FROM assembly_occurrences) AS occurrence_count
                 """
             ).fetchone()
-        return _project_payload(project, counts)
+        payload = _project_payload(project, counts)
+        payload["view_state_revision"] = self.preview_placements.revision()
+        return payload
 
     def inventory(
         self,
@@ -165,6 +170,7 @@ class InventoryService:
             ).fetchone()
 
         payload = _project_payload(project, counts)
+        payload["view_state_revision"] = self.preview_placements.revision()
         payload["parts"] = [
             _part_payload(
                 row,
@@ -174,7 +180,7 @@ class InventoryService:
             )
             for row in parts
         ]
-        return payload
+        return self.preview_placements.apply(payload)
 
 
 def _group_rows(connection, part_ids: list[str], sql: str):

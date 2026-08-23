@@ -165,6 +165,8 @@ def refresh_viewer(
     project_root: Path | None = None,
     part_id: str | None = None,
     force_model_refetch: bool = False,
+    replace_part_id: str | None = None,
+    clear_preview: bool = False,
 ) -> dict[str, object]:
     """Reload the project-aware viewer process and return rendered artifact identity."""
     resolved_project_root = (project_root or Path.cwd()).resolve()
@@ -179,6 +181,8 @@ def refresh_viewer(
     payload = {
         "part_id": part_id,
         "force_model_refetch": force_model_refetch,
+        "replace_part_id": replace_part_id,
+        "clear_preview": clear_preview,
     }
     return _post_json(resolved_backend_url.rstrip("/") + "/api/refresh", payload)
 

@@ -19,6 +19,7 @@ describe('workbench HTTP adapter', () => {
         manifest_schema_version: 1,
         manifest_sha256: 'manifest-sha',
         revision: 4,
+        view_state_revision: 'preview-state-sha',
         part_count: 1,
         occurrence_count: 1,
         parts: [{
@@ -37,6 +38,7 @@ describe('workbench HTTP adapter', () => {
             translation_mm: [1, 2, 3],
             rotation_deg: [0, 90, 0],
           }],
+          preview_of_uuid: 'original-guard-uuid',
           geometry_authority: 'step_kernel',
           quality_label: 'exact',
           capabilities: { exact_topology: true, mesh_only: false },
@@ -55,6 +57,7 @@ describe('workbench HTTP adapter', () => {
       geometryAuthority: 'step',
       qualityLabel: 'Exact',
       occurrenceIds: ['guard-main'],
+      previewOfUuid: 'original-guard-uuid',
       occurrences: [{
         assemblyId: 'active',
         id: 'guard-main',

@@ -19,6 +19,11 @@ interface AppShellProps {
 }
 
 const EMPTY_PARTS: WorkbenchPart[] = []
+const PROJECT_METADATA_POLL_MS = 1_000
+
+function projectStateKey(project: ProjectSummary | null): string | null {
+  return project ? `${project.revision}:${project.viewStateRevision ?? 'none'}` : null
+}
 
 export default function AppShell({ client }: AppShellProps) {
   const workbenchClient = useMemo(() => client ?? configuredWorkbenchClient(), [client])
@@ -43,6 +48,7 @@ export default function AppShell({ client }: AppShellProps) {
   })
   const [measurementRestore, setMeasurementRestore] = useState<{ key: string; measurements: MeasurementResult[] } | null>(null)
   const [measurementSaveError, setMeasurementSaveError] = useState<string | null>(null)
+  const observedProjectState = useRef<string | null>(null)
   const savedMeasurementFingerprint = useRef<{ key: string; fingerprint: string } | null>(null)
   const measurementSaveTimer = useRef<number | null>(null)
   const parts = inventory?.parts ?? EMPTY_PARTS
@@ -54,9 +60,13 @@ export default function AppShell({ client }: AppShellProps) {
   const visiblePartUuids = selection.explicitVisiblePartUuids ?? defaultVisiblePartUuids
   const activePart = parts.find((part) => part.uuid === selection.activePartUuid) ?? null
   const selectPart = useCallback((part: WorkbenchPart, mode: PartSelectionMode) => {
-    setSelection((current) => applyPartSelection(current, part.uuid, mode, defaultVisiblePartUuids))
+    const effectiveMode = part.previewOfUuid && mode === 'replace' ? 'focus' : mode
+    setSelection((current) => applyPartSelection(current, part.uuid, effectiveMode, defaultVisiblePartUuids))
   }, [defaultVisiblePartUuids])
-  const projectChanged = useCallback((nextProject: ProjectSummary | null) => setProject(nextProject), [])
+  const projectChanged = useCallback((nextProject: ProjectSummary | null) => {
+    observedProjectState.current = projectStateKey(nextProject)
+    setProject(nextProject)
+  }, [])
   const inventoryChanged = useCallback((snapshot: InventorySnapshot) => setInventory(snapshot), [])
   const assemblyChanged = useCallback((snapshot: AssemblyViewportSnapshot) => setAssemblyState(snapshot), [])
   const buildSubmitted = useCallback((jobId: string) => setWatchedBuildJobId(jobId), [])
@@ -83,6 +93,34 @@ export default function AppShell({ client }: AppShellProps) {
       })
     return () => controller.abort()
   }, [chatProviderRefreshToken, workbenchClient])
+
+  useEffect(() => {
+    let stopped = false
+    let controller: AbortController | null = null
+    const poll = () => {
+      controller?.abort()
+      controller = new AbortController()
+      workbenchClient.getProject(controller.signal).then((nextProject) => {
+        if (stopped) return
+        const nextState = projectStateKey(nextProject)
+        if (observedProjectState.current === null) {
+          observedProjectState.current = nextState
+          return
+        }
+        if (nextState !== observedProjectState.current) {
+          observedProjectState.current = nextState
+          setProject(nextProject)
+          setInventoryRefreshToken((value) => value + 1)
+        }
+      }).catch(() => undefined)
+    }
+    const interval = window.setInterval(poll, PROJECT_METADATA_POLL_MS)
+    return () => {
+      stopped = true
+      controller?.abort()
+      window.clearInterval(interval)
+    }
+  }, [workbenchClient])
 
   useEffect(() => {
     if (measurementSaveTimer.current !== null) window.clearTimeout(measurementSaveTimer.current)
