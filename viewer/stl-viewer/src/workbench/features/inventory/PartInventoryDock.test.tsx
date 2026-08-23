@@ -43,4 +43,19 @@ describe('PartInventoryDock refresh', () => {
     await user.keyboard('{/Control}')
     expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ uuid: 'guard-uuid' }), 'toggle')
   })
+
+  it('exposes an explicit visibility toggle independent of row selection', async () => {
+    const user = userEvent.setup()
+    const active = { ...part('sha'), family: 'compute', material: 'PETG' }
+    const client = createTestWorkbenchClient({ inventory: { revision: 1, activeAssemblyId: 'active', parts: [active] } })
+    const onSelect = vi.fn()
+    render(<PartInventoryDock client={client} activePartUuid={null} visiblePartUuids={['guard-uuid']} onSelect={onSelect} />)
+
+    expect(await screen.findByRole('group', { name: 'compute parts' })).toBeInTheDocument()
+    expect(screen.getByText(/printable · active · PETG/)).toBeInTheDocument()
+    onSelect.mockClear()
+    await user.click(screen.getByRole('button', { name: 'Hide arch_guard' }))
+    expect(onSelect).toHaveBeenCalledOnce()
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ uuid: 'guard-uuid' }), 'toggle')
+  })
 })

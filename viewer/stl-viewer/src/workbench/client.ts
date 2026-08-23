@@ -44,6 +44,8 @@ interface PartDto {
   uuid: string
   key: string
   aliases: string[]
+  family?: string | null
+  material?: string | null
   role: 'printable' | 'reference' | 'inspection' | 'legacy'
   status: string
   artifacts: Array<{
@@ -470,6 +472,8 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         uuid: part.uuid,
         key: part.key,
         aliases: part.aliases,
+        family: part.family ?? null,
+        material: part.material ?? null,
         role: part.role,
         status,
         artifactState,

@@ -32,6 +32,8 @@ export interface WorkbenchPart {
   uuid: string
   key: string
   aliases: string[]
+  family?: string | null
+  material?: string | null
   role: 'printable' | 'reference' | 'inspection' | 'legacy'
   status: 'preserved-only' | 'active' | 'reference' | 'inspection' | 'retired' | 'superseded'
   artifactState: ArtifactState

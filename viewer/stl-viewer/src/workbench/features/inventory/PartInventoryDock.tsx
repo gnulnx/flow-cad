@@ -61,6 +61,14 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
       || part.role.toLocaleLowerCase().includes(normalized)
     ))
   }, [query, snapshot])
+  const grouped = useMemo(() => {
+    const groups = new Map<string, WorkbenchPart[]>()
+    for (const part of filtered) {
+      const label = part.family ?? (part.occurrenceCount > 0 ? 'Assembly' : 'Unplaced')
+      groups.set(label, [...(groups.get(label) ?? []), part])
+    }
+    return [...groups.entries()]
+  }, [filtered])
 
   return (
     <section className="inventory-dock" aria-labelledby="inventory-title">
@@ -112,27 +120,56 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
             <strong>No matching parts</strong>
             <span>Try a part key, alias, or role.</span>
           </div>
-        ) : filtered.map((part) => {
-          const displayState = loadStates[part.uuid] ?? part.artifactState
-          return (
-          <button
-            type="button"
-            role="option"
-            aria-selected={visiblePartUuids.includes(part.uuid)}
-            data-active={part.uuid === activePartUuid ? 'true' : 'false'}
-            className="part-row"
-            key={part.uuid}
-            onClick={(event) => onSelect(part, event.ctrlKey || event.metaKey ? 'toggle' : 'replace')}
-          >
-            <span className={`artifact-state artifact-state--${displayState}`} title={statusLabel(part, loadStates)} aria-label={statusLabel(part, loadStates)} />
-            <span className="part-row__identity">
-              <strong>{part.key}</strong>
-              <small>{part.previewOfUuid ? 'in-place preview' : part.role} · {part.occurrenceCount} occurrence{part.occurrenceCount === 1 ? '' : 's'}</small>
-            </span>
-            <span className={`authority-tag authority-tag--${part.geometryAuthority}`}>{part.qualityLabel}</span>
-          </button>
-          )
-        })}
+        ) : grouped.map(([group, groupParts]) => (
+          <div className="inventory-group" role="group" aria-label={`${group} parts`} key={group}>
+            <div className="inventory-group__heading">
+              <span>{group.replaceAll('_', ' ')}</span>
+              <span>{groupParts.reduce((count, part) => count + part.occurrenceCount, 0)} occurrences</span>
+            </div>
+            {groupParts.map((part) => {
+              const displayState = loadStates[part.uuid] ?? part.artifactState
+              const visible = visiblePartUuids.includes(part.uuid)
+              return (
+                <div
+                  data-selected={visible ? 'true' : 'false'}
+                  data-active={part.uuid === activePartUuid ? 'true' : 'false'}
+                  className="part-row"
+                  key={part.uuid}
+                >
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={visible}
+                    className="part-row__select"
+                    onClick={(event) => onSelect(part, event.ctrlKey || event.metaKey ? 'toggle' : 'replace')}
+                  >
+                    <span className={`artifact-state artifact-state--${displayState}`} title={statusLabel(part, loadStates)} aria-label={statusLabel(part, loadStates)} />
+                    <span className="part-row__identity">
+                      <strong>{part.key}</strong>
+                      <small>
+                        {part.previewOfUuid ? 'in-place preview' : part.role} · {part.status}
+                        {part.material ? ` · ${part.material}` : ''} · {part.occurrenceCount} occurrence{part.occurrenceCount === 1 ? '' : 's'}
+                      </small>
+                    </span>
+                    <span className={`authority-tag authority-tag--${part.geometryAuthority}`}>{part.qualityLabel}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="part-visibility-toggle"
+                    aria-label={`${visible ? 'Hide' : 'Show'} ${part.key}`}
+                    aria-pressed={visible}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onSelect(part, 'toggle')
+                    }}
+                  >
+                    <span aria-hidden="true">{visible ? '◉' : '○'}</span>
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        ))}
       </div>
     </section>
   )
