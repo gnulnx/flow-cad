@@ -183,6 +183,29 @@ def test_viewer_port_resolution_keeps_backend_and_frontend_distinct(monkeypatch)
     assert frontend_port == 8001
 
 
+def test_viewer_port_resolution_does_not_probe_frontend_for_api_only(monkeypatch) -> None:
+    probed_ports: list[int] = []
+
+    def available(_host: str, port: int) -> bool:
+        probed_ports.append(port)
+        return port == 8001
+
+    monkeypatch.setattr(viewer_cli, "_port_is_available", available)
+
+    backend_port, frontend_port = _resolve_viewer_ports(
+        backend_host="127.0.0.1",
+        backend_port=8000,
+        frontend_host="127.0.0.1",
+        frontend_port=3000,
+        search_span=10,
+        start_frontend=False,
+    )
+
+    assert backend_port == 8001
+    assert frontend_port == 3000
+    assert probed_ports == [8000, 8001]
+
+
 def test_viewer_env_sets_frontend_api_fallback(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLOW_CAD_AGENT_RUNTIME", "fake")
     env = _viewer_env(tmp_path, "http://127.0.0.1:8123")

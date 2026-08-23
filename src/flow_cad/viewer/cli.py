@@ -46,6 +46,7 @@ def start_viewer(
         frontend_host=frontend_host,
         frontend_port=frontend_port,
         search_span=port_search_span,
+        start_frontend=start_frontend,
     )
     backend_url = f"http://{backend_host}:{backend_port}"
     frontend_url = f"http://{frontend_host}:{frontend_port}/?api={backend_url}" if start_frontend else None
@@ -284,12 +285,15 @@ def _resolve_viewer_ports(
     frontend_host: str,
     frontend_port: int,
     search_span: int,
+    start_frontend: bool = True,
 ) -> tuple[int, int]:
     if search_span < 1:
         raise click.ClickException("--port-search-span must be at least 1")
 
     used: set[int] = set()
     resolved_backend_port = _find_available_port(backend_host, backend_port, search_span, used=used)
+    if not start_frontend:
+        return resolved_backend_port, frontend_port
     used.add(resolved_backend_port)
     resolved_frontend_port = _find_available_port(frontend_host, frontend_port, search_span, used=used)
     return resolved_backend_port, resolved_frontend_port
