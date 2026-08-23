@@ -24,6 +24,31 @@ The target is to separate Flow CAD work into three loops:
 Simple part work should live mostly in the draft and source loops. The gate loop
 should stay strict, but it should not be the default exploratory loop.
 
+## Implementation Checkpoint — 2026-08-23
+
+The replacement runtime now has a tested end-to-end build path instead of
+falling through to the preserved legacy loader:
+
+| Outcome | Evidence |
+| --- | --- |
+| API-only startup does not probe or reserve a frontend port | `7952122` |
+| Default, changed, assembly-preview, and handoff modes use the strict project builder | `019d07f` |
+| Full/default builds emit snapshot sidecars; handoff emits the strict report and filtered bundle under `.flow/` | `50bae5c` |
+| The inspector builds the selected part; the parts dock builds the robot and restores the complete placed assembly | `d3a9a1b` |
+| Single-click isolates, Ctrl/Cmd-click adds or removes, explicit eye controls toggle visibility, and the inventory is grouped by family | `503732b` |
+| Workbench Settings explains both Codex chat authentication and the separate project-root-scoped Flow CAD MCP connection | `6a0bbf1` |
+
+A real default build in the downstream `flow_b2` checkout selected 41 active
+parts, produced 82 STEP/STL artifacts, and completed in 30.571 seconds. The
+build left the downstream tracked worktree clean and did not change the viewer
+revision when artifact content was unchanged.
+
+The highest-value work still open from the incident review is preview-to-source
+promotion plus direct printer artifact actions, a true nested assembly
+occurrence tree beyond family grouping, generated runtime capability discovery,
+quieter refresh/install/diff diagnostics, baseline-evolution policy, and the
+3–5 minute acceptance benchmark in CI.
+
 ## Problem Statement
 
 The current workflow makes small CAD edits too expensive:
@@ -147,19 +172,22 @@ Build control flags can still be combined with any profile mode:
 - `--cache/--no-cache` (default `--cache`)
 - `--snapshots-only` (snapshot-only regeneration)
 
-Mode flags are mutually exclusive, and `--handoff` enforces the strict full
-build behavior used for release/handoff workflows.
+Mode flags are mutually exclusive, and `--handoff` enforces complete strict
+build evidence for release/handoff review. Release hooks and tests remain the
+separate responsibility of `flow release gate`.
 
-Project handoff commands should still run the full build and validators.
-Interactive work should start smaller.
+Project handoff commands should still create complete build evidence. Project
+validators and release tests run through the separate release gate. Interactive
+work should start smaller.
 
 #### Foundation Readiness Before Step 3
 
 Before starting the draft geometry operation API, the first two steps must leave
 a reliable fast-loop foundation:
 
-- [x] Build profiles are mutually exclusive and `--handoff` forces the strict
-  release gate behavior.
+- [x] Build profiles are mutually exclusive and `--handoff` forces complete
+  strict build, report, snapshot, cache, and bundle behavior without silently
+  invoking release hooks.
 - [x] `--changed` records cache-hit events instead of failing when everything is
   already current.
 - [x] `--changed` uses current parameter snapshots as rebuild inputs, not only

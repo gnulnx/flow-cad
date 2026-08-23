@@ -328,6 +328,14 @@ Required product behavior:
 - Add a real `flow_b2` integration test for default and `--handoff` builds so a
   legacy-loader fallthrough cannot ship again.
 
+Resolution checkpoint (2026-08-23): commits `019d07f` and `50bae5c` route every
+advertised mode through the strict replacement builder, preserve the default
+compatibility command, keep `flow release gate` separate, and generate the
+handoff report/bundle plus inspection sidecars. A real default `flow_b2` build
+selected 41 active parts and produced 82 STEP/STL artifacts in 30.571 seconds.
+The remaining follow-up is to make that downstream smoke check an automated CI
+fixture rather than relying on the recorded live-project run.
+
 ## 3-5 Minute Acceptance Benchmark
 
 The benchmark is an edit to an existing plate: add one rounded through-cut,
