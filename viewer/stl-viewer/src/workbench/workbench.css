@@ -173,7 +173,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 }
 
 .inventory-dock, .inspector-dock, .chat-dock { min-height: 0; }
-.inventory-dock { display: grid; grid-template-rows: auto auto auto auto minmax(0, 1fr); }
+.inventory-dock { display: grid; grid-template-rows: auto auto auto auto auto minmax(0, 1fr); }
 
 .dock-heading {
   display: flex;
@@ -206,6 +206,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .inventory-search kbd { padding: 1px 5px; color: var(--quiet); font: 10px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; }
 .inventory-summary { padding: 0 13px 8px; color: var(--quiet); font-size: 10px; }
 .inventory-selection-hint { padding: 0 13px 8px; color: var(--gold); font-size: 8px; }
+.inventory-primary-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 9px; }
+.inventory-primary-actions .tool-button--assembly { color: var(--gold-soft); border-color: rgb(216 168 97 / 42%); }
+.inventory-primary-actions [role="alert"] { flex-basis: 100%; color: var(--red); font-size: 9px; }
 
 .inventory-list { min-height: 0; overflow: auto; scrollbar-color: #33414c transparent; }
 

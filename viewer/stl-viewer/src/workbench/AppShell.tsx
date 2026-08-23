@@ -48,6 +48,9 @@ export default function AppShell({ client }: AppShellProps) {
   })
   const [measurementRestore, setMeasurementRestore] = useState<{ key: string; measurements: MeasurementResult[] } | null>(null)
   const [measurementSaveError, setMeasurementSaveError] = useState<string | null>(null)
+  const [projectBuildSubmitting, setProjectBuildSubmitting] = useState(false)
+  const [projectActionError, setProjectActionError] = useState<string | null>(null)
+  const [fitAssemblyRequest, setFitAssemblyRequest] = useState(0)
   const observedProjectState = useRef<string | null>(null)
   const savedMeasurementFingerprint = useRef<{ key: string; fingerprint: string } | null>(null)
   const measurementSaveTimer = useRef<number | null>(null)
@@ -74,6 +77,31 @@ export default function AppShell({ client }: AppShellProps) {
     setWatchedBuildJobId(null)
     if (job.state === 'complete') setInventoryRefreshToken((value) => value + 1)
   }, [])
+  const buildRobot = useCallback(async () => {
+    if (projectBuildSubmitting) return
+    setProjectBuildSubmitting(true)
+    setProjectActionError(null)
+    try {
+      const job = await workbenchClient.buildProject(crypto.randomUUID())
+      setWatchedBuildJobId(job.id)
+    } catch (error: unknown) {
+      setProjectActionError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setProjectBuildSubmitting(false)
+    }
+  }, [projectBuildSubmitting, workbenchClient])
+  const showFullyAssembled = useCallback(async () => {
+    setProjectActionError(null)
+    try {
+      await workbenchClient.clearPreview()
+    } catch (error: unknown) {
+      setProjectActionError(error instanceof Error ? error.message : String(error))
+      return
+    }
+    setSelection({ activePartUuid: null, explicitVisiblePartUuids: null })
+    setInventoryRefreshToken((value) => value + 1)
+    setFitAssemblyRequest((value) => value + 1)
+  }, [workbenchClient])
   const askAgentAboutMarkup = useCallback(() => {
     setChatDraftRequest({
       id: crypto.randomUUID(),
@@ -204,6 +232,10 @@ export default function AppShell({ client }: AppShellProps) {
             onInventoryChange={inventoryChanged}
             loadStates={assemblyState.partStates}
             refreshToken={inventoryRefreshToken}
+            onShowFullyAssembled={() => void showFullyAssembled()}
+            onBuildRobot={() => void buildRobot()}
+            buildRobotSubmitting={projectBuildSubmitting}
+            actionError={projectActionError}
           />
           <InspectorDock client={workbenchClient} part={activePart} onBuildSubmitted={buildSubmitted} />
         </aside>
@@ -221,6 +253,7 @@ export default function AppShell({ client }: AppShellProps) {
             onMeasurementsChange={measurementsChanged}
             onViewportContextChange={setViewportContext}
             onAskAgentAboutMarkup={askAgentAboutMarkup}
+            fitAssemblyRequest={fitAssemblyRequest}
           />
           {measurementSaveError ? <p className="measurement-save-error" role="status">{measurementSaveError}</p> : null}
           <JobDrawer client={workbenchClient} watchJobId={watchedBuildJobId} onWatchedJobTerminal={buildFinished} />

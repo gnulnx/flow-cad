@@ -72,9 +72,10 @@ interface WorkbenchViewportProps {
   onViewportContextChange?(context: WorkbenchViewportContext): void
   onAskAgentAboutMarkup?(marks: AnnotationMark[]): void
   measurementRestore?: { key: string; measurements: MeasurementResult[] } | null
+  fitAssemblyRequest?: number
 }
 
-export function WorkbenchViewport({ client, parts = [], part, visiblePartUuids = null, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null }: WorkbenchViewportProps) {
+export function WorkbenchViewport({ client, parts = [], part, visiblePartUuids = null, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null, fitAssemblyRequest = 0 }: WorkbenchViewportProps) {
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -171,6 +172,10 @@ export function WorkbenchViewport({ client, parts = [], part, visiblePartUuids =
   }, [assembly.models.length])
 
   useEffect(() => setRendererError(null), [modelSetKey])
+
+  useEffect(() => {
+    if (fitAssemblyRequest > 0) setFitRequest((request) => request + 1)
+  }, [fitAssemblyRequest])
 
   useEffect(() => {
     onAssemblyStateChange?.({

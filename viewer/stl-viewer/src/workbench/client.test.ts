@@ -197,6 +197,48 @@ describe('workbench HTTP adapter', () => {
     })
   })
 
+  it('submits a project build and clears preview state through replacement commands', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        created: true,
+        job: {
+          job_id: 'robot-job-1',
+          kind: 'project-build',
+          state: 'queued',
+          phase: 'queued',
+          progress: 0,
+          message: 'Queued',
+          elapsed_seconds: 0,
+          updated_at: '2026-08-23T00:00:00Z',
+          cancellation_requested: false,
+          payload: { label: 'Build robot' },
+        },
+      }, 202))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, preview_cleared: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createHttpWorkbenchClient()
+
+    await expect(client.buildProject('robot-request-1')).resolves.toMatchObject({
+      id: 'robot-job-1',
+      label: 'Build robot',
+      state: 'queued',
+    })
+    await expect(client.clearPreview()).resolves.toBeUndefined()
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/workbench/v1/build', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        request_id: 'robot-request-1',
+        mode: 'default',
+        create_report: true,
+        create_bundle: false,
+      }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/refresh', expect.objectContaining({
+      body: JSON.stringify({ clear_preview: true }),
+    }))
+  })
+
   it('keeps exact STEP extraction as an explicit cold job followed by a warm revision result', async () => {
     const revision = 'a'.repeat(64)
     const fetchMock = vi.fn()

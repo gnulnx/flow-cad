@@ -27,6 +27,8 @@ export interface TestClientOverrides {
   latestMeasurementSnapshot?: SavedMeasurementSnapshot | null | Promise<SavedMeasurementSnapshot | null>
   saveMeasurementSnapshot?: (input: SaveMeasurementSnapshotInput) => Promise<void>
   buildPart?: (partIdentity: string, requestId: string) => Promise<WorkbenchJob>
+  buildProject?: (requestId: string) => Promise<WorkbenchJob>
+  clearPreview?: () => Promise<void>
 }
 
 const project: ProjectSummary = {
@@ -68,6 +70,17 @@ export function createTestWorkbenchClient(overrides: TestClientOverrides = {}): 
       elapsedMs: 0,
       lastUpdate: new Date(0).toISOString(),
     },
+    buildProject: async (requestId) => overrides.buildProject?.(requestId) ?? {
+      id: requestId,
+      label: 'Build robot',
+      state: 'queued',
+      phase: 'queued',
+      progress: 0,
+      cancellable: true,
+      elapsedMs: 0,
+      lastUpdate: new Date(0).toISOString(),
+    },
+    clearPreview: async () => overrides.clearPreview?.(),
     cancelTurn: async () => undefined,
     cancelJob: async () => undefined,
     getExactFeatures: async () => overrides.exactFeatures ?? {

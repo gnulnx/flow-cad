@@ -111,6 +111,55 @@ describe('replacement AppShell', () => {
     expect(screen.getByRole('heading', { name: 'preview' })).toBeInTheDocument()
   })
 
+  it('restores the complete assembly and submits a robot build from the parts dock', async () => {
+    const user = userEvent.setup()
+    const clearPreview = vi.fn(async () => undefined)
+    const buildProject = vi.fn(async (requestId: string) => ({
+      id: requestId,
+      label: 'Build robot',
+      state: 'queued' as const,
+      phase: 'queued',
+      progress: 0,
+      cancellable: true,
+      elapsedMs: 0,
+      lastUpdate: new Date(0).toISOString(),
+    }))
+    render(<AppShell client={createTestWorkbenchClient({
+      inventory: {
+        revision: 10,
+        activeAssemblyId: 'active',
+        parts: [
+          part('body', { displayArtifact: { contentHash: 'body-stl', format: 'stl', url: '/models/body', revision: 10 } }),
+          part('reference_lid', {
+            role: 'reference',
+            status: 'reference',
+            displayArtifact: { contentHash: 'reference-stl', format: 'stl', url: '/models/reference', revision: 10 },
+          }),
+        ],
+      },
+      clearPreview,
+      buildProject,
+    })} />)
+
+    const body = await screen.findByRole('option', { name: /body/ })
+    const reference = screen.getByRole('option', { name: /reference_lid/ })
+    expect(body).toHaveAttribute('aria-selected', 'true')
+    expect(reference).toHaveAttribute('aria-selected', 'true')
+
+    await user.click(body)
+    expect(body).toHaveAttribute('aria-selected', 'true')
+    expect(reference).toHaveAttribute('aria-selected', 'false')
+
+    await user.click(screen.getByRole('button', { name: 'Show fully assembled' }))
+    await waitFor(() => expect(clearPreview).toHaveBeenCalledOnce())
+    expect(body).toHaveAttribute('aria-selected', 'true')
+    expect(reference).toHaveAttribute('aria-selected', 'true')
+
+    await user.click(screen.getByRole('button', { name: 'Build robot' }))
+    await waitFor(() => expect(buildProject).toHaveBeenCalledOnce())
+    expect(screen.getByText('Build robot')).toBeInTheDocument()
+  })
+
   it('restores and durably saves thread-bound measurement label state', async () => {
     const user = userEvent.setup()
     const saveMeasurementSnapshot = vi.fn(async (_input: SaveMeasurementSnapshotInput) => undefined)

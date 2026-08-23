@@ -121,7 +121,7 @@ interface JobDto {
   payload?: Record<string, unknown>
 }
 
-interface PartBuildSubmissionDto {
+interface BuildSubmissionDto {
   created: boolean
   job: JobDto
 }
@@ -564,7 +564,29 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         body: JSON.stringify({ request_id: requestId }),
         signal,
       },
-    ).then(readJson<PartBuildSubmissionDto>).then((dto) => jobRecords([dto.job])[0]),
+    ).then(readJson<BuildSubmissionDto>).then((dto) => jobRecords([dto.job])[0]),
+    buildProject: (requestId, signal) => fetch(
+      `${baseUrl}/build`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: requestId,
+          mode: 'default',
+          create_report: true,
+          create_bundle: false,
+        }),
+        signal,
+      },
+    ).then(readJson<BuildSubmissionDto>).then((dto) => jobRecords([dto.job])[0]),
+    clearPreview: (signal) => fetch(`${applicationUrl}/api/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clear_preview: true }),
+      signal,
+    }).then(async (response) => {
+      if (!response.ok) throw new Error(await response.text())
+    }),
     cancelTurn: (threadId, turnId) => fetch(`${applicationUrl}/api/chat/threads/${encodeURIComponent(threadId)}/turns/${encodeURIComponent(turnId)}/cancel`, {
       method: 'POST',
     }).then(async (response) => {

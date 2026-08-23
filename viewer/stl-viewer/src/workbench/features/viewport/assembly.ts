@@ -47,7 +47,6 @@ export function planAssemblyLoads(
     const occurrences = assemblyId
       ? part.occurrences.filter((occurrence) => occurrence.assemblyId === assemblyId)
       : part.occurrences
-    if (!visible && part.role === 'reference' && !selected) continue
     if (occurrences.length === 0 && !selected && !visible?.has(part.uuid)) continue
     plan.push({
       key: `${part.uuid}:${part.displayArtifact.contentHash}`,

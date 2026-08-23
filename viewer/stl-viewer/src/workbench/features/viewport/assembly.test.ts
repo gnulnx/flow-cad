@@ -33,14 +33,14 @@ const occurrence = (id: string, translationMm: [number, number, number] = [0, 0,
 })
 
 describe('progressive active assembly planning', () => {
-  it('loads the selected part first, shares one fetch across repetitions, and hides references initially', () => {
+  it('loads the selected part first, shares one fetch across repetitions, and includes the complete assembly', () => {
     const selected = part('selected', 'printable', [occurrence('selected-left'), occurrence('selected-right')])
     const other = part('other', 'printable', [occurrence('other-main')])
     const reference = part('reference', 'reference', [occurrence('reference-main')])
 
     const plan = planAssemblyLoads([other, reference, selected], 'active', selected.uuid)
 
-    expect(plan.map((item) => item.part.key)).toEqual(['selected', 'other'])
+    expect(plan.map((item) => item.part.key)).toEqual(['selected', 'other', 'reference'])
     expect(plan[0].occurrences.map((item) => item.id)).toEqual(['selected-left', 'selected-right'])
     expect(planAssemblyLoads([other, reference, selected], 'active', reference.uuid)[0].part.key).toBe('reference')
   })
