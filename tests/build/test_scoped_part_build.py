@@ -12,6 +12,7 @@ import pytest
 from flow_cad.build import (
     PartBuildService,
     PartNotBuildableError,
+    ProjectBuildService,
     plan_scoped_part_build,
 )
 from flow_cad.jobs import JobService, JobState
@@ -237,6 +238,110 @@ def test_failed_generation_leaves_existing_output_untouched(tmp_path: Path) -> N
     assert completed.state is JobState.FAILED
     assert completed.error is not None and "fixture failure" in completed.error
     assert output.read_bytes() == b"known-good"
+
+
+def test_project_build_rebuilds_active_set_and_writes_report_and_bundle(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("build123d")
+    root = _project_root(tmp_path, "project_build_fixture")
+    _write_package(
+        root,
+        "project_build_fixture",
+        params_source="def provide_params():\n    return object()\n",
+        parts_source="""
+from build123d import Box
+
+def make_panel(_params):
+    return Box(4.0, 5.0, 6.0)
+
+def make_bracket(_params):
+    return Box(2.0, 3.0, 4.0)
+""",
+    )
+    first = _part(
+        generator="project_build_fixture.parts:make_panel",
+        artifacts=(
+            ArtifactSpec(kind="step", path="exports/step/panel.step"),
+            ArtifactSpec(kind="stl", path="exports/stl/panel.stl"),
+        ),
+    )
+    second = ManifestPart(
+        uuid=UUID("22222222-2222-4222-8222-222222222222"),
+        key="bracket",
+        aliases=(),
+        generator="project_build_fixture.parts:make_bracket",
+        role=PartRole.PRINTABLE,
+        status=PartStatus.ACTIVE,
+        artifacts=(
+            ArtifactSpec(kind="step", path="exports/step/bracket.step"),
+            ArtifactSpec(kind="stl", path="exports/stl/bracket.stl"),
+        ),
+    )
+    manifest = ProjectManifest(
+        schema_version=1,
+        project_id="project_build_fixture",
+        python_package="project_build_fixture",
+        parts=(first, second),
+        assemblies=(),
+        parameter_provider="project_build_fixture.params:provide_params",
+    )
+    (root / "flowcad.project.yaml").write_text(dump_manifest(manifest), encoding="utf-8")
+    sync_project(root)
+
+    with JobService(root, max_concurrency=1, recover_interrupted=False) as jobs:
+        submission = ProjectBuildService(root, jobs).submit(
+            request_id="build-project-1",
+            create_report=True,
+            create_bundle=True,
+        )
+        completed = jobs.wait(submission.job.job_id, timeout=30.0)
+        events = jobs.events(job_id=submission.job.job_id, limit=200)
+
+    assert completed.state is JobState.SUCCEEDED
+    assert completed.result is not None
+    assert completed.result["part_count"] == 2
+    assert completed.result["part_keys"] == ["panel", "bracket"]
+    assert completed.result["report_path"] == "reports/builds/latest.json"
+    assert completed.result["bundle_path"] == "handoff/exports.tar.gz"
+    assert (root / completed.result["report_path"]).is_file()
+    assert (root / completed.result["bundle_path"]).is_file()
+    assert (root / "exports/step/panel.step").is_file()
+    assert (root / "exports/step/bracket.step").is_file()
+    assert any(event.phase == "part:panel:generate" for event in events)
+    assert any(event.phase == "part:bracket:generate" for event in events)
+    assert all(
+        earlier.progress <= later.progress
+        for earlier, later in zip(events, events[1:])
+    )
+
+
+def test_changed_project_build_uses_metadata_freshness(tmp_path: Path) -> None:
+    root = _project_root(tmp_path, "changed_project_fixture")
+    _write_package(
+        root,
+        "changed_project_fixture",
+        params_source="def provide_params():\n    return object()\n",
+        parts_source="def make_panel(_params):\n    return object()\n",
+    )
+    manifest = _manifest("changed_project_fixture", stl=False)
+    (root / "flowcad.project.yaml").write_text(dump_manifest(manifest), encoding="utf-8")
+    output = root / "exports/step/panel.step"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(b"fresh")
+    newest = max(
+        (root / "changed_project_fixture/params.py").stat().st_mtime_ns,
+        (root / "changed_project_fixture/parts.py").stat().st_mtime_ns,
+    )
+    os.utime(output, ns=(newest + 1_000_000, newest + 1_000_000))
+    sync_project(root)
+
+    with JobService(root, recover_interrupted=False) as jobs:
+        service = ProjectBuildService(root, jobs)
+        assert service.plan(mode="changed").parts == ()
+        source = root / "changed_project_fixture/parts.py"
+        os.utime(source, ns=(newest + 2_000_000, newest + 2_000_000))
+        assert [part.part_key for part in service.plan(mode="changed").parts] == ["panel"]
 
 
 def _project_root(tmp_path: Path, package: str) -> Path:

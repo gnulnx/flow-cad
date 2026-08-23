@@ -165,6 +165,65 @@ def test_flow_cad_build_part_uses_replacement_job_and_reuses_request_id(
     assert manifest_path.read_bytes() == manifest_before
 
 
+def test_default_and_handoff_cli_builds_use_strict_project_builder(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    pytest.importorskip("build123d")
+    root = _write_project(tmp_path, "cli_project_build_fixture", include_failure=False)
+    manifest_before = (root / "flowcad.project.yaml").read_bytes()
+    monkeypatch.chdir(root)
+    runner = CliRunner()
+
+    default = runner.invoke(
+        flow,
+        ["cad", "build", "--request-id", "cli-project-default"],
+        catch_exceptions=False,
+    )
+    handoff = runner.invoke(
+        flow,
+        ["cad", "build", "--handoff", "--request-id", "cli-project-handoff"],
+        catch_exceptions=False,
+    )
+
+    assert default.exit_code == handoff.exit_code == 0
+    assert "Submitted project build job" in default.output
+    assert "Built 1 active parts" in default.output
+    assert "Wrote build report: reports/builds/latest.json" in default.output
+    assert "Created exports handoff bundle: handoff/exports.tar.gz" in default.output
+    assert "Built 1 active parts" in handoff.output
+    assert "Created exports handoff bundle: handoff/exports.tar.gz" in handoff.output
+    assert (root / "reports/builds/latest.json").is_file()
+    assert (root / "handoff/exports.tar.gz").is_file()
+    assert (root / "flowcad.project.yaml").read_bytes() == manifest_before
+
+
+def test_project_build_api_submits_observable_active_robot_build(tmp_path: Path) -> None:
+    pytest.importorskip("build123d")
+    root = _write_project(tmp_path, "api_project_build_fixture", include_failure=False)
+    sync_project(root)
+
+    with TestClient(
+        create_workbench_app(root, enable_default_chat_provider=False)
+    ) as client:
+        submitted = client.post(
+            "/api/workbench/v1/build",
+            json={
+                "request_id": "api-project-1",
+                "mode": "default",
+                "create_report": True,
+                "create_bundle": False,
+            },
+        )
+
+        assert submitted.status_code == 202
+        completed = _wait_for_job(client, submitted.json()["job"]["job_id"])
+        assert completed["state"] == "succeeded"
+        assert completed["result"]["part_keys"] == ["panel"]
+        assert completed["result"]["report_path"] == "reports/builds/latest.json"
+        assert completed["result"]["bundle_path"] is None
+
+
 def _wait_for_job(client: TestClient, job_id: str) -> dict[str, object]:
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:

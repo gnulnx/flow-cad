@@ -1,11 +1,11 @@
-"""Geometry-free planning and job submission for one-part builds."""
+"""Geometry-free planning and job submission for replacement builds."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Iterable
+from typing import Iterable, Literal
 from uuid import UUID
 
 from flow_cad.jobs import JobService, JobSubmission
@@ -59,6 +59,7 @@ class ScopedPartBuildPlan:
 
     def payload(self) -> dict[str, object]:
         return {
+            "label": f"Build {self.part_key}",
             "project_id": self.project_id,
             "part_uuid": str(self.part_uuid),
             "part_key": self.part_key,
@@ -68,6 +69,35 @@ class ScopedPartBuildPlan:
                 {"kind": artifact.kind, "path": artifact.relative_path}
                 for artifact in self.artifacts
             ],
+        }
+
+
+ProjectBuildMode = Literal["default", "changed", "assembly-preview", "handoff"]
+_PROJECT_BUILD_MODES = {"default", "changed", "assembly-preview", "handoff"}
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectBuildPlan:
+    """A strict-manifest build of the active production set."""
+
+    project_root: Path
+    project_id: str
+    mode: ProjectBuildMode
+    parts: tuple[ScopedPartBuildPlan, ...]
+    create_report: bool
+    create_bundle: bool
+    generate_stl: bool
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "label": "Build robot",
+            "project_id": self.project_id,
+            "mode": self.mode,
+            "part_count": len(self.parts),
+            "part_keys": [part.part_key for part in self.parts],
+            "create_report": self.create_report,
+            "create_bundle": self.create_bundle,
+            "generate_stl": self.generate_stl,
         }
 
 
@@ -102,10 +132,93 @@ class PartBuildService:
         )
 
 
+class ProjectBuildService:
+    """Submit cancellable active-project builds without invoking release gates."""
+
+    def __init__(self, project_root: Path, jobs: JobService) -> None:
+        self.project_root = project_root.resolve()
+        if jobs.store.project_root != self.project_root:
+            raise ValueError("job service and build service must use the same project root")
+        self.jobs = jobs
+
+    def plan(
+        self,
+        *,
+        mode: ProjectBuildMode = "default",
+        create_report: bool = True,
+        create_bundle: bool = False,
+        generate_stl: bool = True,
+    ) -> ProjectBuildPlan:
+        if mode not in _PROJECT_BUILD_MODES:
+            raise BuildContractError(f"unsupported project build mode: {mode}")
+        manifest = load_manifest(self.project_root / PROJECT_MANIFEST)
+        active = tuple(part for part in manifest.parts if part.status is PartStatus.ACTIVE)
+        if not active:
+            raise PartNotBuildableError(
+                f"project {manifest.project_id!r} declares no active production parts"
+            )
+        selected = active
+        if mode == "changed":
+            selected = tuple(
+                part for part in active if _part_requires_rebuild(self.project_root, manifest, part)
+            )
+        elif mode == "assembly-preview":
+            selected = ()
+        plans = tuple(
+            plan_scoped_part_build(
+                self.project_root,
+                manifest,
+                part,
+                generate_stl=generate_stl or mode == "handoff",
+            )
+            for part in selected
+        )
+        return ProjectBuildPlan(
+            project_root=self.project_root,
+            project_id=manifest.project_id,
+            mode=mode,
+            parts=plans,
+            create_report=create_report or mode == "handoff",
+            create_bundle=create_bundle or mode == "handoff",
+            generate_stl=generate_stl or mode == "handoff",
+        )
+
+    def submit(
+        self,
+        *,
+        request_id: str,
+        mode: ProjectBuildMode = "default",
+        create_report: bool = True,
+        create_bundle: bool = False,
+        generate_stl: bool = True,
+    ) -> JobSubmission:
+        plan = self.plan(
+            mode=mode,
+            create_report=create_report,
+            create_bundle=create_bundle,
+            generate_stl=generate_stl,
+        )
+        index_path = database_path(self.project_root)
+        if not index_path.is_file():
+            raise BuildContractError(
+                f"registry index not found: {index_path}; run `flow sync` before building"
+            )
+        from .project_worker import project_build_work
+
+        return self.jobs.submit(
+            request_id=request_id,
+            kind="project-build",
+            payload=plan.payload(),
+            work=project_build_work(plan),
+        )
+
+
 def plan_scoped_part_build(
     project_root: Path,
     manifest: ProjectManifest,
     part: ManifestPart,
+    *,
+    generate_stl: bool = True,
 ) -> ScopedPartBuildPlan:
     """Validate a one-part output plan without importing project or CAD modules."""
 
@@ -124,7 +237,7 @@ def plan_scoped_part_build(
     _validate_project_symbol(provider, manifest.python_package, "parameter_provider")
     _validate_project_symbol(part.generator, manifest.python_package, f"part {part.key} generator")
 
-    selected = _selected_artifacts(part)
+    selected = _selected_artifacts(part, generate_stl=generate_stl)
     _validate_output_ownership(manifest.parts, part, selected)
     targets = tuple(_artifact_target(root, kind, path) for kind, path in selected)
     return ScopedPartBuildPlan(
@@ -149,7 +262,11 @@ def _resolve_part(parts: Iterable[ManifestPart], key_or_uuid: str) -> ManifestPa
     raise PartNotFoundError(f"part not found: {needle}")
 
 
-def _selected_artifacts(part: ManifestPart) -> tuple[tuple[str, str], ...]:
+def _selected_artifacts(
+    part: ManifestPart,
+    *,
+    generate_stl: bool,
+) -> tuple[tuple[str, str], ...]:
     by_kind: dict[str, str] = {}
     for artifact in part.artifacts:
         if artifact.kind not in {"step", "stl"}:
@@ -164,7 +281,7 @@ def _selected_artifacts(part: ManifestPart) -> tuple[tuple[str, str], ...]:
             f"part {part.key!r} must declare one STEP artifact for a scoped build"
         )
     ordered = [("step", by_kind["step"])]
-    if "stl" in by_kind:
+    if generate_stl and "stl" in by_kind:
         ordered.append(("stl", by_kind["stl"]))
     return tuple(ordered)
 
@@ -232,3 +349,40 @@ def _validate_project_symbol(reference: str, python_package: str, label: str) ->
         raise PartNotBuildableError(
             f"{label} must belong to project package {python_package!r}: {reference}"
         )
+
+
+def _part_requires_rebuild(
+    project_root: Path,
+    manifest: ProjectManifest,
+    part: ManifestPart,
+) -> bool:
+    """Conservatively detect source or artifact freshness without importing code."""
+
+    artifact_paths = [
+        project_root / artifact.path
+        for artifact in part.artifacts
+        if artifact.kind in {"step", "stl"}
+    ]
+    if not artifact_paths or any(not path.is_file() for path in artifact_paths):
+        return True
+    oldest_artifact = min(path.stat().st_mtime_ns for path in artifact_paths)
+    references = [part.generator]
+    if manifest.parameter_provider is not None:
+        references.append(manifest.parameter_provider)
+    source_paths = tuple(
+        path
+        for reference in references
+        for path in _source_candidates(project_root, reference)
+        if path.is_file()
+    )
+    if not source_paths:
+        return True
+    return any(path.stat().st_mtime_ns > oldest_artifact for path in source_paths)
+
+
+def _source_candidates(project_root: Path, reference: str) -> tuple[Path, ...]:
+    module, separator, _symbol = reference.partition(":")
+    if separator != ":":
+        return ()
+    module_path = project_root.joinpath(*module.split("."))
+    return (module_path.with_suffix(".py"), module_path / "__init__.py")
