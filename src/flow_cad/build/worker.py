@@ -123,9 +123,33 @@ def run_scoped_part_build(
                 f"{timings[f'export_{target.kind}']:.1f} ms",
             )
 
+        if plan.generate_snapshots:
+            context.checkpoint()
+            phase_started = time.perf_counter()
+            from flow_cad.core.snapshots import export_part_snapshots
+
+            snapshot_staging = work_dir / "snapshots"
+            snapshot_paths = export_part_snapshots(
+                shape,
+                plan.part_key,
+                snapshot_staging,
+                metadata={"Project": plan.project_id},
+            )
+            for view_name, snapshot_path in sorted(snapshot_paths.items()):
+                target = _snapshot_target(plan, view_name, snapshot_path)
+                _require_fresh_file(snapshot_path, target)
+                staged.append((target, snapshot_path))
+            timings["export_snapshots"] = _elapsed_ms(phase_started)
+            context.report(
+                "export_snapshots",
+                0.88,
+                f"Staged {len(snapshot_paths)} inspection snapshots in "
+                f"{timings['export_snapshots']:.1f} ms",
+            )
+
         context.checkpoint()
         phase_started = time.perf_counter()
-        artifacts = [
+        built_outputs = [
             {
                 "kind": target.kind,
                 "path": target.relative_path,
@@ -134,6 +158,8 @@ def run_scoped_part_build(
             }
             for target, staged_path in staged
         ]
+        artifacts = [output for output in built_outputs if output["kind"] in {"step", "stl"}]
+        snapshots = [output for output in built_outputs if output["kind"] == "snapshot"]
         timings["hash_artifacts"] = _elapsed_ms(phase_started)
         context.report(
             "hash",
@@ -166,6 +192,7 @@ def run_scoped_part_build(
             "generator": plan.generator,
             "parameter_provider": plan.parameter_provider,
             "artifacts": artifacts,
+            "snapshots": snapshots,
             "viewer_revision": publication.revision,
             "artifact_changed": publication.changed,
             "phase_timings_ms": timings,
@@ -228,6 +255,24 @@ def _require_fresh_file(path: Path, target: BuildArtifactTarget) -> None:
         raise PartBuildWorkerError(
             f"{target.kind.upper()} exporter created an empty artifact: {target.relative_path}"
         )
+
+
+def _snapshot_target(
+    plan: ScopedPartBuildPlan,
+    view_name: str,
+    staged_path: Path,
+) -> BuildArtifactTarget:
+    relative_path = (
+        Path("exports")
+        / "snapshots"
+        / plan.part_key
+        / f"{plan.part_key}_{view_name}.svg"
+    ).as_posix()
+    return BuildArtifactTarget(
+        kind="snapshot",
+        relative_path=relative_path,
+        destination=plan.project_root / relative_path,
+    )
 
 
 def _publish_all(

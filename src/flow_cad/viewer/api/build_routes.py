@@ -18,6 +18,7 @@ from flow_cad.jobs import IdempotencyConflictError, JobStoreError
 
 class PartBuildRequest(BaseModel):
     request_id: str
+    generate_snapshots: bool = False
 
 
 class ProjectBuildRequest(BaseModel):
@@ -26,6 +27,7 @@ class ProjectBuildRequest(BaseModel):
     create_report: bool = True
     create_bundle: bool = False
     generate_stl: bool = True
+    generate_snapshots: bool = False
 
 
 def create_part_build_router(service: PartBuildService) -> APIRouter:
@@ -43,6 +45,7 @@ def create_part_build_router(service: PartBuildService) -> APIRouter:
             submission = service.submit(
                 request_id=request.request_id,
                 part_key_or_uuid=part_key_or_uuid,
+                generate_snapshots=request.generate_snapshots,
             )
         except PartNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
@@ -75,6 +78,7 @@ def create_project_build_router(service: ProjectBuildService) -> APIRouter:
                 create_report=request.create_report,
                 create_bundle=request.create_bundle,
                 generate_stl=request.generate_stl,
+                generate_snapshots=request.generate_snapshots,
             )
         except IdempotencyConflictError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error

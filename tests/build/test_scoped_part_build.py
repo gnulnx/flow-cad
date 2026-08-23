@@ -302,8 +302,8 @@ def make_bracket(_params):
     assert completed.result is not None
     assert completed.result["part_count"] == 2
     assert completed.result["part_keys"] == ["panel", "bracket"]
-    assert completed.result["report_path"] == "reports/builds/latest.json"
-    assert completed.result["bundle_path"] == "handoff/exports.tar.gz"
+    assert completed.result["report_path"] == ".flow/reports/project-build-latest.json"
+    assert completed.result["bundle_path"] == ".flow/handoff/exports.tar.gz"
     assert (root / completed.result["report_path"]).is_file()
     assert (root / completed.result["bundle_path"]).is_file()
     assert (root / "exports/step/panel.step").is_file()
@@ -342,6 +342,38 @@ def test_changed_project_build_uses_metadata_freshness(tmp_path: Path) -> None:
         source = root / "changed_project_fixture/parts.py"
         os.utime(source, ns=(newest + 2_000_000, newest + 2_000_000))
         assert [part.part_key for part in service.plan(mode="changed").parts] == ["panel"]
+
+
+def test_scoped_build_can_emit_inspection_snapshots(tmp_path: Path) -> None:
+    pytest.importorskip("build123d")
+    root = _project_root(tmp_path, "snapshot_build_fixture")
+    _write_package(
+        root,
+        "snapshot_build_fixture",
+        params_source="def provide_params():\n    return object()\n",
+        parts_source="from build123d import Box\ndef make_panel(_params):\n    return Box(4, 5, 6)\n",
+    )
+    manifest = _manifest("snapshot_build_fixture", stl=False)
+    (root / "flowcad.project.yaml").write_text(dump_manifest(manifest), encoding="utf-8")
+    sync_project(root)
+
+    with JobService(root, recover_interrupted=False) as jobs:
+        submission = PartBuildService(root, jobs).submit(
+            request_id="snapshot-panel",
+            part_key_or_uuid="panel",
+            generate_snapshots=True,
+        )
+        completed = jobs.wait(submission.job.job_id, timeout=30.0)
+
+    assert completed.state is JobState.SUCCEEDED
+    assert completed.result is not None
+    snapshots = completed.result["snapshots"]
+    assert [snapshot["path"] for snapshot in snapshots] == [
+        "exports/snapshots/panel/panel_front.svg",
+        "exports/snapshots/panel/panel_side.svg",
+        "exports/snapshots/panel/panel_top.svg",
+    ]
+    assert all((root / snapshot["path"]).is_file() for snapshot in snapshots)
 
 
 def _project_root(tmp_path: Path, package: str) -> Path:

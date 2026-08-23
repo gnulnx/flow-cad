@@ -504,6 +504,8 @@ def _run_replacement_part_build(
     *,
     part: str,
     request_id: str | None,
+    generate_stl: bool,
+    generate_snapshots: bool,
 ) -> None:
     """Run the replacement job with visible phase progress for CLI callers."""
 
@@ -525,6 +527,8 @@ def _run_replacement_part_build(
             submission = PartBuildService(project_root, jobs).submit(
                 request_id=resolved_request_id,
                 part_key_or_uuid=part,
+                generate_stl=generate_stl,
+                generate_snapshots=generate_snapshots,
             )
             click.echo(
                 f"{'Submitted' if submission.created else 'Reused'} build job "
@@ -576,6 +580,7 @@ def _run_replacement_project_build(
     create_report: bool,
     create_bundle: bool,
     generate_stl: bool,
+    generate_snapshots: bool,
 ) -> None:
     """Run a strict active-project build with durable, visible progress."""
 
@@ -600,6 +605,7 @@ def _run_replacement_project_build(
                 create_report=create_report,
                 create_bundle=create_bundle,
                 generate_stl=generate_stl,
+                generate_snapshots=generate_snapshots,
             )
             click.echo(
                 f"{'Submitted' if submission.created else 'Reused'} project build job "
@@ -699,6 +705,8 @@ def build(
                 replacement_root,
                 part=part,
                 request_id=request_id,
+                generate_stl=bool(generate_stl),
+                generate_snapshots=bool(snapshots),
             )
         else:
             _run_replacement_project_build(
@@ -706,8 +714,9 @@ def build(
                 mode=build_mode,
                 request_id=request_id,
                 create_report=bool(generate_reports),
-                create_bundle=bool(bundle),
+                create_bundle=bool(bundle and build_mode in {"default", "handoff"}),
                 generate_stl=bool(generate_stl),
+                generate_snapshots=bool(snapshots),
             )
         return
 

@@ -189,12 +189,12 @@ def test_default_and_handoff_cli_builds_use_strict_project_builder(
     assert default.exit_code == handoff.exit_code == 0
     assert "Submitted project build job" in default.output
     assert "Built 1 active parts" in default.output
-    assert "Wrote build report: reports/builds/latest.json" in default.output
-    assert "Created exports handoff bundle: handoff/exports.tar.gz" in default.output
+    assert "Wrote build report: .flow/reports/project-build-latest.json" in default.output
+    assert "Created exports handoff bundle: .flow/handoff/exports.tar.gz" in default.output
     assert "Built 1 active parts" in handoff.output
-    assert "Created exports handoff bundle: handoff/exports.tar.gz" in handoff.output
-    assert (root / "reports/builds/latest.json").is_file()
-    assert (root / "handoff/exports.tar.gz").is_file()
+    assert "Created exports handoff bundle: .flow/handoff/exports.tar.gz" in handoff.output
+    assert (root / ".flow/reports/project-build-latest.json").is_file()
+    assert (root / ".flow/handoff/exports.tar.gz").is_file()
     assert (root / "flowcad.project.yaml").read_bytes() == manifest_before
 
 
@@ -220,7 +220,7 @@ def test_project_build_api_submits_observable_active_robot_build(tmp_path: Path)
         completed = _wait_for_job(client, submitted.json()["job"]["job_id"])
         assert completed["state"] == "succeeded"
         assert completed["result"]["part_keys"] == ["panel"]
-        assert completed["result"]["report_path"] == "reports/builds/latest.json"
+        assert completed["result"]["report_path"] == ".flow/reports/project-build-latest.json"
         assert completed["result"]["bundle_path"] is None
 
 

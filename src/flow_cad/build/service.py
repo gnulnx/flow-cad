@@ -10,7 +10,7 @@ from uuid import UUID
 
 from flow_cad.jobs import JobService, JobSubmission
 from flow_cad.registry.db import database_path
-from flow_cad.sdk import ManifestPart, PartStatus, ProjectManifest, load_manifest
+from flow_cad.sdk import ManifestPart, PartRole, PartStatus, ProjectManifest, load_manifest
 
 
 PROJECT_MANIFEST = "flowcad.project.yaml"
@@ -56,6 +56,7 @@ class ScopedPartBuildPlan:
     generator: str
     parameter_provider: str
     artifacts: tuple[BuildArtifactTarget, ...]
+    generate_snapshots: bool = False
 
     def payload(self) -> dict[str, object]:
         return {
@@ -69,6 +70,7 @@ class ScopedPartBuildPlan:
                 {"kind": artifact.kind, "path": artifact.relative_path}
                 for artifact in self.artifacts
             ],
+            "generate_snapshots": self.generate_snapshots,
         }
 
 
@@ -87,6 +89,7 @@ class ProjectBuildPlan:
     create_report: bool
     create_bundle: bool
     generate_stl: bool
+    generate_snapshots: bool
 
     def payload(self) -> dict[str, object]:
         return {
@@ -98,6 +101,7 @@ class ProjectBuildPlan:
             "create_report": self.create_report,
             "create_bundle": self.create_bundle,
             "generate_stl": self.generate_stl,
+            "generate_snapshots": self.generate_snapshots,
         }
 
 
@@ -110,13 +114,36 @@ class PartBuildService:
             raise ValueError("job service and build service must use the same project root")
         self.jobs = jobs
 
-    def plan(self, part_key_or_uuid: str) -> ScopedPartBuildPlan:
+    def plan(
+        self,
+        part_key_or_uuid: str,
+        *,
+        generate_stl: bool = True,
+        generate_snapshots: bool = False,
+    ) -> ScopedPartBuildPlan:
         manifest = load_manifest(self.project_root / PROJECT_MANIFEST)
         part = _resolve_part(manifest.parts, part_key_or_uuid)
-        return plan_scoped_part_build(self.project_root, manifest, part)
+        return plan_scoped_part_build(
+            self.project_root,
+            manifest,
+            part,
+            generate_stl=generate_stl,
+            generate_snapshots=generate_snapshots,
+        )
 
-    def submit(self, *, request_id: str, part_key_or_uuid: str) -> JobSubmission:
-        plan = self.plan(part_key_or_uuid)
+    def submit(
+        self,
+        *,
+        request_id: str,
+        part_key_or_uuid: str,
+        generate_stl: bool = True,
+        generate_snapshots: bool = False,
+    ) -> JobSubmission:
+        plan = self.plan(
+            part_key_or_uuid,
+            generate_stl=generate_stl,
+            generate_snapshots=generate_snapshots,
+        )
         index_path = database_path(self.project_root)
         if not index_path.is_file():
             raise BuildContractError(
@@ -148,6 +175,7 @@ class ProjectBuildService:
         create_report: bool = True,
         create_bundle: bool = False,
         generate_stl: bool = True,
+        generate_snapshots: bool = False,
     ) -> ProjectBuildPlan:
         if mode not in _PROJECT_BUILD_MODES:
             raise BuildContractError(f"unsupported project build mode: {mode}")
@@ -170,6 +198,7 @@ class ProjectBuildService:
                 manifest,
                 part,
                 generate_stl=generate_stl or mode == "handoff",
+                generate_snapshots=generate_snapshots or mode == "handoff",
             )
             for part in selected
         )
@@ -181,6 +210,7 @@ class ProjectBuildService:
             create_report=create_report or mode == "handoff",
             create_bundle=create_bundle or mode == "handoff",
             generate_stl=generate_stl or mode == "handoff",
+            generate_snapshots=generate_snapshots or mode == "handoff",
         )
 
     def submit(
@@ -191,12 +221,14 @@ class ProjectBuildService:
         create_report: bool = True,
         create_bundle: bool = False,
         generate_stl: bool = True,
+        generate_snapshots: bool = False,
     ) -> JobSubmission:
         plan = self.plan(
             mode=mode,
             create_report=create_report,
             create_bundle=create_bundle,
             generate_stl=generate_stl,
+            generate_snapshots=generate_snapshots,
         )
         index_path = database_path(self.project_root)
         if not index_path.is_file():
@@ -219,6 +251,7 @@ def plan_scoped_part_build(
     part: ManifestPart,
     *,
     generate_stl: bool = True,
+    generate_snapshots: bool = False,
 ) -> ScopedPartBuildPlan:
     """Validate a one-part output plan without importing project or CAD modules."""
 
@@ -249,6 +282,7 @@ def plan_scoped_part_build(
         generator=part.generator,
         parameter_provider=provider,
         artifacts=targets,
+        generate_snapshots=generate_snapshots and part.role is PartRole.PRINTABLE,
     )
 
 

@@ -17,8 +17,8 @@ from .service import ProjectBuildPlan
 from .worker import run_scoped_part_build
 
 
-BUILD_REPORT = Path("reports/builds/latest.json")
-HANDOFF_BUNDLE = Path("handoff/exports.tar.gz")
+BUILD_REPORT = Path(".flow/reports/project-build-latest.json")
+HANDOFF_BUNDLE = Path(".flow/handoff/exports.tar.gz")
 
 
 class _PartProgressContext:
@@ -94,6 +94,12 @@ def run_project_build(plan: ProjectBuildPlan, context: JobContext) -> dict[str, 
         for artifact in result.get("artifacts", [])
         if isinstance(artifact, dict)
     ]
+    snapshots = [
+        snapshot
+        for result in results
+        for snapshot in result.get("snapshots", [])
+        if isinstance(snapshot, dict)
+    ]
     report_path: Path | None = None
     if plan.create_report:
         context.report("report", 0.92, "Writing project build report")
@@ -107,6 +113,7 @@ def run_project_build(plan: ProjectBuildPlan, context: JobContext) -> dict[str, 
                 "part_count": len(results),
                 "parts": results,
                 "artifacts": artifacts,
+                "snapshots": snapshots,
             },
         )
 
@@ -116,7 +123,7 @@ def run_project_build(plan: ProjectBuildPlan, context: JobContext) -> dict[str, 
         context.report("bundle", 0.95, "Creating active exports handoff bundle")
         active_paths = {
             Path(str(artifact["path"])).relative_to("exports")
-            for artifact in artifacts
+            for artifact in [*artifacts, *snapshots]
             if str(artifact.get("path", "")).startswith("exports/")
         }
         bundle_path = create_bundle(
@@ -142,6 +149,7 @@ def run_project_build(plan: ProjectBuildPlan, context: JobContext) -> dict[str, 
         "part_keys": [result.get("part_key") for result in results],
         "parts": results,
         "artifacts": artifacts,
+        "snapshots": snapshots,
         "viewer_revision": viewer_revision,
         "report_path": report_path.relative_to(plan.project_root).as_posix()
         if report_path is not None
