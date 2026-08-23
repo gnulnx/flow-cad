@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { ThreadMessage } from '../../contracts'
+import type { DefaultThread, ThreadMessage } from '../../contracts'
 import { createTestWorkbenchClient } from '../../testClient'
 import { ChatDock } from './ChatDock'
 
@@ -25,19 +25,31 @@ function deferred<T>() {
 
 describe('ChatDock feedback contract', () => {
   it('stages an explicit markup-review request in the composer', async () => {
+    const history = deferred<DefaultThread>()
+    const client = createTestWorkbenchClient({ defaultThread: history.promise })
     const view = render(
       <ChatDock
-        client={createTestWorkbenchClient()}
+        client={client}
         available
         context={EMPTY_CONTEXT}
         draftRequest={{ id: 'markup-1', content: 'Review the attached viewport markup.' }}
       />,
     )
-    expect(await screen.findByDisplayValue('Review the attached viewport markup.')).toHaveFocus()
+    const composer = await screen.findByDisplayValue('Review the attached viewport markup.')
+    expect(composer).toBeDisabled()
+
+    history.resolve({
+      thread: { id: 'default', title: 'Design review', status: 'ready' },
+      messages: [],
+    })
+    await waitFor(() => {
+      expect(composer).toBeEnabled()
+      expect(composer).toHaveFocus()
+    })
 
     view.rerender(
       <ChatDock
-        client={createTestWorkbenchClient()}
+        client={client}
         available
         context={EMPTY_CONTEXT}
         draftRequest={{ id: 'markup-2', content: 'Review the updated viewport markup.' }}
