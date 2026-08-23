@@ -52,7 +52,7 @@ export function CodexConnectionSettings({ status, onRetry, onClose }: CodexConne
         </dl>
 
         <div className="connection-setup">
-          <h3>Connect this workbench</h3>
+          <h3>1. Connect workbench chat</h3>
           <ol>
             <li>Open a terminal on this machine.</li>
             <li>Run <code>codex login</code> and finish the browser sign-in.</li>
@@ -61,6 +61,23 @@ export function CodexConnectionSettings({ status, onRetry, onClose }: CodexConne
           <p>For a headless machine, use <code>codex login --device-auth</code>. API-key users can pipe <code>OPENAI_API_KEY</code> to <code>codex login --with-api-key</code>.</p>
           <p className="connection-secret-note">Flow CAD never stores or accepts the credential in project settings; it reuses the local Codex credential store.</p>
           <a href="https://developers.openai.com/codex/auth/" target="_blank" rel="noreferrer">Open official Codex authentication guide ↗</a>
+        </div>
+
+        <div className="connection-setup">
+          <h3>2. Connect Codex agent tools</h3>
+          <p>Add Flow CAD as a local MCP server so Codex can inspect the active viewport, run validators, and use project-scoped draft tools.</p>
+          <pre aria-label="Flow CAD MCP setup command"><code>{`codex mcp add flow-cad \\
+  --env FLOW_CAD_PROJECT_ROOT=/path/to/flow-project \\
+  --env FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS=/path/to/flow-cad:/path/to/flow-project \\
+  --env FLOW_CAD_MCP_TOOLSET=default \\
+  -- flow-cad-mcp`}</code></pre>
+          <ol>
+            <li>Replace both example paths with the runtime and project repository paths.</li>
+            <li>Run <code>codex mcp list</code> to confirm the server, then restart Codex so it receives the new root policy.</li>
+            <li>Use <code>:</code> between allowed roots on Linux or macOS; use <code>;</code> on Windows.</li>
+          </ol>
+          <p className="connection-secret-note">Allowed roots are an access boundary. Add only repositories that Codex should be able to inspect or change.</p>
+          <a href="https://learn.chatgpt.com/docs/extend/mcp?surface=cli" target="_blank" rel="noreferrer">Open official Codex MCP guide ↗</a>
         </div>
       </section>
     </div>
