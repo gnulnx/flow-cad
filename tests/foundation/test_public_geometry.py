@@ -72,7 +72,7 @@ def test_structural_network_builds_labeled_junctions_and_member() -> None:
             "root",
             "tip",
             start_radius=5.0,
-            end_radius=2.5,
+            end_radius=5.0,
             controls=((12.0, 10.0, 12.0),),
             samples=4,
         ),
@@ -88,6 +88,7 @@ def test_structural_network_builds_labeled_junctions_and_member() -> None:
         "path:rib",
     ]
     assert network.volume > 0.0
+    assert len(network.children[2].solids()) == 8
     assert bounds.min.X < 0.0
     assert bounds.max.X > 40.0
     assert bounds.max.Z > 30.0

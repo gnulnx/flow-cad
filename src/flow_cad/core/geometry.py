@@ -132,7 +132,7 @@ def build_structural_network(
 
     for path in paths:
         samples = sample_structural_path(nodes, path)
-        path_shape = None
+        path_children = []
         for (start_point, start_radius), (end_point, end_radius) in zip(
             samples, samples[1:]
         ):
@@ -141,15 +141,26 @@ def build_structural_network(
             segment_vector = end_vector - start_vector
             if segment_vector.length <= 1e-6:
                 raise ValueError(f"structural path {path.key!r} has a zero-length segment")
-            member = Solid.make_cone(
-                start_radius,
-                end_radius,
-                segment_vector.length,
-                Plane(origin=start_vector, z_dir=segment_vector.normalized()),
+            member_plane = Plane(
+                origin=start_vector,
+                z_dir=segment_vector.normalized(),
             )
+            if math.isclose(start_radius, end_radius, rel_tol=0.0, abs_tol=1e-9):
+                member = Solid.make_cylinder(
+                    start_radius,
+                    segment_vector.length,
+                    member_plane,
+                )
+            else:
+                member = Solid.make_cone(
+                    start_radius,
+                    end_radius,
+                    segment_vector.length,
+                    member_plane,
+                )
             blend = Sphere(end_radius).solid().moved(Location(end_vector))
-            path_shape = member + blend if path_shape is None else path_shape + member + blend
-        path_shape.label = f"path:{path.key}"
+            path_children.extend((member, blend))
+        path_shape = Compound(label=f"path:{path.key}", children=path_children)
         children.append(path_shape)
 
     if fuse:
