@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.workbench.json",
     "test": "vitest run",
     "preview": "vite preview"
   },
@@ -24,6 +25,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^29.1.1",
+    "typescript": "^7.0.2",
     "vite": "^6.0.3",
     "vitest": "^4.1.7"
   }

@@ -1,5 +1,5 @@
 from pathlib import Path
-from build123d import Box
+from build123d import Box, Location, Plane, Solid, Sphere, Torus, Vector
 from flow_cad.core.snapshots import project_part_views, export_part_snapshots
 
 def test_project_part_views() -> None:
@@ -47,3 +47,47 @@ def test_export_part_snapshots(tmp_path: Path) -> None:
         assert f"View: {view_name}" in content
         assert "Dimensions (X, Y, Z): 15.00 x 25.00 x 35.00 mm" in content
         assert "Project: Flow-Test" in content
+
+
+def test_export_part_snapshots_handles_nearly_closed_projected_conics(
+    tmp_path: Path,
+) -> None:
+    path_points = []
+    for index in range(13):
+        fraction = index / 12
+        path_points.append(
+            Vector(
+                102.0 - (102.0 - 34.0) * fraction**1.65,
+                0.0,
+                6.0 + (130.0 - 6.0) * fraction,
+            )
+        )
+
+    arm = Sphere(5.9).solid().moved(Location(path_points[0]))
+    for start, end in zip(path_points, path_points[1:]):
+        segment = end - start
+        arm = (
+            arm
+            + Solid.make_cylinder(
+                5.9,
+                segment.length,
+                Plane(origin=start, z_dir=segment.normalized()),
+            )
+            + Sphere(5.9).solid().moved(Location(end))
+        )
+
+    arms = tuple(
+        arm.moved(Location((0.0, 0.0, 0.0), (0.0, 0.0, angle)))
+        for angle in (45.0, 135.0, 225.0, 315.0)
+    )
+    shape = Torus(34.0, 6.0).solid().moved(Location((0.0, 0.0, 130.0)))
+    shape = shape.fuse(*arms)
+
+    saved_paths = export_part_snapshots(
+        shape=shape,
+        part_id="curved_guard",
+        output_dir=tmp_path,
+    )
+
+    assert set(saved_paths) == {"top", "front", "side"}
+    assert all(path.stat().st_size > 0 for path in saved_paths.values())

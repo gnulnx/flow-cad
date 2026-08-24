@@ -1955,6 +1955,10 @@ def create_app(
     def parts() -> dict[str, object]:
         return viewer_service.list_parts()
 
+    @app.get("/api/assembly/mass-properties")
+    def assembly_mass_properties() -> dict[str, object]:
+        return viewer_service.assembly_mass_properties()
+
     @app.get("/api/exports/urdf/targets")
     def urdf_export_targets() -> dict[str, object]:
         try:

@@ -1,3 +1,5 @@
+"""Read-only CLI over the replacement metadata registry."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,84 +8,87 @@ import rich_click as click
 from rich.console import Console
 from rich.table import Table
 
-from flow_cad.core.cache import get_component_cache, latest_build_metadata, list_component_cache
-from flow_cad.project import bundled_example_project, find_project_manifest, load_project
+from flow_cad.registry import find_manifest, get_part, list_parts
+from flow_cad.registry.db import RegistryError, database_path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+def _active_project_root() -> Path:
+    try:
+        return find_manifest(Path.cwd()).parent
+    except RegistryError as error:
+        raise click.ClickException(str(error)) from error
 
 
-def _active_cache_path() -> Path:
-    if find_project_manifest(Path.cwd()) is not None:
-        return load_project(Path.cwd(), fallback_to_bundled=False).paths.cache
-    return bundled_example_project(PROJECT_ROOT).paths.cache
-
-
-def _require_cache() -> Path:
-    db_path = _active_cache_path()
-    if not db_path.exists():
-        raise click.ClickException(f"Active cache not found: {db_path}. Run `flow cad build` first.")
-    return db_path
+def _require_registry() -> Path:
+    root = _active_project_root()
+    index = database_path(root)
+    if not index.is_file():
+        raise click.ClickException(
+            f"Project registry not found: {index}. Run `flow sync` first."
+        )
+    return root
 
 
 @click.group()
-def registry():
-    """Query the generated CAD active cache."""
-    pass
+def registry() -> None:
+    """Query the generated project metadata registry."""
 
 
 @registry.command("list")
 def list_components() -> None:
-    """List cached component dimensions and STEP paths."""
-    db_path = _require_cache()
-    components = list_component_cache(db_path)
-    if not components:
-        raise click.ClickException(f"Active cache has no component rows: {db_path}. Run `flow cad build` first.")
+    """List indexed parts without importing project geometry."""
 
-    table = Table(title=f"Flow CAD active cache: {db_path}")
-    table.add_column("ID")
-    table.add_column("Module")
-    table.add_column("Role")
-    table.add_column("Metadata")
-    table.add_column("BBox mm", justify="right")
-    table.add_column("Volume mm^3", justify="right")
-    table.add_column("STEP")
-
-    for component in components:
-        table.add_row(
-            component.id,
-            component.module_id,
-            component.role,
-            component.metadata_status,
-            f"{component.bbox_x:.1f} x {component.bbox_y:.1f} x {component.bbox_z:.1f}",
-            f"{component.volume_mm3:.1f}",
-            component.step_path,
+    root = _require_registry()
+    parts = list_parts(root)
+    if not parts:
+        raise click.ClickException(
+            f"Project registry has no part rows: {database_path(root)}. Run `flow sync`."
         )
 
-    build = latest_build_metadata(db_path)
-    console = Console(width=220)
-    console.print(table)
-    if build is not None:
-        dirty = "dirty" if build.is_dirty else "clean"
-        console.print(f"Build: {build.build_id} ({dirty})")
+    table = Table(title=f"Flow CAD registry: {database_path(root)}")
+    table.add_column("Key")
+    table.add_column("Status")
+    table.add_column("Role")
+    table.add_column("Family")
+    table.add_column("Version")
+    table.add_column("Artifacts", justify="right")
+    table.add_column("Missing", justify="right")
+    table.add_column("UUID")
+    for part in parts:
+        table.add_row(
+            part.key,
+            part.status,
+            part.role,
+            part.family or "—",
+            part.version or "—",
+            str(part.artifact_count),
+            str(part.missing_artifact_count),
+            part.uuid,
+        )
+    Console(width=220).print(table)
 
 
 @registry.command("show")
 @click.argument("component_id")
 def show_component(component_id: str) -> None:
-    """Show one cached component."""
-    db_path = _require_cache()
-    component = get_component_cache(db_path, component_id)
-    if component is None:
-        raise click.ClickException(f"Component not found in active cache: {component_id}")
+    """Show one indexed part by current key or retained alias."""
 
-    click.echo(f"id: {component.id}")
-    click.echo(f"module: {component.module_id}")
+    root = _require_registry()
+    component = get_part(root, component_id)
+    if component is None:
+        raise click.ClickException(f"Part not found in project registry: {component_id}")
+
+    click.echo(f"uuid: {component.uuid}")
+    click.echo(f"key: {component.key}")
+    click.echo(f"aliases: {', '.join(component.aliases) if component.aliases else '—'}")
+    click.echo(f"generator: {component.generator}")
     click.echo(f"role: {component.role}")
-    click.echo(f"metadata_status: {component.metadata_status}")
+    click.echo(f"status: {component.status}")
+    click.echo(f"material: {component.material or '—'}")
+    click.echo(f"family: {component.family or '—'}")
+    click.echo(f"version: {component.version or '—'}")
+    click.echo(f"metadata_status: {component.metadata_status or '—'}")
     if component.metadata_notes:
         click.echo(f"metadata_notes: {component.metadata_notes}")
-    click.echo(f"step_path: {component.step_path}")
-    click.echo(f"bbox_mm: {component.bbox_x:.3f}, {component.bbox_y:.3f}, {component.bbox_z:.3f}")
-    click.echo(f"volume_mm3: {component.volume_mm3:.3f}")
-    click.echo(f"build_id: {component.build_id}")
+    for kind, relative_path, state in component.artifacts:
+        click.echo(f"artifact[{kind}]: {state} {relative_path}")

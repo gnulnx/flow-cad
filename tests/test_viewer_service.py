@@ -66,6 +66,7 @@ def test_viewer_service_lists_example_parts_and_prefers_step(tmp_path) -> None:
     part = payload["parts"][0]
 
     assert payload["project_id"] == "flow_example"
+    assert payload["assembly_mass_properties"] is None
     assert part["id"] == "example_block"
     assert part["artifact_format"] == "step"
     assert part["artifact_path"] == "example/exports/step/example/example_block.step"

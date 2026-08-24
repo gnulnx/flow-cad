@@ -82,9 +82,18 @@ Codex example:
 ```bash
 codex mcp add flow-cad \
   --env FLOW_CAD_PROJECT_ROOT=/path/to/project \
+  --env FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS=/path/to/flow-cad:/path/to/project \
   --env FLOW_CAD_MCP_TOOLSET=default \
   -- flow-cad-mcp
 ```
+
+Use the operating system's path-list separator for
+`FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS`: `:` on Linux and macOS, or `;` on
+Windows. Include both the Flow CAD runtime checkout and every downstream
+project that the MCP tools should be allowed to inspect. Run `codex mcp list`
+to confirm the entry, then restart Codex after changing this root policy. The
+same setup appears in the browser workbench under **Settings > Codex
+connection**.
 
 Hermes example:
 

@@ -11,6 +11,7 @@ dependencies = [
     "build123d",
     "fastapi",
     "mcp==1.26.0",
+    "PyYAML>=6.0",
     "rich-click",
     "sqlmodel",
     "uvicorn",
@@ -27,6 +28,9 @@ test = ["pytest", "httpx"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra"
+markers = [
+    "integration: bounded tests that invoke real CAD exporters or subprocess workflows",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

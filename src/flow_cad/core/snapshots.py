@@ -87,6 +87,30 @@ def get_edges_bounds(edges) -> tuple[float, float, float, float] | None:
     except Exception:
         return None
 
+
+def _add_projected_edges(
+    exporter: ExportSVG,
+    edges,
+    *,
+    layer: str,
+) -> None:
+    """Add projected edges while preserving nearly closed conics.
+
+    OCCT can project a closed circle or ellipse with start and end coordinates
+    that differ only below SVG path tolerance. ``svgpathtools`` rejects that
+    representation as a zero-length arc. Splitting only the rejected edge into
+    two open half-edges preserves the drawing without hiding exporter failures
+    for unrelated geometry.
+    """
+
+    projected_edges = edges.edges() if isinstance(edges, Shape) else edges
+    for edge in projected_edges:
+        try:
+            exporter.add_shape(edge, layer=layer)
+        except AssertionError:
+            exporter.add_shape(edge.trim(0.0, 0.5), layer=layer)
+            exporter.add_shape(edge.trim(0.5, 1.0), layer=layer)
+
 def export_part_snapshots(
     shape: Shape,
     part_id: str,
@@ -127,8 +151,8 @@ def export_part_snapshots(
             line_type=LineType.DASHED
         )
         
-        exporter.add_shape(visible_edges, layer="visible")
-        exporter.add_shape(hidden_edges, layer="hidden")
+        _add_projected_edges(exporter, visible_edges, layer="visible")
+        _add_projected_edges(exporter, hidden_edges, layer="hidden")
         
         filename = f"{part_id}_{view_name}.svg"
         dest_path = output_dir / filename

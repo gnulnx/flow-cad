@@ -31,9 +31,13 @@ def start_viewer(
     frontend_port: int = 3000,
     port_search_span: int = 50,
     open_browser: bool = True,
+    backend_application: str = "flow_cad.viewer.app:app",
+    backend_factory: bool = False,
+    start_frontend: bool = True,
+    startup_timeout: float = 10.0,
 ) -> None:
     viewer_dir = PROJECT_ROOT / "viewer" / "stl-viewer"
-    if not (viewer_dir / "node_modules").exists():
+    if start_frontend and not (viewer_dir / "node_modules").exists():
         raise click.ClickException("Viewer dependencies are missing. Run: npm --prefix viewer/stl-viewer install")
 
     backend_port, frontend_port = _resolve_viewer_ports(
@@ -42,22 +46,25 @@ def start_viewer(
         frontend_host=frontend_host,
         frontend_port=frontend_port,
         search_span=port_search_span,
+        start_frontend=start_frontend,
     )
     backend_url = f"http://{backend_host}:{backend_port}"
-    frontend_url = f"http://{frontend_host}:{frontend_port}/?api={backend_url}"
+    frontend_url = f"http://{frontend_host}:{frontend_port}/?api={backend_url}" if start_frontend else None
     env = _viewer_env(project_root, backend_url)
 
     backend_cmd = [
         sys.executable,
         "-m",
         "uvicorn",
-        "flow_cad.viewer.app:app",
+        backend_application,
         "--host",
         backend_host,
         "--port",
         str(backend_port),
         "--no-access-log",
     ]
+    if backend_factory:
+        backend_cmd.append("--factory")
     frontend_cmd = [
         "npm",
         "run",
@@ -71,9 +78,13 @@ def start_viewer(
     ]
 
     click.echo(f"Viewer API: {backend_url}")
-    click.echo(f"Viewer UI:  {frontend_url}")
+    if frontend_url:
+        click.echo(f"Viewer UI:  {frontend_url}")
+    else:
+        click.echo("Viewer UI:  disabled (--api-only)")
+    click.echo("Starting workbench services...")
     backend_proc = subprocess.Popen(backend_cmd, cwd=project_root, env=env)
-    frontend_proc = subprocess.Popen(frontend_cmd, cwd=viewer_dir, env=env)
+    frontend_proc = subprocess.Popen(frontend_cmd, cwd=viewer_dir, env=env) if start_frontend else None
     _write_viewer_runtime(
         project_root,
         {
@@ -81,29 +92,59 @@ def start_viewer(
             "backend_url": backend_url,
             "frontend_url": frontend_url,
             "backend_pid": backend_proc.pid,
-            "frontend_pid": frontend_proc.pid,
+            "frontend_pid": frontend_proc.pid if frontend_proc is not None else None,
             "started_at": time.time(),
         },
     )
 
     try:
-        if open_browser:
-            time.sleep(1.5)
+        backend_elapsed = _wait_for_backend_ready(
+            backend_url,
+            backend_proc,
+            timeout=startup_timeout,
+        )
+        click.echo(f"Workbench API ready in {backend_elapsed * 1000.0:.1f} ms")
+        if open_browser and frontend_url:
             webbrowser.open(frontend_url)
         while True:
             backend_status = backend_proc.poll()
-            frontend_status = frontend_proc.poll()
+            frontend_status = frontend_proc.poll() if frontend_proc is not None else None
             if backend_status is not None:
                 raise click.ClickException(f"Viewer backend exited with status {backend_status}")
-            if frontend_status is not None:
+            if frontend_proc is not None and frontend_status is not None:
                 raise click.ClickException(f"Viewer frontend exited with status {frontend_status}")
             time.sleep(0.5)
     except KeyboardInterrupt:
         click.echo("Stopping viewer...")
     finally:
-        _terminate_process(frontend_proc)
+        if frontend_proc is not None:
+            _terminate_process(frontend_proc)
         _terminate_process(backend_proc)
         _clear_viewer_runtime(project_root, backend_url=backend_url)
+
+
+def _wait_for_backend_ready(
+    backend_url: str,
+    process: subprocess.Popen,
+    *,
+    timeout: float,
+) -> float:
+    started = time.perf_counter()
+    health_url = backend_url.rstrip("/") + "/api/health"
+    while time.perf_counter() - started < timeout:
+        status = process.poll()
+        if status is not None:
+            raise click.ClickException(f"Viewer backend exited with status {status}")
+        try:
+            with urllib.request.urlopen(health_url, timeout=0.2) as response:
+                if response.status == 200:
+                    return time.perf_counter() - started
+        except (urllib.error.URLError, TimeoutError):
+            pass
+        time.sleep(0.025)
+    raise click.ClickException(
+        f"Viewer backend did not become healthy within {timeout:.1f} seconds at {health_url}"
+    )
 
 
 def reload_viewer(backend_url: str | None = None, *, project_root: Path | None = None) -> dict[str, object]:
@@ -125,6 +166,8 @@ def refresh_viewer(
     project_root: Path | None = None,
     part_id: str | None = None,
     force_model_refetch: bool = False,
+    replace_part_id: str | None = None,
+    clear_preview: bool = False,
 ) -> dict[str, object]:
     """Reload the project-aware viewer process and return rendered artifact identity."""
     resolved_project_root = (project_root or Path.cwd()).resolve()
@@ -139,6 +182,8 @@ def refresh_viewer(
     payload = {
         "part_id": part_id,
         "force_model_refetch": force_model_refetch,
+        "replace_part_id": replace_part_id,
+        "clear_preview": clear_preview,
     }
     return _post_json(resolved_backend_url.rstrip("/") + "/api/refresh", payload)
 
@@ -240,12 +285,15 @@ def _resolve_viewer_ports(
     frontend_host: str,
     frontend_port: int,
     search_span: int,
+    start_frontend: bool = True,
 ) -> tuple[int, int]:
     if search_span < 1:
         raise click.ClickException("--port-search-span must be at least 1")
 
     used: set[int] = set()
     resolved_backend_port = _find_available_port(backend_host, backend_port, search_span, used=used)
+    if not start_frontend:
+        return resolved_backend_port, frontend_port
     used.add(resolved_backend_port)
     resolved_frontend_port = _find_available_port(frontend_host, frontend_port, search_span, used=used)
     return resolved_backend_port, resolved_frontend_port
