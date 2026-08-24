@@ -5,8 +5,11 @@ paths must depend on :mod:`flow_cad.sdk` instead.
 """
 
 from .core.geometry import (
+    StructuralNode,
+    StructuralPath,
     add_diagonal_rib,
     box_at,
+    build_structural_network,
     chamfered_rect_points,
     chamfered_xy_rect_prism,
     chamfered_yz_rect_prism,
@@ -20,6 +23,7 @@ from .core.geometry import (
     panel_dovetail_points,
     panel_dovetail_prism,
     safe_chamfer,
+    sample_structural_path,
     solid_shape,
     tapered_xz_rect_loft,
     triangular_xz_prism,
@@ -32,8 +36,11 @@ from .core.geometry import (
 )
 
 __all__ = [
+    "StructuralNode",
+    "StructuralPath",
     "add_diagonal_rib",
     "box_at",
+    "build_structural_network",
     "chamfered_rect_points",
     "chamfered_xy_rect_prism",
     "chamfered_yz_rect_prism",
@@ -47,6 +54,7 @@ __all__ = [
     "panel_dovetail_points",
     "panel_dovetail_prism",
     "safe_chamfer",
+    "sample_structural_path",
     "solid_shape",
     "tapered_xz_rect_loft",
     "triangular_xz_prism",

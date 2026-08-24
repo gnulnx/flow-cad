@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 import math
 from build123d import (
     Box,
@@ -10,10 +11,152 @@ from build123d import (
     Plane,
     Polygon,
     Rectangle,
+    Solid,
+    Sphere,
+    Vector,
     chamfer,
     extrude,
     loft,
 )
+
+Point3D = tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class StructuralNode:
+    """Named attachment or load-junction point in a structural graph."""
+
+    key: str
+    position: Point3D
+    radius: float
+
+
+@dataclass(frozen=True)
+class StructuralPath:
+    """Curved, tapered structural edge between two named graph nodes."""
+
+    key: str
+    start: str
+    end: str
+    start_radius: float
+    end_radius: float
+    controls: tuple[Point3D, ...] = ()
+    samples: int = 8
+
+
+def _point_vector(point: Point3D) -> Vector:
+    return Vector(*point)
+
+
+def _bezier_point(points: tuple[Vector, ...], t: float) -> Vector:
+    """Evaluate a Bezier curve of arbitrary degree with de Casteljau steps."""
+
+    working = list(points)
+    while len(working) > 1:
+        working = [
+            left * (1.0 - t) + right * t
+            for left, right in zip(working, working[1:])
+        ]
+    return working[0]
+
+
+def sample_structural_path(
+    nodes: tuple[StructuralNode, ...],
+    path: StructuralPath,
+) -> tuple[tuple[Point3D, float], ...]:
+    """Return deterministic centerline and radius samples for one graph edge."""
+
+    if path.samples < 1:
+        raise ValueError("structural path samples must be at least 1")
+    if path.start_radius <= 0.0 or path.end_radius <= 0.0:
+        raise ValueError("structural path radii must be positive")
+
+    node_by_key = {node.key: node for node in nodes}
+    if len(node_by_key) != len(nodes):
+        raise ValueError("structural node keys must be unique")
+    try:
+        start = node_by_key[path.start]
+        end = node_by_key[path.end]
+    except KeyError as exc:
+        raise ValueError(f"unknown structural path node: {exc.args[0]}") from exc
+    if start.key == end.key:
+        raise ValueError("structural path endpoints must be different nodes")
+
+    control_vectors = (
+        _point_vector(start.position),
+        *(_point_vector(point) for point in path.controls),
+        _point_vector(end.position),
+    )
+    samples: list[tuple[Point3D, float]] = []
+    for index in range(path.samples + 1):
+        t = index / path.samples
+        point = _bezier_point(control_vectors, t)
+        radius = path.start_radius + (path.end_radius - path.start_radius) * t
+        samples.append(((point.X, point.Y, point.Z), radius))
+    return tuple(samples)
+
+
+def build_structural_network(
+    nodes: tuple[StructuralNode, ...],
+    paths: tuple[StructuralPath, ...],
+    *,
+    fuse: bool = False,
+    label: str = "structural_network",
+):
+    """Build an organic BREP graph from tapered members and junction bodies.
+
+    Each path is a sampled Bezier centerline. Consecutive samples are joined by
+    tapered conical solids and blended with overlapping spheres. Node spheres
+    widen attachment and branching regions. ``fuse=False`` preserves labeled
+    path/node children for fast concept work; ``fuse=True`` returns their
+    boolean union for downstream single-body workflows.
+    """
+
+    if not nodes:
+        raise ValueError("structural network requires at least one node")
+    node_by_key = {node.key: node for node in nodes}
+    if len(node_by_key) != len(nodes):
+        raise ValueError("structural node keys must be unique")
+    if any(not node.key for node in nodes):
+        raise ValueError("structural node keys cannot be empty")
+    if any(node.radius <= 0.0 for node in nodes):
+        raise ValueError("structural node radii must be positive")
+    if len({path.key for path in paths}) != len(paths):
+        raise ValueError("structural path keys must be unique")
+
+    children = []
+    for node in nodes:
+        junction = Sphere(node.radius).solid().moved(Location(node.position))
+        junction.label = f"node:{node.key}"
+        children.append(junction)
+
+    for path in paths:
+        samples = sample_structural_path(nodes, path)
+        path_shape = None
+        for (start_point, start_radius), (end_point, end_radius) in zip(
+            samples, samples[1:]
+        ):
+            start_vector = _point_vector(start_point)
+            end_vector = _point_vector(end_point)
+            segment_vector = end_vector - start_vector
+            if segment_vector.length <= 1e-6:
+                raise ValueError(f"structural path {path.key!r} has a zero-length segment")
+            member = Solid.make_cone(
+                start_radius,
+                end_radius,
+                segment_vector.length,
+                Plane(origin=start_vector, z_dir=segment_vector.normalized()),
+            )
+            blend = Sphere(end_radius).solid().moved(Location(end_vector))
+            path_shape = member + blend if path_shape is None else path_shape + member + blend
+        path_shape.label = f"path:{path.key}"
+        children.append(path_shape)
+
+    if fuse:
+        network = fused_shapes(*children)
+        network.label = label
+        return network
+    return Compound(label=label, children=children)
 
 def box_at(size: tuple[float, float, float], center: tuple[float, float, float]):
     return Box(*size).moved(Location(center))
