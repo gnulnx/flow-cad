@@ -358,7 +358,19 @@ def _parse_artifact(kind: Any, raw: Any, source: str | Path, location: str) -> A
         return ArtifactSpec(kind=artifact_kind, path=_relative_path(raw, source, location))
 
     data = _mapping(raw, source, location)
-    _keys(data, source, location, required={"path"}, allowed={"path", "sha256", "byte_count"})
+    _keys(
+        data,
+        source,
+        location,
+        required={"path"},
+        allowed={
+            "path",
+            "sha256",
+            "byte_count",
+            "linear_tolerance",
+            "angular_tolerance",
+        },
+    )
     digest = data.get("sha256")
     if digest is not None:
         digest = _nonempty_string(digest, source, f"{location}.sha256")
@@ -368,11 +380,35 @@ def _parse_artifact(kind: Any, raw: Any, source: str | Path, location: str) -> A
     byte_count = data.get("byte_count")
     if byte_count is not None and (type(byte_count) is not int or byte_count < 0):
         _fail(source, f"{location}.byte_count", "must be a non-negative integer")
+    linear_tolerance = data.get("linear_tolerance")
+    angular_tolerance = data.get("angular_tolerance")
+    if linear_tolerance is not None:
+        linear_tolerance = _finite_number(
+            linear_tolerance,
+            source,
+            f"{location}.linear_tolerance",
+        )
+        if linear_tolerance <= 0.0:
+            _fail(source, f"{location}.linear_tolerance", "must be greater than zero")
+    if angular_tolerance is not None:
+        angular_tolerance = _finite_number(
+            angular_tolerance,
+            source,
+            f"{location}.angular_tolerance",
+        )
+        if angular_tolerance <= 0.0:
+            _fail(source, f"{location}.angular_tolerance", "must be greater than zero")
+    if artifact_kind != "stl" and (
+        linear_tolerance is not None or angular_tolerance is not None
+    ):
+        _fail(source, location, "tessellation tolerances are supported only for STL artifacts")
     return ArtifactSpec(
         kind=artifact_kind,
         path=_relative_path(data["path"], source, f"{location}.path"),
         sha256=digest,
         byte_count=byte_count,
+        linear_tolerance=linear_tolerance,
+        angular_tolerance=angular_tolerance,
     )
 
 
@@ -507,13 +543,22 @@ def _dump_release_hook(hook: ReleaseHookSpec) -> dict[str, Any]:
 
 
 def _dump_artifact(artifact: ArtifactSpec) -> str | dict[str, Any]:
-    if artifact.sha256 is None and artifact.byte_count is None:
+    if (
+        artifact.sha256 is None
+        and artifact.byte_count is None
+        and artifact.linear_tolerance is None
+        and artifact.angular_tolerance is None
+    ):
         return artifact.path
     payload: dict[str, Any] = {"path": artifact.path}
     if artifact.sha256 is not None:
         payload["sha256"] = artifact.sha256
     if artifact.byte_count is not None:
         payload["byte_count"] = artifact.byte_count
+    if artifact.linear_tolerance is not None:
+        payload["linear_tolerance"] = artifact.linear_tolerance
+    if artifact.angular_tolerance is not None:
+        payload["angular_tolerance"] = artifact.angular_tolerance
     return payload
 
 

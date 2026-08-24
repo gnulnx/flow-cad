@@ -107,7 +107,12 @@ def run_scoped_part_build(
                     timestamp=_DETERMINISTIC_STEP_TIMESTAMP,
                 )
             else:
-                exported = exporter(shape, staged_path)
+                tessellation_options = {}
+                if target.linear_tolerance is not None:
+                    tessellation_options["tolerance"] = target.linear_tolerance
+                if target.angular_tolerance is not None:
+                    tessellation_options["angular_tolerance"] = target.angular_tolerance
+                exported = exporter(shape, staged_path, **tessellation_options)
             if exported is not True:
                 raise PartBuildWorkerError(
                     f"{target.kind.upper()} exporter reported failure for {target.relative_path}"

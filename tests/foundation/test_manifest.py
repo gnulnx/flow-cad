@@ -170,6 +170,39 @@ def test_artifact_metadata_is_typed_and_paths_are_project_relative() -> None:
         loads_manifest(invalid, source="artifact.yaml")
 
 
+def test_stl_artifact_round_trips_tessellation_tolerances() -> None:
+    source = _manifest_yaml().replace(
+        "      step: exports/step/sample.step",
+        """      step: exports/step/sample.step
+      stl:
+        path: exports/stl/sample.stl
+        linear_tolerance: 0.2
+        angular_tolerance: 0.25""",
+    )
+
+    manifest = loads_manifest(source, source="tessellation.yaml")
+    stl = next(artifact for artifact in manifest.parts[0].artifacts if artifact.kind == "stl")
+
+    assert stl.linear_tolerance == 0.2
+    assert stl.angular_tolerance == 0.25
+    assert loads_manifest(dump_manifest(manifest)) == manifest
+
+
+@pytest.mark.parametrize("kind", ["step", "glb"])
+def test_manifest_rejects_tessellation_tolerances_for_non_stl_artifacts(kind: str) -> None:
+    invalid = _manifest_yaml().replace(
+        "      step: exports/step/sample.step",
+        f"""      step:
+        path: exports/step/sample.step
+        linear_tolerance: 0.2""",
+    )
+    if kind == "glb":
+        invalid = invalid.replace("      step:", "      glb:", 1)
+
+    with pytest.raises(ManifestError, match="supported only for STL"):
+        loads_manifest(invalid, source="tessellation.yaml")
+
+
 def test_manifest_round_trips_project_owned_print_and_physical_metadata() -> None:
     source = _manifest_yaml().replace(
         "    artifacts:\n",

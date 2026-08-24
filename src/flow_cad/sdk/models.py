@@ -48,6 +48,8 @@ class ArtifactSpec:
     path: str
     sha256: str | None = None
     byte_count: int | None = None
+    linear_tolerance: float | None = None
+    angular_tolerance: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

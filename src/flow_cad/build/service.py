@@ -10,7 +10,14 @@ from uuid import UUID
 
 from flow_cad.jobs import JobService, JobSubmission
 from flow_cad.registry.db import database_path
-from flow_cad.sdk import ManifestPart, PartRole, PartStatus, ProjectManifest, load_manifest
+from flow_cad.sdk import (
+    ArtifactSpec,
+    ManifestPart,
+    PartRole,
+    PartStatus,
+    ProjectManifest,
+    load_manifest,
+)
 
 
 PROJECT_MANIFEST = "flowcad.project.yaml"
@@ -42,6 +49,8 @@ class BuildArtifactTarget:
     kind: str
     relative_path: str
     destination: Path
+    linear_tolerance: float | None = None
+    angular_tolerance: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +76,20 @@ class ScopedPartBuildPlan:
             "generator": self.generator,
             "parameter_provider": self.parameter_provider,
             "artifacts": [
-                {"kind": artifact.kind, "path": artifact.relative_path}
+                {
+                    "kind": artifact.kind,
+                    "path": artifact.relative_path,
+                    **(
+                        {"linear_tolerance": artifact.linear_tolerance}
+                        if artifact.linear_tolerance is not None
+                        else {}
+                    ),
+                    **(
+                        {"angular_tolerance": artifact.angular_tolerance}
+                        if artifact.angular_tolerance is not None
+                        else {}
+                    ),
+                }
                 for artifact in self.artifacts
             ],
             "generate_snapshots": self.generate_snapshots,
@@ -272,7 +294,7 @@ def plan_scoped_part_build(
 
     selected = _selected_artifacts(part, generate_stl=generate_stl)
     _validate_output_ownership(manifest.parts, part, selected)
-    targets = tuple(_artifact_target(root, kind, path) for kind, path in selected)
+    targets = tuple(_artifact_target(root, artifact) for artifact in selected)
     return ScopedPartBuildPlan(
         project_root=root,
         project_id=manifest.project_id,
@@ -300,8 +322,8 @@ def _selected_artifacts(
     part: ManifestPart,
     *,
     generate_stl: bool,
-) -> tuple[tuple[str, str], ...]:
-    by_kind: dict[str, str] = {}
+) -> tuple[ArtifactSpec, ...]:
+    by_kind: dict[str, ArtifactSpec] = {}
     for artifact in part.artifacts:
         if artifact.kind not in {"step", "stl"}:
             continue
@@ -309,21 +331,21 @@ def _selected_artifacts(
             raise PartNotBuildableError(
                 f"part {part.key!r} declares duplicate {artifact.kind!r} artifacts"
             )
-        by_kind[artifact.kind] = artifact.path
+        by_kind[artifact.kind] = artifact
     if "step" not in by_kind:
         raise PartNotBuildableError(
             f"part {part.key!r} must declare one STEP artifact for a scoped build"
         )
-    ordered = [("step", by_kind["step"])]
+    ordered = [by_kind["step"]]
     if generate_stl and "stl" in by_kind:
-        ordered.append(("stl", by_kind["stl"]))
+        ordered.append(by_kind["stl"])
     return tuple(ordered)
 
 
 def _validate_output_ownership(
     parts: Iterable[ManifestPart],
     selected_part: ManifestPart,
-    selected: tuple[tuple[str, str], ...],
+    selected: tuple[ArtifactSpec, ...],
 ) -> None:
     owners: dict[str, tuple[UUID, str]] = {}
     for part in parts:
@@ -337,15 +359,17 @@ def _validate_output_ownership(
                     f"{previous[0]} and {part.uuid}"
                 )
             owners[artifact.path] = (part.uuid, artifact.kind)
-    for kind, path in selected:
-        owner = owners.get(path)
-        if owner != (selected_part.uuid, kind):
+    for artifact in selected:
+        owner = owners.get(artifact.path)
+        if owner != (selected_part.uuid, artifact.kind):
             raise PartNotBuildableError(
-                f"artifact output {path!r} is not isolated to part {selected_part.key!r}"
+                f"artifact output {artifact.path!r} is not isolated to part {selected_part.key!r}"
             )
 
 
-def _artifact_target(root: Path, kind: str, relative_path: str) -> BuildArtifactTarget:
+def _artifact_target(root: Path, artifact: ArtifactSpec) -> BuildArtifactTarget:
+    kind = artifact.kind
+    relative_path = artifact.path
     pure_path = PurePosixPath(relative_path)
     if not pure_path.parts or pure_path.parts[0] != "exports":
         raise PartNotBuildableError(
@@ -368,6 +392,8 @@ def _artifact_target(root: Path, kind: str, relative_path: str) -> BuildArtifact
         kind=kind,
         relative_path=relative_path,
         destination=destination,
+        linear_tolerance=artifact.linear_tolerance,
+        angular_tolerance=artifact.angular_tolerance,
     )
 
 
