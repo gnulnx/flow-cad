@@ -56,6 +56,7 @@ export interface ProjectSummary {
   projectName: string
   revision: number
   viewStateRevision?: string | null
+  displaySceneVersion?: number
   activeAssemblyId: string | null
   gitCommit: string | null
   gitDirty: boolean

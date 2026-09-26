@@ -11,6 +11,7 @@ from typing import Any
 from flow_cad.registry.db import connect_readonly, database_path
 
 from .preview_placement import PreviewPlacementStore
+from .scenes import SCENE_VERSION
 
 
 _EXACT_CAPABILITIES = {
@@ -200,6 +201,7 @@ def _project_payload(project, counts) -> dict[str, Any]:
         "manifest_schema_version": int(project["manifest_schema_version"]),
         "manifest_sha256": str(project["manifest_sha256"]),
         "revision": int(project["revision"]),
+        "display_scene_version": SCENE_VERSION,
         "part_count": int(counts["part_count"]),
         "occurrence_count": int(counts["occurrence_count"]),
     }

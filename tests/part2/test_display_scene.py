@@ -52,6 +52,7 @@ def test_scene_api_jobs_cache_and_revision_guard(tmp_path):
     endpoint = f'/api/parts/{PART_UUID}/display-scene'
     params = {'artifact_revision': revision}
     with TestClient(app) as client:
+        assert client.get('/api/project').json()['display_scene_version'] == 1
         response = client.get(endpoint, params=params)
         assert response.json() == {'status': 'job_required'}
         assert not (root/'.flow/cache/display-scenes').exists()

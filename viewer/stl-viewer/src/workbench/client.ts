@@ -35,6 +35,7 @@ interface ProjectDto {
   manifest_sha256: string
   revision: number
   view_state_revision?: string | null
+  display_scene_version?: number
   part_count: number
   occurrence_count: number
   active_assembly_id?: string | null
@@ -444,6 +445,7 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
     projectName: dto.project_id,
     revision: dto.revision,
     viewStateRevision: dto.view_state_revision ?? null,
+    displaySceneVersion: dto.display_scene_version ?? 0,
     activeAssemblyId: dto.active_assembly_id ?? null,
     gitCommit: null,
     gitDirty: false,
