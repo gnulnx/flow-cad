@@ -493,6 +493,7 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         previewOfUuid: part.preview_of_uuid ?? null,
         previewReplacedByUuid: part.preview_replaced_by_uuid ?? null,
         authorityHash: part.artifact_revision,
+        displaySceneVersion: dto.display_scene_version ?? 0,
         displaySceneUrl: part.display_scene_url
           ? (part.display_scene_url.startsWith('http') ? part.display_scene_url : `${API_ROOT}${part.display_scene_url}`)
           : null,

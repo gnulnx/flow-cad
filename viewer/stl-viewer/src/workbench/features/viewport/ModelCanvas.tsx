@@ -154,9 +154,10 @@ export default function ModelCanvas({
       onPointerMissed={() => { if (!measureMode) clearSelection() }}
     >
       <color attach="background" args={['#10161d']} />
-      <ambientLight intensity={1.35} />
-      <directionalLight position={[120, -80, 180]} intensity={2.5} />
-      <directionalLight position={[-80, 100, 50]} intensity={1.1} />
+      <hemisphereLight args={['#d3dde6', '#090c16', 1.62]} position={[0, 0, 1000]} />
+      <directionalLight position={[240, -150, 340]} color="#d6e0ea" intensity={.82} />
+      <directionalLight position={[120, 80, 210]} color="#6b7f95" intensity={.46} />
+      <directionalLight position={[-260, 240, 180]} color="#6db6e8" intensity={.04} />
       <gridHelper args={[1000, 40, '#40505d', '#25313b']} position={groundGridPosition(visibleBounds)} rotation={[Math.PI / 2, 0, 0]} />
       <axesHelper args={[45]} />
       {models.map((model) => (

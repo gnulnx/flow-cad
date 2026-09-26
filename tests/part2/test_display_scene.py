@@ -52,7 +52,7 @@ def test_scene_api_jobs_cache_and_revision_guard(tmp_path):
     endpoint = f'/api/parts/{PART_UUID}/display-scene'
     params = {'artifact_revision': revision}
     with TestClient(app) as client:
-        assert client.get('/api/project').json()['display_scene_version'] == 1
+        assert client.get('/api/project').json()['display_scene_version'] == 2
         response = client.get(endpoint, params=params)
         assert response.json() == {'status': 'job_required'}
         assert not (root/'.flow/cache/display-scenes').exists()
@@ -70,6 +70,22 @@ def test_scene_api_jobs_cache_and_revision_guard(tmp_path):
         assert client.get(endpoint, params={'artifact_revision': '0'*64}).status_code == 409
         step.write_text(step.read_text()+'\nCHANGED\n')
         assert client.get(endpoint, params=params).status_code == 409
+
+
+def test_parent_assembly_colors_survive_uncolored_leaf_wrappers(tmp_path):
+    from build123d import Box, Color, Compound, export_step
+    # Color on the assembly wrapper, as on the robot's wheels and shell parts.
+    black = Compound(label='black wheel', children=[Box(10, 20, 30)])
+    black.color = Color(.08, .09, .11)
+    blue = Compound(label='blue enclosure', children=[Box(15, 20, 30).translate((30, 0, 0))])
+    blue.color = Color(.035, .34, .70)
+    step, glb = tmp_path/'assembly-colors.step', tmp_path/'assembly-colors.glb'
+    export_step(Compound(children=[black, blue]), step)
+    export_scene(step, glb)
+    doc = glb_document(glb)
+    colors = [m['pbrMetallicRoughness']['baseColorFactor'] for m in doc['materials']]
+    assert any(c == pytest.approx([.08, .09, .11, 1], abs=1e-6) for c in colors)
+    assert any(c == pytest.approx([.035, .34, .70, 1], abs=1e-6) for c in colors)
 
 
 def test_capture_tools_use_project_storage_without_legacy_loader(monkeypatch, tmp_path):

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from flow_cad.measurement.service import ExactFeatureService
 
-SCENE_VERSION = 1
+SCENE_VERSION = 2
 
 
 class DisplaySceneService:

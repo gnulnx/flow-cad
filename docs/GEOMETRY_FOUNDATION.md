@@ -44,7 +44,7 @@ STEP `artifact_revision`. A cold cache is prepared by a cancellable job submitte
 to `/display-scene/jobs`. Conversion is serialized in disposable subprocesses;
 listing parts and querying cache state never load CAD or product generators.
 
-The disposable `.flow/cache/display-scenes/v1/` cache binds component names,
+The disposable `.flow/cache/display-scenes/v2/` cache binds component names,
 colors, placements and mesh bytes to the STEP SHA-256 and converter version.
 `/display-scene/model` serves the derived GLB. STEP remains the exact authority;
 GLB component selection is visual selection, not an editable CAD operation.

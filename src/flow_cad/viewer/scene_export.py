@@ -13,9 +13,7 @@ from pathlib import Path
 
 
 def export_scene(step_path: Path, output: Path) -> dict:
-    from build123d import Location, Compound, import_step
-
-    root = import_step(step_path)
+    from .step_components import step_components
     binary = bytearray()
     views, accessors, meshes, materials, nodes = [], [], [], [], []
     palette = {}
@@ -32,17 +30,7 @@ def export_scene(step_path: Path, output: Path) -> dict:
                           "count": count, "type": kind, **extra})
         return len(accessors)-1
 
-    def visit(node, parent_location, path, inherited_color=None):
-        color = node.color if node.color is not None else inherited_color
-        location = parent_location * (node.location or Location())
-        if node.children:
-            for index, child in enumerate(node.children):
-                visit(child, location, f"{path}/{index}", color)
-            return
-        # Re-wrap this leaf only: copying children can copy the entire parent
-        # assembly and consume many GB on large models.
-        shape = Compound.cast(node.wrapped)
-        shape.location = location
+    def add_component(path, name, color, shape):
         vertices, triangles = shape.tessellate(0.2, angular_tolerance=0.2)
         if not triangles:
             return
@@ -58,16 +46,17 @@ def export_scene(step_path: Path, output: Path) -> dict:
                      min=[min(p[i] for p in points) for i in range(3)],
                      max=[max(p[i] for p in points) for i in range(3)])
         indices = buffer((v for t in triangles for v in t), "I", 5125, "SCALAR", len(triangles)*3)
-        name = node.label or f"Component {len(nodes)+1}"
+        name = name or f"Component {len(nodes)+1}"
         meshes.append({"name": name, "primitives": [{"attributes": {"POSITION": pos},
                        "indices": indices, "material": palette[rgba], "mode": 4}]})
         nodes.append({"name": name, "mesh": len(meshes)-1,
                       "extras": {"componentId": path, "label": name}})
 
-    visit(root, Location(), "0")
+    for component in step_components(step_path):
+        add_component(*component)
     if not nodes:
         raise ValueError("STEP contains no tessellatable components")
-    document = {"asset": {"version": "2.0", "generator": "Flow CAD STEP display v1"},
+    document = {"asset": {"version": "2.0", "generator": "Flow CAD STEP display v2"},
                 "scene": 0, "scenes": [{"nodes": list(range(len(nodes)))}],
                 "nodes": nodes, "meshes": meshes, "materials": materials,
                 "buffers": [{"byteLength": len(binary)}], "bufferViews": views, "accessors": accessors}

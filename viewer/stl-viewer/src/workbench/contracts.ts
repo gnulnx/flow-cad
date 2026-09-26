@@ -46,6 +46,7 @@ export interface WorkbenchPart {
   previewReplacedByUuid?: string | null
   authorityHash: string | null
   displaySceneUrl?: string | null
+  displaySceneVersion?: number
   displayArtifact: DisplayArtifact | null
   bounds: Bounds3 | null
   warnings: string[]
