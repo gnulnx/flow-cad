@@ -334,6 +334,7 @@ def _part_payload(row, *, aliases, artifacts, occurrences) -> dict[str, Any]:
         "authority_url": authority_url,
         "display_revision": display_revision,
         "model_url": model_url,
+        "display_scene_url": f"/api/parts/{row['uuid']}/display-scene" if exact_artifact else None,
     }
 
 

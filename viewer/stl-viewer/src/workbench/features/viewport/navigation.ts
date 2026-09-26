@@ -141,3 +141,7 @@ export function fitFrameToBounds(bounds: Bounds3, verticalFovDegrees = 42): Came
     up: WORLD_UP.clone(),
   }
 }
+/** Ground follows displayed geometry; source CAD coordinates stay untouched. */
+export function groundGridPosition(bounds: Bounds3 | null): [number, number, number] {
+  return bounds ? [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2, bounds.min[2]] : [0, 0, 0]
+}

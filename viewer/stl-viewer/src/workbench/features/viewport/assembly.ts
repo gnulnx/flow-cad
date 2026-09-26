@@ -49,7 +49,7 @@ export function planAssemblyLoads(
       : part.occurrences
     if (occurrences.length === 0 && !selected && !visible?.has(part.uuid)) continue
     plan.push({
-      key: `${part.uuid}:${part.displayArtifact.contentHash}`,
+      key: `${part.uuid}:${part.displayArtifact.contentHash}${part.displaySceneUrl ? `:${part.authorityHash}:scene-v1` : ''}`,
       part,
       occurrences: occurrences.length > 0 ? occurrences : [inspectionOccurrence(part.uuid, assemblyId)],
       priority: selected ? 0 : defaultPriority(part),

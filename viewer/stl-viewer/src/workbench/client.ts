@@ -71,6 +71,7 @@ interface PartDto {
   artifact_revision: string | null
   display_revision: string | null
   model_url: string | null
+  display_scene_url?: string | null
 }
 
 interface InventoryDto extends ProjectDto {
@@ -490,6 +491,9 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         previewOfUuid: part.preview_of_uuid ?? null,
         previewReplacedByUuid: part.preview_replaced_by_uuid ?? null,
         authorityHash: part.artifact_revision,
+        displaySceneUrl: part.display_scene_url
+          ? (part.display_scene_url.startsWith('http') ? part.display_scene_url : `${API_ROOT}${part.display_scene_url}`)
+          : null,
         displayArtifact: part.model_url && part.display_revision
           ? {
               contentHash: part.display_revision,

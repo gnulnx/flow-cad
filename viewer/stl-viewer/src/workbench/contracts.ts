@@ -16,7 +16,7 @@ export interface Bounds3 {
 
 export interface DisplayArtifact {
   contentHash: string
-  format: 'stl'
+  format: 'stl' | 'glb'
   url: string
   revision: number
 }
@@ -45,6 +45,7 @@ export interface WorkbenchPart {
   previewOfUuid?: string | null
   previewReplacedByUuid?: string | null
   authorityHash: string | null
+  displaySceneUrl?: string | null
   displayArtifact: DisplayArtifact | null
   bounds: Bounds3 | null
   warnings: string[]

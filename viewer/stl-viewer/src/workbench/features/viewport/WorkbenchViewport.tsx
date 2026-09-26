@@ -61,6 +61,7 @@ export interface AssemblyViewportSnapshot {
 
 interface WorkbenchViewportProps {
   client: WorkbenchClient
+  onSelectPart?(partUuid: string): void
   parts?: WorkbenchPart[]
   part: WorkbenchPart | null
   visiblePartUuids?: readonly string[] | null
@@ -75,7 +76,8 @@ interface WorkbenchViewportProps {
   fitAssemblyRequest?: number
 }
 
-export function WorkbenchViewport({ client, parts = [], part, visiblePartUuids = null, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null, fitAssemblyRequest = 0 }: WorkbenchViewportProps) {
+export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visiblePartUuids = null, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null, fitAssemblyRequest = 0 }: WorkbenchViewportProps) {
+  const [selectedComponent, setSelectedComponent] = useState<string | null>(null)
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -318,6 +320,8 @@ export function WorkbenchViewport({ client, parts = [], part, visiblePartUuids =
               <ModelCanvas
                 models={assembly.models}
                 selectedPartUuid={part?.uuid ?? null}
+                onSelectPart={onSelectPart}
+                onComponentSelected={setSelectedComponent}
                 rotationMode={rotationMode}
                 fitRequest={fitRequest}
                 frameSelectedRequest={frameSelectedRequest}
@@ -362,7 +366,9 @@ export function WorkbenchViewport({ client, parts = [], part, visiblePartUuids =
           <span>{assemblyProgressLabel(assembly.progress)}</span>
           {assembly.progress.total > 0 ? <progress value={assembly.progress.visible + assembly.progress.failed} max={assembly.progress.total} aria-label="Assembly loading progress" /> : null}
         </div>
-        <div className="navigation-hint">{measureMode ? 'Left select · Right / middle pan · Wheel dolly · Z-up' : 'Left rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
+        {assembly.models.some((model) => model.displayWarning) ? <div className="display-color-warning" role="status">{assembly.models.find((model) => model.displayWarning)?.displayWarning}</div> : null}
+        {selectedComponent ? <div className="component-selection" role="status">Selected: {selectedComponent}</div> : null}
+        <div className="navigation-hint">{measureMode ? 'Left select · Right / middle pan · Wheel dolly · Z-up' : 'Click select · Drag rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
         <MeasurementOverlay
           active={measureMode}
           state={measurementToolState}

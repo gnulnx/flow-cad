@@ -241,6 +241,7 @@ export default function AppShell({ client }: AppShellProps) {
         </aside>
         <main className="workbench-main">
           <WorkbenchViewport
+            onSelectPart={(uuid) => { const part = parts.find((item) => item.uuid === uuid); if (part) selectPart(part, 'focus') }}
             client={workbenchClient}
             parts={inventory?.parts ?? EMPTY_PARTS}
             part={activePart}

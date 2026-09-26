@@ -48,7 +48,7 @@ describe('WorkbenchViewport measurement integration', () => {
     const button = screen.getByRole('button', { name: 'Measure geometry' })
     expect(screen.getByRole('button', { name: 'Annotate' })).toHaveAttribute('aria-pressed', 'false')
     expect(button).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByText(/Left rotate/)).toBeInTheDocument()
+    expect(screen.getByText(/Drag rotate/)).toBeInTheDocument()
 
     await user.keyboard('m')
     expect(button).toHaveAttribute('aria-pressed', 'true')
@@ -57,7 +57,7 @@ describe('WorkbenchViewport measurement integration', () => {
 
     await user.click(button)
     expect(button).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByText(/Left rotate/)).toBeInTheDocument()
+    expect(screen.getByText(/Drag rotate/)).toBeInTheDocument()
   })
 
   it('exposes a debounced local context snapshot without requiring shared app contracts', () => {

@@ -396,3 +396,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   .workbench-main { grid-row: 1; }
   .chat-dock { grid-row: 2; grid-column: 1 / -1; min-height: 420px; border-top: 1px solid var(--line); border-left: 0; }
 }
+.component-selection, .display-color-warning {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  max-width: calc(100% - 32px);
+  padding: 7px 12px;
+  border: 1px solid #3d9bb7;
+  border-radius: 6px;
+  color: #bcefff;
+  background: #10161dee;
+  font-size: 12px;
+  pointer-events: none;
+}
+.display-color-warning { top: 56px; color: #f0c48a; border-color: #b98b48; }

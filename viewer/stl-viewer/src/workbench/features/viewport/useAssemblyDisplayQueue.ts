@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ArtifactState, WorkbenchOccurrence, WorkbenchPart } from '../../contracts'
+import { loadDisplayBytes, type DisplayBytes } from './displayScene'
 import {
   nextAssemblyLoadBatch,
   partLoadStates,
@@ -15,6 +16,8 @@ export interface LoadedAssemblyPart {
   part: WorkbenchPart
   occurrences: WorkbenchOccurrence[]
   artifactBytes: ArrayBuffer
+  format?: 'stl' | 'glb'
+  displayWarning?: string | null
 }
 
 export interface AssemblyDisplayProgress {
@@ -51,12 +54,13 @@ export function useAssemblyDisplayQueue(
   const planRef = useRef(plan)
   const controllersRef = useRef(new Map<string, AbortController>())
   const [records, setRecords] = useState<AssemblyLoadRecords>({})
-  const [bytes, setBytes] = useState<Record<string, ArrayBuffer>>({})
+  const [bytes, setBytes] = useState<Record<string, DisplayBytes>>({})
 
   planRef.current = plan
 
   useEffect(() => {
     const desired = new Set(plan.map((item) => item.key))
+    setBytes((current) => Object.fromEntries(Object.entries(current).filter(([key]) => desired.has(key))))
     const aborted: string[] = []
     for (const [key, controller] of controllersRef.current) {
       if (!desired.has(key)) {
@@ -66,7 +70,7 @@ export function useAssemblyDisplayQueue(
       }
     }
     setRecords((current) => {
-      const reset = { ...current }
+      const reset = Object.fromEntries(Object.entries(current).filter(([key]) => desired.has(key)))
       aborted.forEach((key) => {
         const record = reset[key]
         if (record?.state === 'loading') reset[key] = { ...record, state: 'queued', error: null }
@@ -90,10 +94,7 @@ export function useAssemblyDisplayQueue(
     batch.forEach((item) => {
       const controller = new AbortController()
       controllersRef.current.set(item.key, controller)
-      fetch(item.part.displayArtifact!.url, { signal: controller.signal }).then(async (response) => {
-        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
-        return response.arrayBuffer()
-      }).then((artifactBytes) => {
+      loadDisplayBytes(item.part, controller.signal).then((artifactBytes) => {
         if (controller.signal.aborted) return
         setBytes((current) => ({ ...current, [item.key]: artifactBytes }))
         setRecords((current) => ({
@@ -122,9 +123,10 @@ export function useAssemblyDisplayQueue(
   }, [])
 
   const models = useMemo(() => plan.flatMap((item) => {
-    const artifactBytes = bytes[item.key]
-    return (records[item.key]?.state === 'downloaded' || records[item.key]?.state === 'visible') && artifactBytes
-      ? [{ ...item, artifactBytes }]
+    const loaded = bytes[item.key]
+    return (records[item.key]?.state === 'downloaded' || records[item.key]?.state === 'visible') && loaded
+      ? [{ ...item, artifactBytes: loaded.artifactBytes, format: loaded.format, displayWarning: loaded.warning,
+        part: { ...item.part, displayArtifact: { ...item.part.displayArtifact!, contentHash: loaded.hash, format: loaded.format } } }]
       : []
   }), [bytes, plan, records])
   const progress = useMemo(() => plan.reduce<AssemblyDisplayProgress>((summary, item) => {

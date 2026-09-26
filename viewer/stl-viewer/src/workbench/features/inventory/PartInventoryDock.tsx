@@ -123,7 +123,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
         ) : grouped.map(([group, groupParts]) => (
           <div className="inventory-group" role="group" aria-label={`${group} parts`} key={group}>
             <div className="inventory-group__heading">
-              <span>{group.replaceAll('_', ' ')}</span>
+              <span>{group.replace(/_/g, ' ')}</span>
               <span>{groupParts.reduce((count, part) => count + part.occurrenceCount, 0)} occurrences</span>
             </div>
             {groupParts.map((part) => {

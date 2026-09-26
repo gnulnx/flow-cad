@@ -36,6 +36,41 @@ Backend cache entries include source artifact metadata and extractor/display con
 
 ## Future Flow Document Direction
 
+### Colored component display
+
+STEP-backed inventory entries advertise `display_scene_url`. The workbench
+requests a cached GLB through `/api/parts/{uuid}/display-scene` with the indexed
+STEP `artifact_revision`. A cold cache is prepared by a cancellable job submitted
+to `/display-scene/jobs`. Conversion is serialized in disposable subprocesses;
+listing parts and querying cache state never load CAD or product generators.
+
+The disposable `.flow/cache/display-scenes/v1/` cache binds component names,
+colors, placements and mesh bytes to the STEP SHA-256 and converter version.
+`/display-scene/model` serves the derived GLB. STEP remains the exact authority;
+GLB component selection is visual selection, not an editable CAD operation.
+STL remains available for print exports and as an explicitly indicated fallback
+if color conversion fails. STL-only inputs remain supported.
+
+Click a component to highlight its edges and show its name; clicking background
+clears the selection. Dragging still orbits, and measurement mode keeps its own
+pointer behavior. Frame part uses the clicked component's bounds. Colors remain
+visible instead of tinting the whole selected assembly. The grid follows the
+lowest visible geometry, without changing authored coordinates or export poses.
+
+### Live screen capture for project workbenches
+
+MCP `agent_screen_request`, `agent_screen_latest`, and
+`agent_screen_requests_list` use the same project-local `AgentScreenService`
+as the current workbench API. They do not initialize the legacy project loader
+or CAD kernel. The browser supplies its live canvas and annotation overlay.
+
+New projects must be explicitly included in `FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS`
+in the MCP server configuration (an OS-path-separated list). Keep this scoped to
+approved projects. Restart/reconnect the MCP server after changing its environment;
+an existing connection retains its old list. An allowlist error now identifies
+that setting and the need to reconnect. Captures remain under each project's
+ignored `.flow/agent-screen/` directory.
+
 The model is intended to support a saved Flow document/operation graph without replacing Python authoring. A future document can persist GUI-created parts, imported STEP references, placements, annotations, measurements, feature anchors, and direct-modeling operations. Flow-generated Python parts can continue to carry params/source bindings while sharing the same `LoadedPart` and `PartGeometry` runtime contract.
 
 ## Milestone Boundary
