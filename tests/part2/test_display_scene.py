@@ -11,6 +11,14 @@ from flow_cad.viewer.scene_export import export_scene
 from test_exact_measurement_api import _step_project, PART_UUID
 
 
+def linear_color(red, green, blue):
+    from build123d import Color
+    from OCP.Quantity import Quantity_ColorRGBA
+    # glTF factors and the assertions below use linear RGB. build123d 0.13
+    # interprets bare Color(r, g, b) inputs as sRGB; 0.10 treated them as linear.
+    return Color(Quantity_ColorRGBA(red, green, blue, 1.0))
+
+
 def glb_document(path):
     data = path.read_bytes()
     magic, version, size = struct.unpack_from('<III', data)
@@ -20,12 +28,12 @@ def glb_document(path):
 
 
 def test_colors_names_repeated_occurrences_and_nested_locations(tmp_path):
-    from build123d import Box, Color, Compound, Location, export_step
+    from build123d import Box, Compound, Location, export_step
     a = Box(10, 20, 30).solid()
-    a.label, a.color = 'blue axle', Color(.1, .3, .7)
+    a.label, a.color = 'blue axle', linear_color(.1, .3, .7)
     a = a.moved(Location((50, 0, 15)))
     b = Box(4, 6, 8).solid()
-    b.label, b.color = 'red bracket', Color(.8, .1, .2)
+    b.label, b.color = 'red bracket', linear_color(.8, .1, .2)
     nested = Compound(children=[a, b]).moved(Location((100, 20, 30)))
     shape = Compound(children=[nested, a.moved(Location((-80, 0, 0)))])
     step, glb = tmp_path/'colors.step', tmp_path/'colors.glb'
@@ -73,12 +81,12 @@ def test_scene_api_jobs_cache_and_revision_guard(tmp_path):
 
 
 def test_parent_assembly_colors_survive_uncolored_leaf_wrappers(tmp_path):
-    from build123d import Box, Color, Compound, export_step
+    from build123d import Box, Compound, export_step
     # Color on the assembly wrapper, as on the robot's wheels and shell parts.
     black = Compound(label='black wheel', children=[Box(10, 20, 30)])
-    black.color = Color(.08, .09, .11)
+    black.color = linear_color(.08, .09, .11)
     blue = Compound(label='blue enclosure', children=[Box(15, 20, 30).translate((30, 0, 0))])
-    blue.color = Color(.035, .34, .70)
+    blue.color = linear_color(.035, .34, .70)
     step, glb = tmp_path/'assembly-colors.step', tmp_path/'assembly-colors.glb'
     export_step(Compound(children=[black, blue]), step)
     export_scene(step, glb)

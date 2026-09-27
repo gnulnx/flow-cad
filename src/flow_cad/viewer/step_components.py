@@ -9,7 +9,12 @@ def step_components(path: Path):
     from OCP.STEPCAFControl import STEPCAFControl_Reader
     from OCP.TCollection import TCollection_ExtendedString
     from OCP.TDataStd import TDataStd_Name
-    from OCP.TDF import TDF_Label, TDF_LabelSequence
+    from OCP.TDF import TDF_Label
+    try:
+        # OCCT 8 moved sequence bindings out of the old typedef modules.
+        from OCP.collections import Sequence_TDF_Label
+    except ImportError:
+        from OCP.TDF import TDF_LabelSequence as Sequence_TDF_Label
     from OCP.TDocStd import TDocStd_Document
     from OCP.TopLoc import TopLoc_Location
     from OCP.XCAFDoc import XCAFDoc_ColorSurf, XCAFDoc_ColorGen, XCAFDoc_ColorCurv, XCAFDoc_ColorTool, XCAFDoc_DocumentTool
@@ -59,7 +64,7 @@ def step_components(path: Path):
         location = parent_location * instance.Location()
         color = label_color(label) or shape_color(instance) or label_color(referred) or shape_color(prototype) or inherited_color
         name = label_name(label) or label_name(referred) or inherited_name
-        children = TDF_LabelSequence()
+        children = Sequence_TDF_Label()
         shapes.GetComponents_s(referred, children, False)
         if children.Length():
             for index in range(1, children.Length()+1):
@@ -69,7 +74,7 @@ def step_components(path: Path):
             shape = Compound.cast(prototype.Located(location))
             yield key, name, color, shape
 
-    roots = TDF_LabelSequence()
+    roots = Sequence_TDF_Label()
     shapes.GetFreeShapes(roots)
     for index in range(1, roots.Length()+1):
         yield from visit(roots.Value(index), TopLoc_Location(), str(index))
