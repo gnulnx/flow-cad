@@ -484,14 +484,15 @@ class CodexWorkerJobManager:
                 "commit_ready": status == "succeeded" and bool(changed_snapshot["paths"]),
             }
         )
-        self._write_job(thread_id, job_id, record)
         if status == "cancelled" and record.get("assistant_message_id"):
             self._append_event(thread_id, job_id, {"type": status, "job": record, "thread": self.design_threads.get_thread(thread_id)})
         else:
             message = self._append_terminal_message(thread_id, job_id, record, content)
             record["assistant_message_id"] = message["message_id"]
-            self._write_job(thread_id, job_id, record)
             self._append_event(thread_id, job_id, {"type": status, "job": record, "message": message, "thread": self.design_threads.get_thread(thread_id)})
+        # Streams stop when the persisted record becomes terminal. Publish its
+        # final message and event first so a concurrent reader cannot miss them.
+        self._write_job(thread_id, job_id, record)
         self._cancel_events.pop((thread_id, job_id), None)
 
     def _append_terminal_message(

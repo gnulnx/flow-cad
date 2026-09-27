@@ -35,6 +35,7 @@ interface ProjectDto {
   manifest_sha256: string
   revision: number
   view_state_revision?: string | null
+  display_scene_version?: number
   part_count: number
   occurrence_count: number
   active_assembly_id?: string | null
@@ -71,6 +72,7 @@ interface PartDto {
   artifact_revision: string | null
   display_revision: string | null
   model_url: string | null
+  display_scene_url?: string | null
 }
 
 interface InventoryDto extends ProjectDto {
@@ -443,6 +445,7 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
     projectName: dto.project_id,
     revision: dto.revision,
     viewStateRevision: dto.view_state_revision ?? null,
+    displaySceneVersion: dto.display_scene_version ?? 0,
     activeAssemblyId: dto.active_assembly_id ?? null,
     gitCommit: null,
     gitDirty: false,
@@ -490,6 +493,10 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         previewOfUuid: part.preview_of_uuid ?? null,
         previewReplacedByUuid: part.preview_replaced_by_uuid ?? null,
         authorityHash: part.artifact_revision,
+        displaySceneVersion: dto.display_scene_version ?? 0,
+        displaySceneUrl: part.display_scene_url
+          ? (part.display_scene_url.startsWith('http') ? part.display_scene_url : `${API_ROOT}${part.display_scene_url}`)
+          : null,
         displayArtifact: part.model_url && part.display_revision
           ? {
               contentHash: part.display_revision,

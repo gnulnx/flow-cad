@@ -236,6 +236,37 @@ def test_worker_job_stream_and_thread_reload_persist_final_message_and_record(tm
     assert thread["messages"][-1]["metadata"]["worker_job_id"] == job_id
 
 
+def test_worker_completion_is_not_visible_before_final_message_and_event(tmp_path, monkeypatch) -> None:
+    _init_git_project(tmp_path)
+    service = ViewerService(tmp_path)
+    threads = DesignThreadService(service)
+    manager = CodexWorkerJobManager(service, threads, runner=RecordingWorkerRunner())
+    finalizing = threading.Event()
+    release = threading.Event()
+    append_message = manager._append_terminal_message
+
+    def paused_message(*args, **kwargs):
+        finalizing.set()
+        assert release.wait(timeout=5), "test did not release worker finalization"
+        return append_message(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "_append_terminal_message", paused_message)
+    client = TestClient(create_app(service=service, thread_service=threads, worker_job_manager=manager))
+    thread_id = _create_thread(client)
+    job_id = _start_job(client, thread_id)
+    try:
+        assert finalizing.wait(timeout=2)
+        record = client.get(f"/api/design-threads/{thread_id}/worker-jobs/{job_id}").json()
+        assert record["status"] == "running"
+    finally:
+        release.set()
+    record = _wait_for_status(client, thread_id, job_id, "succeeded")
+    assert record["assistant_message_id"]
+    stream = client.get(f"/api/design-threads/{thread_id}/worker-jobs/{job_id}/stream").text
+    assert '"type": "succeeded"' in stream
+    assert "Worker completed." in stream
+
+
 def test_worker_job_in_non_git_project_does_not_treat_git_error_as_changed_path(tmp_path) -> None:
     _write_example_step(tmp_path)
     runner = RecordingWorkerRunner(write_path="flow/part.py", write_text="value = 2\n")

@@ -27,6 +27,7 @@ from .job_routes import create_job_router
 from .measurement_routes import create_measurement_router
 from .measurement_snapshot_routes import create_measurement_snapshot_router
 from .query_routes import create_query_router
+from .scene_routes import create_scene_router
 
 
 def create_app_from_environment() -> FastAPI:
@@ -98,6 +99,7 @@ def create_workbench_app(
     app.include_router(create_project_build_router(project_build_service))
     app.include_router(create_release_gate_router(release_gate_service))
     app.include_router(create_measurement_router(project_root, job_service=job_service))
+    app.include_router(create_scene_router(project_root, job_service))
     app.include_router(create_measurement_snapshot_router(measurement_snapshot_store))
     app.include_router(create_job_router(job_service))
     app.state.project_root = project_root.resolve()

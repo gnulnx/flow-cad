@@ -190,6 +190,42 @@ def test_plan_keeps_step_only_build_optional_and_rejects_migration_baseline(
     assert baseline.read_bytes() == b"immutable-baseline"
 
 
+def test_plan_carries_stl_tessellation_tolerances_to_worker_payload(tmp_path: Path) -> None:
+    root = _project_root(tmp_path, "tessellated_stl_fixture")
+    part = _part(
+        generator="tessellated_stl_fixture.parts:make_panel",
+        artifacts=(
+            ArtifactSpec(kind="step", path="exports/step/panel.step"),
+            ArtifactSpec(
+                kind="stl",
+                path="exports/stl/panel.stl",
+                linear_tolerance=0.2,
+                angular_tolerance=0.25,
+            ),
+        ),
+    )
+    manifest = ProjectManifest(
+        schema_version=1,
+        project_id="tessellated_stl_fixture",
+        python_package="tessellated_stl_fixture",
+        parts=(part,),
+        assemblies=(),
+        parameter_provider="tessellated_stl_fixture.params:provide_params",
+    )
+
+    plan = plan_scoped_part_build(root, manifest, part)
+    stl = plan.artifacts[1]
+
+    assert stl.linear_tolerance == 0.2
+    assert stl.angular_tolerance == 0.25
+    assert plan.payload()["artifacts"][1] == {
+        "kind": "stl",
+        "path": "exports/stl/panel.stl",
+        "linear_tolerance": 0.2,
+        "angular_tolerance": 0.25,
+    }
+
+
 def test_plan_rejects_outputs_shared_between_parts(tmp_path: Path) -> None:
     root = _project_root(tmp_path, "shared_output_fixture")
     first = _part(generator="shared_output_fixture.parts:make_panel")

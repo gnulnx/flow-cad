@@ -16,7 +16,7 @@ export interface Bounds3 {
 
 export interface DisplayArtifact {
   contentHash: string
-  format: 'stl'
+  format: 'stl' | 'glb'
   url: string
   revision: number
 }
@@ -45,6 +45,8 @@ export interface WorkbenchPart {
   previewOfUuid?: string | null
   previewReplacedByUuid?: string | null
   authorityHash: string | null
+  displaySceneUrl?: string | null
+  displaySceneVersion?: number
   displayArtifact: DisplayArtifact | null
   bounds: Bounds3 | null
   warnings: string[]
@@ -55,6 +57,7 @@ export interface ProjectSummary {
   projectName: string
   revision: number
   viewStateRevision?: string | null
+  displaySceneVersion?: number
   activeAssemblyId: string | null
   gitCommit: string | null
   gitDirty: boolean

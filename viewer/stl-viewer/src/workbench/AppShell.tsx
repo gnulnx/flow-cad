@@ -22,7 +22,7 @@ const EMPTY_PARTS: WorkbenchPart[] = []
 const PROJECT_METADATA_POLL_MS = 1_000
 
 function projectStateKey(project: ProjectSummary | null): string | null {
-  return project ? `${project.revision}:${project.viewStateRevision ?? 'none'}` : null
+  return project ? `${project.revision}:${project.viewStateRevision ?? 'none'}:display-${project.displaySceneVersion ?? 0}` : null
 }
 
 export default function AppShell({ client }: AppShellProps) {
@@ -241,6 +241,7 @@ export default function AppShell({ client }: AppShellProps) {
         </aside>
         <main className="workbench-main">
           <WorkbenchViewport
+            onSelectPart={(uuid) => { const part = parts.find((item) => item.uuid === uuid); if (part) selectPart(part, 'focus') }}
             client={workbenchClient}
             parts={inventory?.parts ?? EMPTY_PARTS}
             part={activePart}

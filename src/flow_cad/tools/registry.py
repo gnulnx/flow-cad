@@ -57,7 +57,9 @@ def enforce_project_root(project_root: str | None = None) -> Path:
             return candidate
     raise ValueError(
         f"project_root is outside allowed Flow CAD MCP roots: {candidate}. "
-        f"Allowed roots: {[str(root) for root in allowed_roots]}"
+        f"Allowed roots: {[str(root) for root in allowed_roots]}. "
+        "Add an authorized project to FLOW_CAD_MCP_ALLOWED_PROJECT_ROOTS "
+        "in the MCP server configuration, then reconnect the server."
     )
 
 
@@ -84,7 +86,7 @@ def design_thread_service(project_root: str | None = None) -> DesignThreadServic
 
 def agent_screen_service(project_root: str | None = None) -> AgentScreenService:
     root = enforce_project_root(project_root)
-    return AgentScreenService(ViewerService(root))
+    return AgentScreenService(root)
 
 
 class ToolRegistry:

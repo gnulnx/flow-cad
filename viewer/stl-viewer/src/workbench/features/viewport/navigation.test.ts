@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import {
   dollyFrame,
+  groundGridPosition,
   fitFrameToBounds,
   MAX_TURNTABLE_PITCH,
   MIN_CAMERA_DISTANCE,
@@ -25,6 +26,12 @@ function frame(): CameraFrame {
 }
 
 describe('replacement workbench navigation contract', () => {
+  it('places ground at the displayed assembly bottom without rebasing CAD coordinates', () => {
+    const bounds = { min: [-291, -180, -102], max: [291, 180, 596] } as const
+    expect(groundGridPosition({ min: [...bounds.min], max: [...bounds.max] })).toEqual([0, 0, -102])
+    expect(bounds.min[2]).toBe(-102)
+    expect(groundGridPosition(null)).toEqual([0, 0, 0])
+  })
   it('maps left drag to rotate and both alternate buttons to pan', () => {
     expect(pointerIntent(0)).toBe('rotate')
     expect(pointerIntent(0, false)).toBeNull()
