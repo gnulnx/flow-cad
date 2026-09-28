@@ -25,32 +25,38 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const activePartUuidRef = useRef(activePartUuid)
+  const callbacksRef = useRef({ onSelect, onInventoryChange })
 
   useEffect(() => {
     activePartUuidRef.current = activePartUuid
   }, [activePartUuid])
+  useEffect(() => {
+    callbacksRef.current = { onSelect, onInventoryChange }
+  }, [onSelect, onInventoryChange])
 
   useEffect(() => {
     const controller = new AbortController()
     client.getInventory(controller.signal).then((nextSnapshot) => {
       setSnapshot(nextSnapshot)
-      onInventoryChange?.(nextSnapshot)
+      callbacksRef.current.onInventoryChange?.(nextSnapshot)
       setError(null)
       const refreshedSelection = activePartUuidRef.current
         ? nextSnapshot.parts.find((part) => part.uuid === activePartUuidRef.current)
         : null
       if (refreshedSelection) {
-        onSelect(refreshedSelection, 'focus')
+        callbacksRef.current.onSelect(refreshedSelection, 'focus')
       } else if (!activePartUuidRef.current && nextSnapshot.parts.length > 0) {
-        const preferred = nextSnapshot.parts.find((part) => part.status === 'active') ?? nextSnapshot.parts[0]
-        onSelect(preferred, 'focus')
+        const assembly = nextSnapshot.activeAssemblyId ?? 'active'
+        const preferred = nextSnapshot.parts.find((part) => part.occurrences.some((occurrence) => occurrence.assemblyId === assembly))
+          ?? nextSnapshot.parts.find((part) => part.status === 'active') ?? nextSnapshot.parts[0]
+        callbacksRef.current.onSelect(preferred, 'focus')
       }
     }).catch((reason: unknown) => {
       if (controller.signal.aborted) return
       setError(reason instanceof Error ? reason.message : 'Part inventory unavailable')
     })
     return () => controller.abort()
-  }, [client, onInventoryChange, onSelect, refreshToken])
+  }, [client, refreshToken])
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()

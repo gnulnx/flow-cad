@@ -14,6 +14,32 @@ function part(authorityHash: string): WorkbenchPart {
 }
 
 describe('PartInventoryDock refresh', () => {
+  it('does not refetch when inventory delivery changes parent callback identities', async () => {
+    const client = createTestWorkbenchClient()
+    client.getInventory = vi.fn().mockResolvedValue({ revision: 1, activeAssemblyId: 'active', parts: [part('sha')] })
+    const firstSelect = vi.fn()
+    const view = render(<PartInventoryDock client={client} activePartUuid="guard-uuid" onSelect={firstSelect} onInventoryChange={vi.fn()} />)
+    await waitFor(() => expect(firstSelect).toHaveBeenCalledOnce())
+    const nextSelect = vi.fn()
+    view.rerender(<PartInventoryDock client={client} activePartUuid="guard-uuid" onSelect={nextSelect} onInventoryChange={vi.fn()} />)
+    await waitFor(() => expect(client.getInventory).toHaveBeenCalledTimes(1))
+    expect(nextSelect).not.toHaveBeenCalled()
+    view.rerender(<PartInventoryDock client={client} activePartUuid="guard-uuid" onSelect={nextSelect} refreshToken={1} />)
+    await waitFor(() => expect(nextSelect).toHaveBeenCalledWith(expect.objectContaining({ authorityHash: 'sha' }), 'focus'))
+    expect(client.getInventory).toHaveBeenCalledTimes(2)
+  })
+
+  it('initially focuses an active assembly occurrence before unplaced references', async () => {
+    const reference = { ...part('old'), uuid: 'reference', key: 'aaa_reference' }
+    const assembly = { ...part('new'), uuid: 'robot', key: 'robot', occurrences: [
+      { id: 'robot-main', assemblyId: 'active', translationMm: [0, 0, 0], rotationDeg: [0, 0, 0] },
+    ] } as WorkbenchPart
+    const client = createTestWorkbenchClient({ inventory: { revision: 1, activeAssemblyId: 'active', parts: [reference, assembly] } })
+    const onSelect = vi.fn()
+    render(<PartInventoryDock client={client} activePartUuid={null} onSelect={onSelect} />)
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ uuid: 'robot' }), 'focus'))
+  })
+
   it('rebinds the current selection to refreshed artifact metadata', async () => {
     const getInventory = vi.fn()
       .mockResolvedValueOnce({ revision: 1, activeAssemblyId: 'active', parts: [part('old-sha')] })
