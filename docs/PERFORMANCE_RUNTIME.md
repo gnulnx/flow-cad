@@ -43,7 +43,9 @@ Each worker receives explicit CPU affinity and native-library thread settings.
 On Linux, RSS is checked every 50 ms while working; address space also has an
 OS limit allowing virtual reservations above the RSS threshold. This is not a
 cgroup hard RSS cap. Project-local file locks share active worker slots with
-concurrent API/CLI runners using the same configuration. Idle processes may retain
+concurrent API/CLI runners using the same configuration. Release builds use the
+same slots; release hooks and standalone product regression suites remain
+separate validation workloads and should run sequentially. Idle processes may retain
 CAD caches until recycling or shutdown. The defaults bound CAD worker memory to
 roughly 4 GiB, excluding the API, browser and transient allocation between checks.
 

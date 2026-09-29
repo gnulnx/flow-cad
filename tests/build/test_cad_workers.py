@@ -30,12 +30,12 @@ class Context:
         self.checkpoint()
 
 
-def fixture_plan(tmp_path, body='return Box(params.width, 5, 6)'):
+def fixture_plan(tmp_path, body='return Box(params.width, 5, 6)', *, stl=False):
     root = _project_root(tmp_path, 'worker_fixture')
     _write_package(root, 'worker_fixture',
         params_source='from dataclasses import dataclass\n@dataclass\nclass Params:\n    width: float = 4.0\ndef provide_params():\n    return Params()\n',
         parts_source='from build123d import Box\nfrom pathlib import Path\nimport os, time\ndef make_panel(params):\n    '+body.replace('\n','\n    ')+'\n')
-    manifest = _manifest('worker_fixture', stl=False)
+    manifest = _manifest('worker_fixture', stl=stl)
     (root/'flowcad.project.yaml').write_text(dump_manifest(manifest))
     sync_project(root)
     return plan_scoped_part_build(root, manifest, manifest.parts[0])
@@ -189,3 +189,23 @@ def test_same_part_requests_serialize_before_claiming_a_cad_worker(tmp_path):
             assert a.result(timeout=15)['display_preview_ready']
     finally:
         first.cancel.set(); second.cancel.set(); pool.close()
+
+
+def test_preview_is_not_inflated_by_fine_print_stl_tessellation(tmp_path):
+    import json, struct
+    plan = fixture_plan(tmp_path, 'from build123d import Sphere\nreturn Sphere(20)', stl=True)
+    pool = CadWorkerPool(plan.project_root, default_flow_config())
+    try:
+        result = run_scoped_part_build(plan, Context(), pool=pool)
+        assert result['display_preview_ready']
+        from flow_cad.viewer.services.scenes import DisplaySceneService
+        scene_path, _ = DisplaySceneService(plan.project_root).paths(result['artifacts'][0]['sha256'])
+        data = scene_path.read_bytes()
+        length = struct.unpack_from('<I', data, 12)[0]
+        scene = json.loads(data[20:20+length])
+        display_triangles = sum(scene['accessors'][m['primitives'][0]['indices']]['count']//3 for m in scene['meshes'])
+        stl = plan.artifacts[1].destination.read_bytes()
+        print_triangles = struct.unpack_from('<I',stl,80)[0]
+        assert display_triangles < print_triangles/2
+    finally:
+        pool.close()

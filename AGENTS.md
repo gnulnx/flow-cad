@@ -398,3 +398,9 @@ The working tree may contain user or other-agent changes.
 - Build previews mesh the generated shape in memory. Keep exact measurements
   STEP-backed. Test transforms, repeated occurrences and inherited source colors;
   a moved assembly's source colors can be more complete than an exporter roundtrip.
+- Mesh build previews before fine STL exports. OCCT can retain a finer existing
+  triangulation when asked for a coarser display mesh; regression-test display
+  triangle counts against print mesh counts as well as geometry/appearance.
+- Keep `tests/build` in default pytest collection. Pytest's stock recursion
+  exclusions include every directory named `build`; the explicit config override
+  is required so worker/build tests run in CI without a focused path argument.

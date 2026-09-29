@@ -26,6 +26,8 @@ test = ["pytest", "httpx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Pytest's default ignores any directory named "build", including tests/build.
+norecursedirs = ["*.egg", ".*", "_darcs", "CVS", "dist", "node_modules", "venv", "{arch}"]
 pythonpath = ["src"]
 addopts = "-ra"
 markers = [

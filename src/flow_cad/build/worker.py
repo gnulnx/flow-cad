@@ -153,6 +153,22 @@ def prepare_scoped_part_build(plan: ScopedPartBuildPlan, work_dir: Path, *, cont
     export_stl = _required_callable(build123d, "export_stl")
     timings["import_exporters"] = _elapsed_ms(phase_started)
 
+    # Prepare the display mesh before print STL meshing: OCCT otherwise reuses
+    # a much denser existing triangulation even when asked for a coarser preview.
+    context.checkpoint()
+    phase_started = time.perf_counter()
+    preview = None
+    preview_warning = None
+    try:
+        from flow_cad.viewer.scene_export import export_shape_scene
+        preview_path = work_dir / 'display.glb'
+        stats = export_shape_scene(shape, preview_path)
+        preview = {'path': preview_path, 'stats': stats}
+    except Exception as exc:
+        # STEP/STL remain usable if optional display preparation fails.
+        preview_warning = f'Display preview unavailable: {type(exc).__name__}: {exc}'
+    timings['display_preview'] = _elapsed_ms(phase_started)
+
     staged: list[tuple[BuildArtifactTarget, Path]] = []
     for index, target in enumerate(plan.artifacts):
         context.checkpoint()
@@ -210,20 +226,6 @@ def prepare_scoped_part_build(plan: ScopedPartBuildPlan, work_dir: Path, *, cont
             f"Staged {len(snapshot_paths)} inspection snapshots in "
             f"{timings['export_snapshots']:.1f} ms",
         )
-
-    context.checkpoint()
-    phase_started = time.perf_counter()
-    preview = None
-    preview_warning = None
-    try:
-        from flow_cad.viewer.scene_export import export_shape_scene
-        preview_path = work_dir / 'display.glb'
-        stats = export_shape_scene(shape, preview_path)
-        preview = {'path': preview_path, 'stats': stats}
-    except Exception as exc:
-        # STEP/STL remain usable if optional display preparation fails.
-        preview_warning = f'Display preview unavailable: {type(exc).__name__}: {exc}'
-    timings['display_preview'] = _elapsed_ms(phase_started)
 
     context.checkpoint()
     phase_started = time.perf_counter()

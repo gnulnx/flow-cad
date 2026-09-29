@@ -115,20 +115,26 @@ def _build_active(project_root: Path) -> int:
     if not active:
         raise RuntimeError("release gate requires at least one active part")
     results = []
-    for index, part in enumerate(active):
-        plan = plan_scoped_part_build(root, manifest, part)
-        context = _StandaloneBuildContext(part.key, index, len(active))
-        result = run_scoped_part_build(plan, context)
-        results.append(result)
-        _emit(
-            {
-                "event": "part_complete",
-                "part_key": part.key,
-                "part_index": index,
-                "part_count": len(active),
-                "result": result,
-            }
-        )
+    from flow_cad.config import load_flow_config
+    from flow_cad.workers.pool import CadWorkerPool
+    pool = CadWorkerPool(root, load_flow_config(root))
+    try:
+        for index, part in enumerate(active):
+            plan = plan_scoped_part_build(root, manifest, part)
+            context = _StandaloneBuildContext(part.key, index, len(active))
+            result = run_scoped_part_build(plan, context, pool=pool, priority=20)
+            results.append(result)
+            _emit(
+                {
+                    "event": "part_complete",
+                    "part_key": part.key,
+                    "part_index": index,
+                    "part_count": len(active),
+                    "result": result,
+                }
+            )
+    finally:
+        pool.close()
     _emit({"event": "build_complete", "results": results, "count": len(results)})
     return 0
 
