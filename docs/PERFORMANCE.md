@@ -2,6 +2,8 @@
 
 Date: 2026-06-08
 
+Current implementation: [bounded workers, display reuse and benchmark commands](PERFORMANCE_RUNTIME.md) (2026-09-29).
+
 ## Purpose
 
 Flow CAD should feel like a design tool, not a batch compiler. This document
