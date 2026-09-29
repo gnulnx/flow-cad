@@ -23,6 +23,7 @@ function statusLabel(part: WorkbenchPart, loadStates: Record<string, ArtifactSta
 export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [], onSelect, onInventoryChange, loadStates = {}, refreshToken = 0, onShowFullyAssembled, onBuildRobot, buildRobotSubmitting = false, actionError = null }: PartInventoryDockProps) {
   const [snapshot, setSnapshot] = useState<InventorySnapshot | null>(null)
   const [query, setQuery] = useState('')
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const activePartUuidRef = useRef(activePartUuid)
   const callbacksRef = useRef({ onSelect, onInventoryChange })
@@ -59,12 +60,11 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
   }, [client, refreshToken])
 
   const filtered = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase()
+    const normalized = query.trim().toLocaleLowerCase().replace(/_/g, ' ')
     if (!snapshot || !normalized) return snapshot?.parts ?? []
     return snapshot.parts.filter((part) => (
-      part.key.toLocaleLowerCase().includes(normalized)
-      || part.aliases.some((alias) => alias.toLocaleLowerCase().includes(normalized))
-      || part.role.toLocaleLowerCase().includes(normalized)
+      [part.key, ...part.aliases, part.role, part.family ?? ''].some((text) =>
+        text.toLocaleLowerCase().replace(/_/g, ' ').includes(normalized))
     ))
   }, [query, snapshot])
   const grouped = useMemo(() => {
@@ -73,7 +73,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
       const label = part.family ?? (part.occurrenceCount > 0 ? 'Assembly' : 'Unplaced')
       groups.set(label, [...(groups.get(label) ?? []), part])
     }
-    return [...groups.entries()]
+    return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right))
   }, [filtered])
 
   return (
@@ -113,6 +113,10 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
             : 'Loading metadata…'}
       </div>
       <div className="inventory-selection-hint">Click isolates · Ctrl/Cmd-click adds or removes</div>
+      {grouped.length > 1 ? <div className="inventory-section-actions">
+        <button type="button" onClick={() => setExpandedGroups(Object.fromEntries(grouped.map(([group]) => [group, true])))}>Expand all</button>
+        <button type="button" onClick={() => setExpandedGroups(Object.fromEntries(grouped.map(([group]) => [group, false])))}>Collapse all</button>
+      </div> : null}
       <div className="inventory-list" role="listbox" aria-label="Project parts" aria-multiselectable="true">
         {error ? (
           <div className="dock-state dock-state--error">
@@ -126,13 +130,16 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
             <strong>No matching parts</strong>
             <span>Try a part key, alias, or role.</span>
           </div>
-        ) : grouped.map(([group, groupParts]) => (
+        ) : grouped.map(([group, groupParts]) => {
+          const expanded = query.trim().length > 0 || (expandedGroups[group] ?? true)
+          return (
           <div className="inventory-group" role="group" aria-label={`${group} parts`} key={group}>
-            <div className="inventory-group__heading">
-              <span>{group.replace(/_/g, ' ')}</span>
-              <span>{groupParts.reduce((count, part) => count + part.occurrenceCount, 0)} occurrences</span>
-            </div>
-            {groupParts.map((part) => {
+            <button type="button" className="inventory-group__heading" aria-expanded={expanded}
+              onClick={() => setExpandedGroups((current) => ({ ...current, [group]: !expanded }))}>
+              <span>{expanded ? '▾' : '▸'} {group.replace(/_/g, ' ')}</span>
+              <span>{groupParts.length} parts · {groupParts.filter((part) => visiblePartUuids.includes(part.uuid)).length} shown</span>
+            </button>
+            {expanded ? groupParts.map((part) => {
               const displayState = loadStates[part.uuid] ?? part.artifactState
               const visible = visiblePartUuids.includes(part.uuid)
               return (
@@ -151,7 +158,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
                   >
                     <span className={`artifact-state artifact-state--${displayState}`} title={statusLabel(part, loadStates)} aria-label={statusLabel(part, loadStates)} />
                     <span className="part-row__identity">
-                      <strong>{part.key}</strong>
+                      <strong title={part.key}>{part.key}</strong>
                       <small>
                         {part.previewOfUuid ? 'in-place preview' : part.role} · {part.status}
                         {part.material ? ` · ${part.material}` : ''} · {part.occurrenceCount} occurrence{part.occurrenceCount === 1 ? '' : 's'}
@@ -173,9 +180,9 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
                   </button>
                 </div>
               )
-            })}
+            }) : null}
           </div>
-        ))}
+        )})}
       </div>
     </section>
   )
