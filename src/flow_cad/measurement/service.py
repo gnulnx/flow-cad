@@ -161,6 +161,8 @@ class ExactFeatureService:
         *,
         report: ProgressReporter | None = None,
         checkpoint: CancellationCheckpoint | None = None,
+        pool=None,
+        context=None,
     ) -> dict[str, Any]:
         """Worker entrypoint; never call this from inventory or query handlers."""
 
@@ -172,11 +174,12 @@ class ExactFeatureService:
         step_path, _source_identity = self._verified_artifact(binding)
         check()
         notify("extract_topology", 0.25, "Extracting exact STEP topology")
-        payload = extract_step_features(
-            step_path,
-            part_uuid=binding.part_uuid,
-            artifact_revision=binding.artifact_revision,
-        )
+        if pool is None:
+            payload = extract_step_features(step_path, part_uuid=binding.part_uuid,
+                                            artifact_revision=binding.artifact_revision)
+        else:
+            payload = pool.run('features', (step_path, binding.part_uuid, binding.artifact_revision),
+                               context, priority=0)
         check()
         notify("verify_revision", 0.85, "Checking STEP revision after extraction")
         _step_path, source_identity = self._verified_artifact(binding)

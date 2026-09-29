@@ -177,7 +177,7 @@ class PartBuildService:
             request_id=request_id,
             kind="part-build",
             payload=plan.payload(),
-            work=scoped_part_build_work(plan),
+            work=scoped_part_build_work(plan, self.jobs.cad_pool),
         )
 
 
@@ -263,7 +263,7 @@ class ProjectBuildService:
             request_id=request_id,
             kind="project-build",
             payload=plan.payload(),
-            work=project_build_work(plan),
+            work=project_build_work(plan, self.jobs.cad_pool),
         )
 
 

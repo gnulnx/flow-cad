@@ -111,3 +111,32 @@ def test_capture_tools_use_project_storage_without_legacy_loader(monkeypatch, tm
         assert service.request_capture({'purpose': 'colors'})['status'] == 'pending'
         with pytest.raises(ValueError, match='outside allowed'):
             module.agent_screen_service(str(tmp_path/'outside'))
+
+
+def test_build_preview_preserves_source_colors_and_step_placements_without_reimport(tmp_path, monkeypatch):
+    from build123d import Box, Compound, Location, export_step
+    from flow_cad.viewer.scene_export import export_shape_scene
+    import flow_cad.viewer.step_components as reader
+    leaf = Box(10,20,30).solid()
+    leaf.label = 'leaf'
+    parent = Compound(label='blue subassembly', children=[leaf.moved(Location((40,0,0))), leaf.moved(Location((-40,0,0)))])
+    parent.color = linear_color(.1,.4,.8)
+    root = Compound(children=[parent.moved(Location((100,30,20),(0,0,35)))])
+    step, imported, direct = tmp_path/'part.step', tmp_path/'imported.glb', tmp_path/'direct.glb'
+    export_step(root,step)
+    export_scene(step,imported)
+    def forbidden(*args):
+        raise AssertionError('Build preview reimported STEP')
+    monkeypatch.setattr(reader, 'step_components', forbidden)
+    export_shape_scene(root,direct)
+    a,b = glb_document(imported),glb_document(direct)
+    assert len(a['nodes']) == len(b['nodes']) == 2
+    assert [n['extras']['componentId'] for n in a['nodes']] == [n['extras']['componentId'] for n in b['nodes']]
+    # Some STEP exporters lose a moved assembly's inherited style. Direct
+    # previews preserve the source color while matching the exact STEP placement.
+    assert b['materials'][0]['pbrMetallicRoughness']['baseColorFactor'] == pytest.approx([.1,.4,.8,1], abs=1e-6)
+    for ma,mb in zip(a['meshes'],b['meshes']):
+        aa = a['accessors'][ma['primitives'][0]['attributes']['POSITION']]
+        bb = b['accessors'][mb['primitives'][0]['attributes']['POSITION']]
+        assert aa['min'] == pytest.approx(bb['min'],abs=1e-6)
+        assert aa['max'] == pytest.approx(bb['max'],abs=1e-6)

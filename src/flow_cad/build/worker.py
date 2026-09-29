@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
+from contextlib import contextmanager
 import importlib
 import os
 import shutil
@@ -31,180 +33,223 @@ class PartBuildWorkerError(RuntimeError):
     """A scoped worker failed before publishing fresh artifacts."""
 
 
-def scoped_part_build_work(plan: ScopedPartBuildPlan) -> JobWork:
+def scoped_part_build_work(plan: ScopedPartBuildPlan, pool=None) -> JobWork:
     """Return a job closure; importing this module never imports CAD libraries."""
 
     def work(context: JobContext) -> dict[str, object]:
-        return run_scoped_part_build(plan, context)
+        return run_scoped_part_build(plan, context, pool=pool)
 
     return work
 
 
-def run_scoped_part_build(
-    plan: ScopedPartBuildPlan,
-    context: Any,
-) -> dict[str, object]:
+def run_scoped_part_build(plan: ScopedPartBuildPlan, context: Any, *, pool=None,
+                          priority: int = 0) -> dict[str, object]:
+    with _part_build_lock(plan, context):
+        return _run_scoped_part_build(plan, context, pool=pool, priority=priority)
+
+
+@contextmanager
+def _part_build_lock(plan, context):
+    directory = plan.project_root / '.flow/build-locks'
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / str(plan.part_uuid)).open('a+b') as handle:
+        while True:
+            context.checkpoint()
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                time.sleep(.05)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _run_scoped_part_build(plan: ScopedPartBuildPlan, context: Any, *, pool=None,
+                           priority: int = 0) -> dict[str, object]:
     started = time.perf_counter()
-    timings: dict[str, float] = {}
-    staging_parent = plan.project_root / ".flow" / "build-work"
+    staging_parent = plan.project_root / '.flow/build-work'
     staging_parent.mkdir(parents=True, exist_ok=True)
-    work_dir = Path(
-        tempfile.mkdtemp(
-            prefix=f"{plan.part_uuid}-",
-            dir=staging_parent,
-        )
-    )
+    work_dir = Path(tempfile.mkdtemp(prefix=f'{plan.part_uuid}-', dir=staging_parent))
     try:
-        context.report("resolve", 0.05, f"Resolved {plan.part_key}")
-        phase_started = time.perf_counter()
-        parameter_provider, generator = _import_project_symbols(plan)
-        timings["import_project"] = _elapsed_ms(phase_started)
-        context.report(
-            "import",
-            0.10,
-            f"Imported project symbols in {timings['import_project']:.1f} ms",
-        )
+        if pool is None:
+            prepared = prepare_scoped_part_build(plan, work_dir, context=context)
+        else:
+            from flow_cad.workers.pool import source_revision
+            prepared = pool.run('prepare_part', (plan, work_dir), context,
+                revision=source_revision(plan.project_root, plan.python_package), priority=priority)
+        # Publication stays in the parent: killing a cancelled CAD worker cannot
+        # interrupt registry publication or expose a partially generated file.
         context.checkpoint()
-
+        timings = prepared['timings']
         phase_started = time.perf_counter()
-        parameters = parameter_provider()
-        timings["load_parameters"] = _elapsed_ms(phase_started)
-        context.report(
-            "parameters",
-            0.15,
-            f"Loaded project parameters in {timings['load_parameters']:.1f} ms",
-        )
-        context.checkpoint()
-
-        phase_started = time.perf_counter()
-        shape = generator(parameters)
-        timings["generate_geometry"] = _elapsed_ms(phase_started)
-        if shape is None:
-            raise PartBuildWorkerError(f"generator returned no geometry: {plan.generator}")
-        context.report(
-            "generate",
-            0.50,
-            f"Generated part geometry in {timings['generate_geometry']:.1f} ms",
-        )
-        context.checkpoint()
-
-        phase_started = time.perf_counter()
-        build123d = importlib.import_module("build123d")
-        export_step = _required_callable(build123d, "export_step")
-        export_stl = _required_callable(build123d, "export_stl")
-        timings["import_exporters"] = _elapsed_ms(phase_started)
-
-        staged: list[tuple[BuildArtifactTarget, Path]] = []
-        for index, target in enumerate(plan.artifacts):
-            context.checkpoint()
-            phase_started = time.perf_counter()
-            staged_path = work_dir / f"artifact-{index}{target.destination.suffix.lower()}"
-            exporter = export_step if target.kind == "step" else export_stl
-            if target.kind == "step":
-                exported = exporter(
-                    shape,
-                    staged_path,
-                    timestamp=_DETERMINISTIC_STEP_TIMESTAMP,
-                )
-            else:
-                tessellation_options = {}
-                if target.linear_tolerance is not None:
-                    tessellation_options["tolerance"] = target.linear_tolerance
-                if target.angular_tolerance is not None:
-                    tessellation_options["angular_tolerance"] = target.angular_tolerance
-                exported = exporter(shape, staged_path, **tessellation_options)
-            if exported is not True:
-                raise PartBuildWorkerError(
-                    f"{target.kind.upper()} exporter reported failure for {target.relative_path}"
-                )
-            _require_fresh_file(staged_path, target)
-            timings[f"export_{target.kind}"] = _elapsed_ms(phase_started)
-            staged.append((target, staged_path))
-            progress = 0.70 if target.kind == "step" else 0.82
-            context.report(
-                f"export_{target.kind}",
-                progress,
-                f"Staged {target.kind.upper()} artifact in "
-                f"{timings[f'export_{target.kind}']:.1f} ms",
-            )
-
-        if plan.generate_snapshots:
-            context.checkpoint()
-            phase_started = time.perf_counter()
-            from flow_cad.core.snapshots import export_part_snapshots
-
-            snapshot_staging = work_dir / "snapshots"
-            snapshot_paths = export_part_snapshots(
-                shape,
-                plan.part_key,
-                snapshot_staging,
-                metadata={"Project": plan.project_id},
-            )
-            for view_name, snapshot_path in sorted(snapshot_paths.items()):
-                target = _snapshot_target(plan, view_name, snapshot_path)
-                _require_fresh_file(snapshot_path, target)
-                staged.append((target, snapshot_path))
-            timings["export_snapshots"] = _elapsed_ms(phase_started)
-            context.report(
-                "export_snapshots",
-                0.88,
-                f"Staged {len(snapshot_paths)} inspection snapshots in "
-                f"{timings['export_snapshots']:.1f} ms",
-            )
-
-        context.checkpoint()
-        phase_started = time.perf_counter()
-        built_outputs = [
-            {
-                "kind": target.kind,
-                "path": target.relative_path,
-                "sha256": _sha256(staged_path),
-                "byte_count": staged_path.stat().st_size,
-            }
-            for target, staged_path in staged
-        ]
-        artifacts = [output for output in built_outputs if output["kind"] in {"step", "stl"}]
-        snapshots = [output for output in built_outputs if output["kind"] == "snapshot"]
-        timings["hash_artifacts"] = _elapsed_ms(phase_started)
-        context.report(
-            "hash",
-            0.92,
-            f"Verified staged artifact identities in {timings['hash_artifacts']:.1f} ms",
-        )
-
-        context.checkpoint()
-        phase_started = time.perf_counter()
-        _publish_all(plan.project_root, staged)
-        publication = publish_part_build(
-            plan.project_root,
-            part_uuid=plan.part_uuid,
-            artifacts=artifacts,
-        )
-        timings["publish"] = _elapsed_ms(phase_started)
-        context.report(
-            "publish",
-            0.99,
-            f"Published fresh artifacts at viewer revision {publication.revision} "
-            f"in {timings['publish']:.1f} ms",
-        )
-
-        elapsed_ms = _elapsed_ms(started)
-        timings["total"] = elapsed_ms
+        _publish_all(plan.project_root, prepared['staged'])
+        publication = publish_part_build(plan.project_root, part_uuid=plan.part_uuid,
+                                         artifacts=prepared['artifacts'])
+        preview = prepared['preview']
+        if preview is not None:
+            from flow_cad.viewer.services.scenes import DisplaySceneService
+            service = DisplaySceneService(plan.project_root)
+            revision = next(item['sha256'] for item in prepared['artifacts'] if item['kind'] == 'step')
+            binding = service.authority.resolve_binding(str(plan.part_uuid), revision)
+            service.publish(binding, preview['path'], preview['stats'])
+        timings['publish'] = _elapsed_ms(phase_started)
+        context.report('publish', .99, f'Published fresh artifacts at viewer revision {publication.revision}')
+        timings['total'] = _elapsed_ms(started)
         return {
-            "project_id": plan.project_id,
-            "part_uuid": str(plan.part_uuid),
-            "part_key": plan.part_key,
-            "generator": plan.generator,
-            "parameter_provider": plan.parameter_provider,
-            "artifacts": artifacts,
-            "snapshots": snapshots,
-            "viewer_revision": publication.revision,
-            "artifact_changed": publication.changed,
-            "phase_timings_ms": timings,
-            "elapsed_ms": elapsed_ms,
+            'project_id': plan.project_id, 'part_uuid': str(plan.part_uuid),
+            'part_key': plan.part_key, 'generator': plan.generator,
+            'parameter_provider': plan.parameter_provider,
+            'artifacts': prepared['artifacts'], 'snapshots': prepared['snapshots'],
+            'viewer_revision': publication.revision, 'artifact_changed': publication.changed,
+            'phase_timings_ms': timings, 'elapsed_ms': timings['total'],
+            'display_preview_ready': preview is not None,
+            'display_preview_warning': prepared['preview_warning'],
         }
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def prepare_scoped_part_build(plan: ScopedPartBuildPlan, work_dir: Path, *, context: Any):
+    started = time.perf_counter()
+    timings: dict[str, float] = {}
+    context.report("resolve", 0.05, f"Resolved {plan.part_key}")
+    phase_started = time.perf_counter()
+    parameter_provider, generator = _import_project_symbols(plan)
+    timings["import_project"] = _elapsed_ms(phase_started)
+    context.report(
+        "import",
+        0.10,
+        f"Imported project symbols in {timings['import_project']:.1f} ms",
+    )
+    context.checkpoint()
+
+    phase_started = time.perf_counter()
+    parameters = parameter_provider()
+    timings["load_parameters"] = _elapsed_ms(phase_started)
+    context.report(
+        "parameters",
+        0.15,
+        f"Loaded project parameters in {timings['load_parameters']:.1f} ms",
+    )
+    context.checkpoint()
+
+    phase_started = time.perf_counter()
+    shape = generator(parameters)
+    timings["generate_geometry"] = _elapsed_ms(phase_started)
+    if shape is None:
+        raise PartBuildWorkerError(f"generator returned no geometry: {plan.generator}")
+    context.report(
+        "generate",
+        0.50,
+        f"Generated part geometry in {timings['generate_geometry']:.1f} ms",
+    )
+    context.checkpoint()
+
+    phase_started = time.perf_counter()
+    build123d = importlib.import_module("build123d")
+    export_step = _required_callable(build123d, "export_step")
+    export_stl = _required_callable(build123d, "export_stl")
+    timings["import_exporters"] = _elapsed_ms(phase_started)
+
+    staged: list[tuple[BuildArtifactTarget, Path]] = []
+    for index, target in enumerate(plan.artifacts):
+        context.checkpoint()
+        phase_started = time.perf_counter()
+        staged_path = work_dir / f"artifact-{index}{target.destination.suffix.lower()}"
+        exporter = export_step if target.kind == "step" else export_stl
+        if target.kind == "step":
+            exported = exporter(
+                shape,
+                staged_path,
+                timestamp=_DETERMINISTIC_STEP_TIMESTAMP,
+            )
+        else:
+            tessellation_options = {}
+            if target.linear_tolerance is not None:
+                tessellation_options["tolerance"] = target.linear_tolerance
+            if target.angular_tolerance is not None:
+                tessellation_options["angular_tolerance"] = target.angular_tolerance
+            exported = exporter(shape, staged_path, **tessellation_options)
+        if exported is not True:
+            raise PartBuildWorkerError(
+                f"{target.kind.upper()} exporter reported failure for {target.relative_path}"
+            )
+        _require_fresh_file(staged_path, target)
+        timings[f"export_{target.kind}"] = _elapsed_ms(phase_started)
+        staged.append((target, staged_path))
+        progress = 0.70 if target.kind == "step" else 0.82
+        context.report(
+            f"export_{target.kind}",
+            progress,
+            f"Staged {target.kind.upper()} artifact in "
+            f"{timings[f'export_{target.kind}']:.1f} ms",
+        )
+
+    if plan.generate_snapshots:
+        context.checkpoint()
+        phase_started = time.perf_counter()
+        from flow_cad.core.snapshots import export_part_snapshots
+
+        snapshot_staging = work_dir / "snapshots"
+        snapshot_paths = export_part_snapshots(
+            shape,
+            plan.part_key,
+            snapshot_staging,
+            metadata={"Project": plan.project_id},
+        )
+        for view_name, snapshot_path in sorted(snapshot_paths.items()):
+            target = _snapshot_target(plan, view_name, snapshot_path)
+            _require_fresh_file(snapshot_path, target)
+            staged.append((target, snapshot_path))
+        timings["export_snapshots"] = _elapsed_ms(phase_started)
+        context.report(
+            "export_snapshots",
+            0.88,
+            f"Staged {len(snapshot_paths)} inspection snapshots in "
+            f"{timings['export_snapshots']:.1f} ms",
+        )
+
+    context.checkpoint()
+    phase_started = time.perf_counter()
+    preview = None
+    preview_warning = None
+    try:
+        from flow_cad.viewer.scene_export import export_shape_scene
+        preview_path = work_dir / 'display.glb'
+        stats = export_shape_scene(shape, preview_path)
+        preview = {'path': preview_path, 'stats': stats}
+    except Exception as exc:
+        # STEP/STL remain usable if optional display preparation fails.
+        preview_warning = f'Display preview unavailable: {type(exc).__name__}: {exc}'
+    timings['display_preview'] = _elapsed_ms(phase_started)
+
+    context.checkpoint()
+    phase_started = time.perf_counter()
+    built_outputs = [
+        {
+            "kind": target.kind,
+            "path": target.relative_path,
+            "sha256": _sha256(staged_path),
+            "byte_count": staged_path.stat().st_size,
+        }
+        for target, staged_path in staged
+    ]
+    artifacts = [output for output in built_outputs if output["kind"] in {"step", "stl"}]
+    snapshots = [output for output in built_outputs if output["kind"] == "snapshot"]
+    timings["hash_artifacts"] = _elapsed_ms(phase_started)
+    context.report(
+        "hash",
+        0.92,
+        f"Verified staged artifact identities in {timings['hash_artifacts']:.1f} ms",
+    )
+
+    return {'staged': staged, 'artifacts': artifacts, 'snapshots': snapshots,
+            'timings': timings, 'preview': preview, 'preview_warning': preview_warning,
+            'prepare_ms': _elapsed_ms(started)}
+
+
 
 
 def _import_project_symbols(

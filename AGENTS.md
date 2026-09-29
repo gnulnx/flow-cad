@@ -387,3 +387,14 @@ The working tree may contain user or other-agent changes.
 - Test actual hide/show, isolate/restore, revision changes and a fresh browser
   after viewer lifetime changes. Hot reload can retain older hook/cache state;
   passing metadata counts alone does not prove the geometry returned on screen.
+- CAD jobs share `JobService.cad_pool`: two persistent spawned processes by
+  default, one CPU/native thread and 2048 MiB RSS per process. Configure typed
+  `[cad]` settings through `FlowCadConfig`; do not create another unbounded pool.
+  Project-local slot locks also bound work from concurrent CLI/API runners.
+- Keep native generation/tessellation/extraction inside workers and artifact,
+  registry and cache publication in the parent. A cancelled or failed worker is
+  killed and replaced; it must never publish partial outputs. Source revisions
+  include transitive project Python and package assets, and force a new worker.
+- Build previews mesh the generated shape in memory. Keep exact measurements
+  STEP-backed. Test transforms, repeated occurrences and inherited source colors;
+  a moved assembly's source colors can be more complete than an exporter roundtrip.
