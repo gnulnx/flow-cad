@@ -362,3 +362,20 @@ The working tree may contain user or other-agent changes.
   separately with an ownership-appropriate message.
 - Run `git status --short` after the final commit. A task is not complete until
   the output is empty.
+
+## Performance work and bounded output
+
+- Never print diffs or whitespace-check output for generated STEP/STL/GLB assets.
+  Limit `git diff --check` to source/docs, and use CAD facts, artifact hashes and
+  path-limited status for generated outputs. Send full build/test logs to files;
+  return short summaries and bounded error tails to the conversation.
+- Record a reproducible before/after baseline for performance changes. Separate
+  cold preparation, cached opening, isolate/restore and actual geometry builds.
+  Keep the input artifacts, browser/render backend, CPU affinity and memory limits
+  consistent; disclose shared-workstation and software-renderer limitations.
+- Run resource-heavy CAD workloads sequentially. Verify effective resource limits;
+  a requested systemd CPU quota is not proof that the CPU controller is delegated.
+  Use explicit CPU affinity and native-library thread limits for benchmarks when
+  needed. Never change unrelated training processes to improve a benchmark.
+- Preserve STEP authority, exact measurement, placement and color while optimizing
+  display assets. A quicker preview must not silently reduce CAD accuracy.
