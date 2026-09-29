@@ -12,6 +12,7 @@ import { annotationReducer, ANNOTATION_COLORS, createAnnotationState, normalizeP
 import './annotation.css'
 
 interface AnnotationOverlayProps {
+  deactivate?: boolean
   initialMarks?: AnnotationMark[]
   overlayRef?: RefObject<SVGSVGElement>
   onActiveChange?(active: boolean): void
@@ -30,6 +31,7 @@ const TOOLS: readonly [AnnotationTool, string][] = [
 let markSequence = 0
 
 export function AnnotationOverlay({
+  deactivate = false,
   initialMarks = [],
   overlayRef,
   onActiveChange,
@@ -41,6 +43,13 @@ export function AnnotationOverlay({
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   const markerId = `annotation-arrow-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`
   const renderedMarks = state.draft ? [...state.marks, state.draft] : state.marks
+
+  useEffect(() => {
+    if (deactivate && state.active) {
+      dispatch({ type: 'escape' })
+      onActiveChange?.(false)
+    }
+  }, [deactivate, state.active, onActiveChange])
 
   useEffect(() => {
     onChange?.(state.marks, !state.visible)

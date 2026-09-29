@@ -10,6 +10,7 @@ import {
   type ScreenPoint,
   type MeasurementFeature,
   type SnapCandidate,
+  perspectiveSegmentParameter,
 } from './measurement'
 
 const project = (point: Point3): ScreenPoint => ({
@@ -36,6 +37,23 @@ function candidate(id: string, kind: SnapCandidate['kind'], pointMm: Point3, qua
 }
 
 describe('replacement exact measurement math', () => {
+  it('lets a vertex win over an edge at a corner despite pixel rounding', () => {
+    const edge: ExactFeature = { id: 'edge:0', kind: 'line_edge', startMm: [0, 0, 0], endMm: [10, 0, 0], lengthMm: 10, source: 'step_topology', quality: 'exact' }
+    const vertex = pointFeature('vertex:0', 'vertex', [0, 0, 0])
+    expect(findScreenSpaceSnap({ x: 2, y: 0 }, [edge, vertex], project)?.kind).toBe('vertex')
+    expect(findScreenSpaceSnap({ x: 2, y: 0 }, [edge, vertex], project, 16, 'line_edge')?.kind).toBe('line_edge')
+  })
+
+  it('filters circle centers for hole spacing and preserves diameter facts', () => {
+    const circle = { ...pointFeature('circle:0', 'circle_center', [10, 10, 0]), radiusMm: 2 }
+    const vertex = pointFeature('vertex:0', 'vertex', [10, 10, 0])
+    expect(findScreenSpaceSnap({ x: 100, y: 100 }, [vertex, circle], project, 16, 'circle_center')).toMatchObject({ kind: 'circle_center', radiusMm: 2 })
+  })
+
+  it('interpolates along a receding edge using perspective depth', () => {
+    expect(perspectiveSegmentParameter(.5, 10, 20)).toBeCloseTo(1 / 3)
+    expect(perspectiveSegmentParameter(.5, 10, 10)).toBe(.5)
+  })
   it('finds projected point targets without requiring a mesh face hit', () => {
     const features: ExactFeature[] = [
       pointFeature('vertex:0', 'vertex', [10, 10, 0]),
@@ -137,7 +155,7 @@ describe('replacement exact measurement math', () => {
       title: 'Approximate line edge to Approximate free point',
       quality: 'Approximate',
       totalMm: 5,
-      binding: { featureIds: ['mesh_edge:1', 'mesh_free:2'] },
+      binding: { featureIds: ['mesh_edge:1@0.000000,0.000000,0.000000', 'mesh_free:2'] },
     })
   })
 

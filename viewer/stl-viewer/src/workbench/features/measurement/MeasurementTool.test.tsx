@@ -37,10 +37,14 @@ describe('replacement MeasurementTool', () => {
     await user.click(screen.getByRole('button', { name: 'Measure geometry' }))
     await user.keyboard('m')
     expect(toggle).toHaveBeenCalledTimes(2)
+    await user.keyboard('{Control>}m{/Control}')
+    await user.keyboard('{Meta>}m{/Meta}')
+    expect(toggle).toHaveBeenCalledTimes(4)
 
     await user.click(screen.getByRole('textbox', { name: 'Editor' }))
     await user.keyboard('m')
-    expect(toggle).toHaveBeenCalledTimes(2)
+    await user.keyboard('{Control>}m{/Control}')
+    expect(toggle).toHaveBeenCalledTimes(4)
   })
 
   it('shows exact totals and deltas, visibly marks revision drift, and exposes label controls', async () => {

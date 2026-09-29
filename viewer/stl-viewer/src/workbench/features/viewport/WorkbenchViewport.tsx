@@ -1,6 +1,6 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { applicationApiUrl } from '../../client'
-import type { ArtifactState, WorkbenchClient, WorkbenchPart } from '../../contracts'
+import type { ArtifactState, WorkbenchClient, WorkbenchPart, Point3 } from '../../contracts'
 import { AnnotationOverlay } from '../annotation/AnnotationOverlay'
 import { saveAnnotationSnapshot } from '../annotation/client'
 import { createAnnotationSnapshotInput } from '../annotation/context'
@@ -14,7 +14,12 @@ import {
   type MeasurementProjectionSource,
   type MeasurementResult,
   type SnapCandidate,
+  type MeasurementMode,
+  type MeasurementPlane,
+  type SnapFilter,
 } from '../measurement/measurement'
+import { DimensionsPanel, type DisplayBounds } from '../measurement/DimensionsPanel'
+import { useMeasurementGesture } from '../measurement/useMeasurementGesture'
 import { useExactFeatures } from '../measurement/useExactFeatures'
 import { transformExactFeature } from './assembly'
 import type { RotationMode } from './navigation'
@@ -84,13 +89,16 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   const [rendererReady, setRendererReady] = useState(false)
   const [rendererError, setRendererError] = useState<string | null>(null)
   const [measureMode, setMeasureMode] = useState(false)
-  const [hoverTarget, setHoverTarget] = useState<SnapCandidate | null>(null)
-  const [startTarget, setStartTarget] = useState<SnapCandidate | null>(null)
+  const [measurementMode, setMeasurementMode] = useState<MeasurementMode>('distance')
+  const [snapFilter, setSnapFilter] = useState<SnapFilter>('all')
+  const [freePlane, setFreePlane] = useState<MeasurementPlane | 'off'>('off')
+  const [dimensionsOpen, setDimensionsOpen] = useState(false)
+  const [dimensionScope, setDimensionScope] = useState<'selected' | 'visible'>('selected')
+  const [displayBounds, setDisplayBounds] = useState<DisplayBounds>({ selected: null, visible: null, selectedPartUuid: null })
   const [measurements, setMeasurements] = useState<MeasurementResult[]>([])
   const [approximateSource, setApproximateSource] = useState<ApproximateMeasurementSource | null>(null)
   const [annotationSnapshot, setAnnotationSnapshot] = useState<{ marks: AnnotationMark[]; hidden: boolean }>({ marks: [], hidden: false })
   const [latestCapture, setLatestCapture] = useState<LiveCanvasCaptureMetadata | null>(null)
-  const measurementSequence = useRef(0)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const annotationOverlayRef = useRef<SVGSVGElement>(null)
   const measurementProjectionRef = useRef<MeasurementProjectionSource | null>(null)
@@ -113,7 +121,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
     client,
     part?.uuid ?? null,
     part?.authorityHash ?? null,
-    assembly.partStates[part?.uuid ?? ''] === 'visible' && part?.geometryAuthority === 'step',
+    measureMode && assembly.partStates[part?.uuid ?? ''] === 'visible' && part?.geometryAuthority === 'step',
   )
   const transformedExactFeatures = useMemo(() => exactFeatures.status === 'ready' && assembly.selectedOccurrence
     ? {
@@ -147,6 +155,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   const annotationsChanged = useCallback((marks: AnnotationMark[], hidden: boolean) => {
     setAnnotationSnapshot({ marks, hidden })
   }, [])
+  const annotationModeChanged = useCallback((active: boolean) => { if (active) setMeasureMode(false) }, [])
   const liveCaptureCompleted = useCallback((metadata: LiveCanvasCaptureMetadata) => setLatestCapture(metadata), [])
   const getLiveViewport = useCallback(() => liveViewportRef.current?.() ?? null, [])
   const getAnnotationOverlay = useCallback(() => annotationOverlayRef.current, [])
@@ -170,7 +179,10 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   })
 
   useEffect(() => {
-    if (assembly.models.length === 0) setRendererReady(false)
+    if (assembly.models.length === 0) {
+      setRendererReady(false)
+      setDisplayBounds({ selected: null, visible: null, selectedPartUuid: null })
+    }
   }, [assembly.models.length])
 
   useEffect(() => setRendererError(null), [modelSetKey])
@@ -188,67 +200,50 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   }, [assembly.artifactHashes, assembly.partStates, assembly.visibleOccurrenceIds, onAssemblyStateChange])
 
   useEffect(() => {
-    setHoverTarget(null)
-    setStartTarget(null)
-  }, [part?.authorityHash, part?.uuid])
-
-  useEffect(() => {
     onMeasurementsChange?.(measurements)
   }, [measurements, onMeasurementsChange])
 
   useEffect(() => {
-    if (!measurementRestore) return
-    setMeasurements(measurementRestore.measurements)
-    setHoverTarget(null)
-    setStartTarget(null)
+    if (measurementRestore) setMeasurements(measurementRestore.measurements)
   }, [measurementRestore])
 
   const toggleMeasureMode = useCallback(() => {
-    setMeasureMode((active) => {
-      if (active) {
-        setHoverTarget(null)
-        setStartTarget(null)
-      }
-      return !active
-    })
+    setMeasureMode((active) => !active)
+    setDimensionsOpen(false)
   }, [])
-
-  const snapAtPointer = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!measureMode || !measurementProjectionRef.current) return null
-    const pointer = { x: event.clientX, y: event.clientY }
-    const projector = measurementProjectionRef.current.createProjector()
-    if (transformedExactFeatures.status === 'ready') {
-      return findScreenSpaceSnap(pointer, transformedExactFeatures.featureSet.features, projector)
+  const exitMeasureMode = useCallback(() => setMeasureMode(false), [])
+  const snapAtPointer = useCallback((x: number, y: number, start: SnapCandidate | null) => {
+    const source = measurementProjectionRef.current
+    if (!measureMode || !source) return null
+    const projector = source.createProjector()
+    const features = transformedExactFeatures.status === 'ready'
+      ? transformedExactFeatures.featureSet.features : selectedApproximateSource?.features ?? []
+    const snapped = findScreenSpaceSnap({ x, y }, features, projector, 16,
+      measurementMode === 'edge_length' ? 'line_edge' : snapFilter)
+    if (snapped) return snapped
+    if (measurementMode === 'edge_length') return null
+    if (freePlane !== 'off') {
+      const bounds = displayBounds.selectedPartUuid === part?.uuid ? displayBounds.selected : null
+      const anchor = start?.pointMm ?? (bounds ? bounds.min.map((v, i) => (v + bounds.max[i]) / 2) as Point3 : null)
+      return anchor ? source.pickPlanePoint?.(x, y, freePlane, anchor) ?? null : null
     }
-    if (part?.geometryAuthority !== 'mesh' || !selectedApproximateSource) return null
-    return findScreenSpaceSnap(pointer, selectedApproximateSource.features, projector)
-      ?? selectedApproximateSource.pickFreePoint(event.clientX, event.clientY)
-  }, [measureMode, part?.geometryAuthority, selectedApproximateSource, transformedExactFeatures])
+    return selectedApproximateSource?.pickFreePoint(x, y) ?? null
+  }, [measureMode, transformedExactFeatures, selectedApproximateSource, measurementMode, snapFilter, freePlane, displayBounds, part?.uuid])
 
-  const pointerMoved = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if ((event.target as Element).closest?.('.measurement-labels')) return
-    setHoverTarget(snapAtPointer(event))
-  }, [snapAtPointer])
-
-  const pointerClicked = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!measureMode || event.button !== 0 || (event.target as Element).closest?.('.measurement-labels')) return
-    const target = snapAtPointer(event)
-    if (!target || !part || !selectedArtifactRevision) return
+  const commitMeasurement = useCallback((start: SnapCandidate, end: SnapCandidate, mode: MeasurementMode) => {
+    if (!part || !selectedArtifactRevision) return
     const binding = { partUuid: part.uuid, artifactRevision: selectedArtifactRevision }
-    measurementSequence.current += 1
-    const id = `${part.uuid}:measurement:${measurementSequence.current}`
-    if (target.quality === 'Exact' && target.kind === 'line_edge' && !startTarget) {
-      const edge = createEdgeLengthMeasurement(id, target, binding)
-      if (edge) setMeasurements((current) => [...current, edge])
-      return
-    }
-    if (!startTarget) {
-      setStartTarget(target)
-      return
-    }
-    setMeasurements((current) => [...current, createDistanceMeasurement(id, startTarget, target, binding)])
-    setStartTarget(null)
-  }, [measureMode, part, selectedArtifactRevision, snapAtPointer, startTarget])
+    const id = `${part.uuid}:measurement:${crypto.randomUUID()}`
+    const result = mode === 'edge_length' ? createEdgeLengthMeasurement(id, end, binding)
+      : createDistanceMeasurement(id, start, end, binding)
+    if (result) setMeasurements((current) => [...current, result])
+  }, [part, selectedArtifactRevision])
+  const gesture = useMeasurementGesture({
+    active: measureMode, mode: measurementMode,
+    resetKey: `${part?.uuid}:${selectedArtifactRevision}:${snapFilter}:${freePlane}:${measurementRestore?.key}:${assembly.partStates[part?.uuid ?? '']}:${JSON.stringify(assembly.selectedOccurrence)}`,
+    snap: snapAtPointer, commit: commitMeasurement, exit: exitMeasureMode,
+  })
+  const { start: startTarget, hover: hoverTarget } = gesture
 
   const updateMeasurement = useCallback((id: string, update: (record: MeasurementResult) => MeasurementResult) => {
     setMeasurements((current) => current.map((record) => record.id === id ? update(record) : record))
@@ -298,15 +293,18 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
           </div>
           <button type="button" className="tool-button" onClick={() => setFitRequest((request) => request + 1)}>Fit</button>
           <button type="button" className="tool-button" onClick={() => setFrameSelectedRequest((request) => request + 1)}>Frame part</button>
+          <button type="button" className="tool-button" aria-pressed={dimensionsOpen} onClick={() => { setDimensionsOpen((open) => !open); setMeasureMode(false) }}>Dimensions</button>
           <MeasurementToolButton active={measureMode} state={measurementToolState} onToggle={toggleMeasureMode} />
         </div>
       </div>
       <div
         ref={stageRef}
         className={`viewport-stage${measureMode ? ' viewport-stage--measuring' : ''}`}
-        onPointerMove={pointerMoved}
-        onPointerLeave={() => setHoverTarget(null)}
-        onClick={pointerClicked}
+        onPointerDown={gesture.onPointerDown}
+        onPointerMove={gesture.onPointerMove}
+        onPointerUp={gesture.onPointerUp}
+        onPointerCancel={gesture.onPointerCancel}
+        onPointerLeave={gesture.onPointerLeave}
       >
         {assembly.models.length > 0 ? (
           <ModelErrorBoundary resetKey={modelSetKey} onError={rendererFailed}>
@@ -331,6 +329,8 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
                 registerLiveViewport={registerLiveViewport}
                 registerMeasurementProjection={registerMeasurementProjection}
                 registerApproximateMeasurementSource={registerApproximateMeasurementSource}
+                dimensionScope={dimensionsOpen ? dimensionScope : null}
+                onBoundsChange={setDisplayBounds}
                 measureMode={measureMode}
                 measurementHover={hoverTarget}
                 measurementStart={startTarget}
@@ -368,8 +368,17 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
         </div>
         {assembly.models.some((model) => model.displayWarning) ? <div className="display-color-warning" role="status">{assembly.models.find((model) => model.displayWarning)?.displayWarning}</div> : null}
         {selectedComponent ? <div className="component-selection" role="status">Selected: {selectedComponent}</div> : null}
-        <div className="navigation-hint">{measureMode ? 'Left select · Right / middle pan · Wheel dolly · Z-up' : 'Click select · Drag rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
+        <div className="navigation-hint">{measureMode ? 'Left select / drag measure · Right / middle pan · Wheel dolly · Esc cancel' : 'Click select · Drag rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
+        {dimensionsOpen ? <DimensionsPanel
+          bounds={dimensionScope === 'visible' ? displayBounds.visible : displayBounds.selectedPartUuid === part?.uuid ? displayBounds.selected : null}
+          scope={dimensionScope} onScope={setDimensionScope}
+          loading={dimensionScope === 'visible' ? assembly.progress.visible !== assembly.progress.total : assembly.partStates[part?.uuid ?? ''] !== 'visible'}
+        /> : null}
         <MeasurementOverlay
+          mode={measurementMode} onMode={setMeasurementMode}
+          filter={snapFilter} onFilter={setSnapFilter}
+          freePlane={freePlane} onFreePlane={setFreePlane}
+          partName={part?.key}
           active={measureMode}
           state={measurementToolState}
           hover={hoverTarget}
@@ -388,6 +397,8 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
           }))}
         />
         <AnnotationOverlay
+          deactivate={measureMode}
+          onActiveChange={annotationModeChanged}
           overlayRef={annotationOverlayRef}
           onChange={annotationsChanged}
           onAskAgent={onAskAgentAboutMarkup}

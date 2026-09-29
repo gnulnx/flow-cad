@@ -7,6 +7,9 @@ import { parseDisplay, type DisplayComponent } from './displayGeometry'
 import type { Bounds3 } from '../../contracts'
 import { deriveApproximateMeshFeatures } from '../measurement/approximate'
 import { MeasurementScene } from '../measurement/MeasurementScene'
+import { measurementProjection } from '../measurement/projection'
+import { DimensionsScene } from '../measurement/DimensionsScene'
+import type { DisplayBounds } from '../measurement/DimensionsPanel'
 import { featureLabel, type ApproximateMeasurementSource, type MeasurementProjectionSource, type MeasurementResult, type SnapCandidate } from '../measurement/measurement'
 import { mergeBounds, transformBounds } from './assembly'
 import { NavigationControls } from './NavigationControls'
@@ -29,6 +32,8 @@ interface ModelCanvasProps {
   registerLiveViewport(source: (() => LiveViewportSource) | null): void
   registerMeasurementProjection(source: MeasurementProjectionSource | null): void
   registerApproximateMeasurementSource(source: ApproximateMeasurementSource | null): void
+  dimensionScope?: 'selected' | 'visible' | null
+  onBoundsChange?(bounds: DisplayBounds): void
   measureMode: boolean
   measurementHover: SnapCandidate | null
   measurementStart: SnapCandidate | null
@@ -58,22 +63,7 @@ function LiveViewportBridge({ register }: { register(source: (() => LiveViewport
 function MeasurementProjectionBridge({ register }: { register(source: MeasurementProjectionSource | null): void }) {
   const { camera, gl } = useThree()
   useEffect(() => {
-    register({
-      createProjector: () => {
-        camera.updateMatrixWorld()
-        const rect = gl.domElement.getBoundingClientRect()
-        const projected = new THREE.Vector3()
-        return (pointMm) => {
-          projected.set(...pointMm).project(camera)
-          return {
-            x: rect.left + (projected.x + 1) * rect.width / 2,
-            y: rect.top + (1 - projected.y) * rect.height / 2,
-            depth: projected.z,
-            visible: projected.z >= -1 && projected.z <= 1,
-          }
-        }
-      },
-    })
+    register(measurementProjection(camera, () => gl.domElement.getBoundingClientRect()))
     return () => register(null)
   }, [camera, gl.domElement, register])
   return null
@@ -104,6 +94,8 @@ export default function ModelCanvas({
   registerMeasurementProjection,
   registerApproximateMeasurementSource,
   measureMode,
+  dimensionScope = null,
+  onBoundsChange,
   measurementHover,
   measurementStart,
   measurements,
@@ -139,6 +131,9 @@ export default function ModelCanvas({
       const info = geometryByKey[model.key]
       return info ? model.occurrences.map((occurrence) => transformBounds(info.bounds, occurrence)) : []
     })), [geometryByKey, models, selectedPartUuid])
+  useEffect(() => {
+    onBoundsChange?.({ selected: selectedBounds, visible: visibleBounds, selectedPartUuid })
+  }, [onBoundsChange, selectedBounds, visibleBounds, selectedPartUuid])
   const approximateSelection = useMemo(() => {
     const model = models.find((candidate) => candidate.part.uuid === selectedPartUuid && candidate.part.geometryAuthority === 'mesh')
     const info = model ? geometryByKey[model.key] : null
@@ -176,6 +171,7 @@ export default function ModelCanvas({
           onError={onPartError}
         />
       ))}
+      {dimensionScope ? <DimensionsScene bounds={dimensionScope === 'selected' ? selectedBounds : visibleBounds} /> : null}
       <MeasurementScene
         hover={measurementHover}
         start={measurementStart}
