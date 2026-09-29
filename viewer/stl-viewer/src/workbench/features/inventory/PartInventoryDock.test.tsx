@@ -148,4 +148,19 @@ describe('PartInventoryDock refresh', () => {
     expect(screen.getByRole('tab', { name: /References/ })).toHaveAttribute('aria-selected', 'true')
   })
 
+  it('replaces a removed selection with a current part on inventory refresh', async () => {
+    const replacement = { ...part('board'), uuid: 'board', key: 'populated_board' }
+    const getInventory = vi.fn()
+      .mockResolvedValueOnce({ revision: 1, activeAssemblyId: 'active', parts: [part('old')] })
+      .mockResolvedValueOnce({ revision: 2, activeAssemblyId: 'active', parts: [replacement] })
+    const client = createTestWorkbenchClient()
+    client.getInventory = getInventory
+    const onSelect = vi.fn()
+    const view = render(<PartInventoryDock client={client} activePartUuid="guard-uuid" onSelect={onSelect} />)
+    await waitFor(() => expect(onSelect).toHaveBeenCalledOnce())
+    onSelect.mockClear()
+    view.rerender(<PartInventoryDock client={client} activePartUuid="guard-uuid" onSelect={onSelect} refreshToken={1} />)
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(replacement, 'replace'))
+  })
+
 })

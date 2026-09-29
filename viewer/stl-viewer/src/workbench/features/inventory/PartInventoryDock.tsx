@@ -57,11 +57,11 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
         : null
       if (refreshedSelection) {
         callbacksRef.current.onSelect(refreshedSelection, 'focus')
-      } else if (!activePartUuidRef.current && nextSnapshot.parts.length > 0) {
+      } else if (nextSnapshot.parts.length > 0) {
         const assembly = nextSnapshot.activeAssemblyId ?? 'active'
         const preferred = nextSnapshot.parts.find((part) => part.occurrences.some((occurrence) => occurrence.assemblyId === assembly))
           ?? nextSnapshot.parts.find((part) => part.status === 'active') ?? nextSnapshot.parts[0]
-        callbacksRef.current.onSelect(preferred, 'focus')
+        callbacksRef.current.onSelect(preferred, activePartUuidRef.current ? 'replace' : 'focus')
       }
     }).catch((reason: unknown) => {
       if (controller.signal.aborted) return
