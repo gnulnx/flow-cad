@@ -272,7 +272,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
       <div className="viewport-toolbar">
         <div>
           <span className="eyebrow">Viewport</span>
-          <h1 id="viewport-title">{part?.key ?? 'Assembly review'}</h1>
+          <h1 id="viewport-title">{part?.displayName ?? part?.key ?? 'Assembly review'}</h1>
         </div>
         <div className="viewport-actions" aria-label="Viewport controls">
           <div className="segmented-control" aria-label="Rotation mode">
@@ -378,7 +378,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
           mode={measurementMode} onMode={setMeasurementMode}
           filter={snapFilter} onFilter={setSnapFilter}
           freePlane={freePlane} onFreePlane={setFreePlane}
-          partName={part?.key}
+          partName={part?.displayName ?? part?.key}
           active={measureMode}
           state={measurementToolState}
           hover={hoverTarget}

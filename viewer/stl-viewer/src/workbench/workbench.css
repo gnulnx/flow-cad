@@ -427,3 +427,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   pointer-events: none;
 }
 .display-color-warning { top: 56px; color: #f0c48a; border-color: #b98b48; }
+
+/* Category tabs filter the list; the scene keeps its independent visibility. */
+.inventory-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 0 10px 10px; }
+.inventory-tabs button { padding: 7px 5px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--quiet); cursor: pointer; font-size: 11px; }
+.inventory-tabs button span { display: block; margin-top: 3px; font-size: 10px; opacity: .8; }
+.inventory-tabs button[aria-selected="true"] { color: var(--cyan); border-color: #507a7f; background: rgb(121 203 209 / 9%); }
+.inventory-tabs button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.inventory-material { display: flex; align-items: center; gap: 8px; padding: 0 12px 9px; color: var(--quiet); font-size: 11px; }
+.inventory-material select { min-width: 0; flex: 1; padding: 5px; color: var(--ink); background: #101820; border: 1px solid var(--line); border-radius: 4px; }
+.part-row__identity strong { font-family: inherit; white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }

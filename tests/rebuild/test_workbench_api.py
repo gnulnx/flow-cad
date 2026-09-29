@@ -18,6 +18,7 @@ from flow_cad.sdk import (
     AssemblySpec,
     ManifestPart,
     PartRole,
+    PartCategory,
     PartStatus,
     ProjectManifest,
     dump_manifest,
@@ -57,6 +58,8 @@ def _project(
                 role=PartRole.PRINTABLE,
                 status=PartStatus.ACTIVE,
                 material="PETG",
+                category=PartCategory.MAKE,
+                display_name="Access panel",
                 artifacts=(
                     ArtifactSpec(
                         kind="step",
@@ -133,6 +136,8 @@ def test_inventory_is_sqlite_only_and_reports_content_identity(tmp_path: Path) -
     assert project.json()["project_id"] == "workbench_project"
     assert project.json()["part_count"] == 1
     assert response.status_code == 200
+    assert response.json()["parts"][0]["category"] == "make"
+    assert response.json()["parts"][0]["display_name"] == "Access panel"
     payload = response.json()
     assert payload["revision"] == 1
     assert payload["occurrence_count"] == 1

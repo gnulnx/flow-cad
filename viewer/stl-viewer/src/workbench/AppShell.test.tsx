@@ -72,7 +72,7 @@ describe('replacement AppShell', () => {
       },
     })} />)
 
-    const search = await screen.findByPlaceholderText('Search parts or aliases')
+    const search = await screen.findByRole('searchbox')
     await user.type(search, 'unitree')
     const inventory = within(screen.getByRole('listbox', { name: 'Project parts' }))
     expect(inventory.getByText('arch_guard')).toBeInTheDocument()
@@ -141,7 +141,9 @@ describe('replacement AppShell', () => {
       buildProject,
     })} />)
 
-    const body = await screen.findByRole('option', { name: /body/ })
+    await screen.findByRole('option', { name: /body/ })
+    await user.click(screen.getByRole('tab', { name: /^All/ }))
+    const body = screen.getByRole('option', { name: /body/ })
     const reference = screen.getByRole('option', { name: /reference_lid/ })
     expect(body).toHaveAttribute('aria-selected', 'true')
     expect(reference).toHaveAttribute('aria-selected', 'true')

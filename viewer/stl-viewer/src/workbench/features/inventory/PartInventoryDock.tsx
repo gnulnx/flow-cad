@@ -16,6 +16,15 @@ interface PartInventoryDockProps {
   actionError?: string | null
 }
 
+const tabs = [
+  ['make', 'Parts to make'], ['purchased', 'Purchased'], ['hardware', 'Hardware'],
+  ['view', 'Views'], ['reference', 'References'], ['all', 'All'],
+] as const
+type InventoryTab = typeof tabs[number][0]
+function categoryOf(part: WorkbenchPart): string {
+  return part.category ?? (part.role === 'printable' ? 'make' : part.role === 'reference' || part.role === 'legacy' ? 'reference' : 'uncategorized')
+}
+
 function statusLabel(part: WorkbenchPart, loadStates: Record<string, ArtifactState>) {
   return (loadStates[part.uuid] ?? part.artifactState).replace('-', ' ')
 }
@@ -23,6 +32,8 @@ function statusLabel(part: WorkbenchPart, loadStates: Record<string, ArtifactSta
 export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [], onSelect, onInventoryChange, loadStates = {}, refreshToken = 0, onShowFullyAssembled, onBuildRobot, buildRobotSubmitting = false, actionError = null }: PartInventoryDockProps) {
   const [snapshot, setSnapshot] = useState<InventorySnapshot | null>(null)
   const [query, setQuery] = useState('')
+  const [tab, setTab] = useState<InventoryTab>('make')
+  const [material, setMaterial] = useState('')
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const activePartUuidRef = useRef(activePartUuid)
@@ -59,14 +70,19 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
     return () => controller.abort()
   }, [client, refreshToken])
 
+  const categoryParts = useMemo(() => (snapshot?.parts ?? []).filter((part) => tab === 'all' || categoryOf(part) === tab), [snapshot, tab])
+  const materials = useMemo(() => [...new Set(categoryParts.map((part) => part.material).filter((value): value is string => Boolean(value)))].sort(), [categoryParts])
   const filtered = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase().replace(/_/g, ' ')
-    if (!snapshot || !normalized) return snapshot?.parts ?? []
-    return snapshot.parts.filter((part) => (
-      [part.key, ...part.aliases, part.role, part.family ?? ''].some((text) =>
-        text.toLocaleLowerCase().replace(/_/g, ' ').includes(normalized))
-    ))
-  }, [query, snapshot])
+    const words = query.trim().toLocaleLowerCase().replace(/_/g, ' ').split(/\s+/).filter(Boolean)
+    return categoryParts.filter((part) => {
+      const text = [part.key, part.displayName ?? '', ...part.aliases, part.role, part.status, part.family ?? '', part.material ?? '', categoryOf(part)].join(' ').toLocaleLowerCase().replace(/_/g, ' ')
+      return (material === '' || (material === '__unset' ? !part.material : part.material === material)) && words.every((word) => text.includes(word))
+    })
+  }, [query, categoryParts, material])
+  function selectTab(nextTab: InventoryTab) {
+    setTab(nextTab)
+    setMaterial('')
+  }
   const grouped = useMemo(() => {
     const groups = new Map<string, WorkbenchPart[]>()
     for (const part of filtered) {
@@ -94,6 +110,21 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
         </button>
         {actionError ? <span role="alert">{actionError}</span> : null}
       </div>
+      <div className="inventory-tabs" role="tablist" aria-label="Part categories">
+        {tabs.map(([id, label], index) => <button key={id} type="button" role="tab"
+          id={`inventory-tab-${id}`} aria-controls="inventory-panel" aria-selected={tab === id} tabIndex={tab === id ? 0 : -1}
+          onClick={() => selectTab(id)} onKeyDown={(event) => {
+            const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length
+              : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length
+                : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null
+            if (next === null) return
+            event.preventDefault()
+            selectTab(tabs[next][0])
+            document.getElementById(`inventory-tab-${tabs[next][0]}`)?.focus()
+          }}>
+          {label}<span>{snapshot?.parts.filter((part) => id === 'all' || categoryOf(part) === id).length ?? '—'}</span>
+        </button>)}
+      </div>
       <label className="inventory-search">
         <span className="sr-only">Search parts</span>
         <span aria-hidden="true">⌕</span>
@@ -101,15 +132,22 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search parts or aliases"
+          placeholder="Search names, sections, materials…"
         />
         <kbd>/</kbd>
+      </label>
+      <label className="inventory-material">Material
+        <select aria-label="Filter by material" value={material} onChange={(event) => setMaterial(event.target.value)}>
+          <option value="">All materials</option>
+          {materials.map((value) => <option key={value} value={value}>{value}</option>)}
+          <option value="__unset">Unspecified</option>
+        </select>
       </label>
       <div className="inventory-summary" aria-live="polite">
         {error
           ? 'Inventory unavailable'
           : snapshot
-            ? `${filtered.length} shown · revision ${snapshot.revision}`
+            ? `${filtered.length} of ${categoryParts.length} listed · ${visiblePartUuids.length} visible in scene`
             : 'Loading metadata…'}
       </div>
       <div className="inventory-selection-hint">Click isolates · Ctrl/Cmd-click adds or removes</div>
@@ -117,7 +155,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
         <button type="button" onClick={() => setExpandedGroups(Object.fromEntries(grouped.map(([group]) => [group, true])))}>Expand all</button>
         <button type="button" onClick={() => setExpandedGroups(Object.fromEntries(grouped.map(([group]) => [group, false])))}>Collapse all</button>
       </div> : null}
-      <div className="inventory-list" role="listbox" aria-label="Project parts" aria-multiselectable="true">
+      <div className="inventory-list" id="inventory-panel" role="tabpanel" aria-labelledby={`inventory-tab-${tab}`}><div role="listbox" aria-label="Project parts" aria-multiselectable="true">
         {error ? (
           <div className="dock-state dock-state--error">
             <strong>Could not load parts</strong>
@@ -128,7 +166,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
         ) : filtered.length === 0 ? (
           <div className="dock-state">
             <strong>No matching parts</strong>
-            <span>Try a part key, alias, or role.</span>
+            <span>Try another tab, clear filters, or search All for any part.</span>
           </div>
         ) : grouped.map(([group, groupParts]) => {
           const expanded = query.trim().length > 0 || (expandedGroups[group] ?? true)
@@ -158,10 +196,10 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
                   >
                     <span className={`artifact-state artifact-state--${displayState}`} title={statusLabel(part, loadStates)} aria-label={statusLabel(part, loadStates)} />
                     <span className="part-row__identity">
-                      <strong title={part.key}>{part.key}</strong>
+                      <strong title={part.key}>{part.displayName ?? part.key}</strong>
                       <small>
-                        {part.previewOfUuid ? 'in-place preview' : part.role} · {part.status}
-                        {part.material ? ` · ${part.material}` : ''} · {part.occurrenceCount} occurrence{part.occurrenceCount === 1 ? '' : 's'}
+                        {part.previewOfUuid ? 'in-place preview' : part.status}
+                        {part.material ? ` · ${part.material}` : ''}
                       </small>
                     </span>
                     <span className={`authority-tag authority-tag--${part.geometryAuthority}`}>{part.qualityLabel}</span>
@@ -169,7 +207,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
                   <button
                     type="button"
                     className="part-visibility-toggle"
-                    aria-label={`${visible ? 'Hide' : 'Show'} ${part.key}`}
+                    aria-label={`${visible ? 'Hide' : 'Show'} ${part.displayName ?? part.key}`}
                     aria-pressed={visible}
                     onClick={(event) => {
                       event.stopPropagation()
@@ -183,7 +221,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
             }) : null}
           </div>
         )})}
-      </div>
+      </div></div>
     </section>
   )
 }

@@ -40,7 +40,8 @@ export function InspectorDock({ client, part, onBuildSubmitted }: InspectorDockP
       </div>
       {part ? (
         <dl className="inspector-facts">
-          <div><dt>Part</dt><dd>{part.key}</dd></div>
+          <div><dt>Part</dt><dd title={part.key}>{part.displayName ?? part.key}</dd></div>
+          {part.material ? <div><dt>Material</dt><dd>{part.material}</dd></div> : null}
           <div><dt>Lifecycle</dt><dd>{part.status}</dd></div>
           <div><dt>Artifact</dt><dd>{part.artifactState}</dd></div>
           <div><dt>Authority</dt><dd>{part.qualityLabel}</dd></div>

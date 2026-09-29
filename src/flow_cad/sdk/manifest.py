@@ -18,6 +18,7 @@ from .models import (
     MassProperties,
     ManifestPart,
     PartRole,
+    PartCategory,
     PartStatus,
     PrintSpec,
     ProjectManifest,
@@ -208,6 +209,8 @@ def _parse_part(raw: Any, source: str | Path, location: str) -> ManifestPart:
             "status",
             "artifacts",
             "material",
+            "category",
+            "display_name",
             "family",
             "version",
             "compatible_versions",
@@ -277,6 +280,10 @@ def _parse_part(raw: Any, source: str | Path, location: str) -> ManifestPart:
         compatible_versions=compatible_versions,
         print=print_spec,
         mass_properties=mass_properties,
+        category=_enum(PartCategory, data["category"], source, f"{location}.category")
+        if data.get("category") is not None else None,
+        display_name=_nonempty_string(data["display_name"], source, f"{location}.display_name")
+        if data.get("display_name") is not None else None,
     )
 
 
@@ -501,6 +508,10 @@ def _dump_part(part: ManifestPart) -> dict[str, Any]:
         "role": part.role.value,
         "status": part.status.value,
     }
+    if part.category is not None:
+        payload["category"] = part.category.value
+    if part.display_name is not None:
+        payload["display_name"] = part.display_name
     if part.material is not None:
         payload["material"] = part.material
     if part.family is not None:

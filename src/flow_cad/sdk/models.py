@@ -21,6 +21,16 @@ class PartRole(StrEnum):
     LEGACY = "legacy"
 
 
+class PartCategory(StrEnum):
+    """Browsing category, independent of lifecycle or manufacturing readiness."""
+
+    MAKE = "make"
+    PURCHASED = "purchased"
+    HARDWARE = "hardware"
+    VIEW = "view"
+    REFERENCE = "reference"
+
+
 class PartStatus(StrEnum):
     """Lifecycle status for a manifest part."""
 
@@ -89,6 +99,8 @@ class ManifestPart:
     compatible_versions: tuple[str, ...] = ()
     print: PrintSpec | None = None
     mass_properties: MassProperties | None = None
+    category: PartCategory | None = None
+    display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

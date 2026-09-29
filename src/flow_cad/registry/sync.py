@@ -14,6 +14,7 @@ from pathlib import Path
 
 from flow_cad.sdk import ProjectManifest, load_manifest
 
+from .schema import DATABASE_SCHEMA_VERSION
 from .db import RegistryError, connect_readonly, connect_writable, database_path, initialize_database
 
 
@@ -103,6 +104,7 @@ def _existing_state(path: Path) -> tuple[str | None, int]:
         return None, 0
     try:
         with closing(connect_readonly(path)) as connection:
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
             row = connection.execute(
                 "SELECT manifest_sha256, revision FROM projects LIMIT 1"
             ).fetchone()
@@ -110,7 +112,8 @@ def _existing_state(path: Path) -> tuple[str | None, int]:
         return None, 0
     if row is None:
         return None, 0
-    return str(row["manifest_sha256"]), int(row["revision"])
+    digest = str(row["manifest_sha256"]) if version == DATABASE_SCHEMA_VERSION else None
+    return digest, int(row["revision"])
 
 
 def _populate(
@@ -147,8 +150,9 @@ def _populate(
                 uuid, project_id, key, generator, role, status, material,
                 family, version, compatible_versions_json,
                 shell_count, infill_density, mass_kg, center_of_mass_mm_json,
-                inertia_kg_m2_json, mass_source, metadata_status, metadata_notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                inertia_kg_m2_json, mass_source, metadata_status, metadata_notes,
+                category, display_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 part_uuid,
@@ -175,6 +179,8 @@ def _populate(
                 part.mass_properties.source if part.mass_properties is not None else None,
                 part.mass_properties.status if part.mass_properties is not None else None,
                 part.mass_properties.notes if part.mass_properties is not None else None,
+                part.category.value if part.category is not None else None,
+                part.display_name,
             ),
         )
         module, separator, symbol = part.generator.partition(":")

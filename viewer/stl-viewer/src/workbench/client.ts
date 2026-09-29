@@ -45,6 +45,8 @@ interface PartDto {
   uuid: string
   key: string
   aliases: string[]
+  category?: 'make' | 'purchased' | 'hardware' | 'view' | 'reference' | null
+  display_name?: string | null
   family?: string | null
   material?: string | null
   role: 'printable' | 'reference' | 'inspection' | 'legacy'
@@ -189,12 +191,10 @@ interface MeasurementLabelDto {
 }
 
 interface MeasurementSnapshotDto {
-  snapshot: {
-    thread_id: string
-    part_uuid: string
-    artifact_revision: string
-    measurements: MeasurementLabelDto[]
-  }
+  thread_id: string
+  part_uuid: string
+  artifact_revision: string
+  measurements: MeasurementLabelDto[]
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -397,10 +397,10 @@ async function readExactSubmission(response: Response): Promise<ExactFeatureSubm
 
 function measurementSnapshot(dto: MeasurementSnapshotDto): SavedMeasurementSnapshot {
   return {
-    threadId: dto.snapshot.thread_id,
-    partUuid: dto.snapshot.part_uuid,
-    artifactRevision: dto.snapshot.artifact_revision,
-    measurements: dto.snapshot.measurements.map((measurement) => ({
+    threadId: dto.thread_id,
+    partUuid: dto.part_uuid,
+    artifactRevision: dto.artifact_revision,
+    measurements: dto.measurements.map((measurement) => ({
       measurementId: measurement.measurement_id,
       kind: measurement.kind,
       title: measurement.title,
@@ -475,6 +475,8 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         uuid: part.uuid,
         key: part.key,
         aliases: part.aliases,
+        category: part.category ?? null,
+        displayName: part.display_name ?? null,
         family: part.family ?? null,
         material: part.material ?? null,
         role: part.role,
