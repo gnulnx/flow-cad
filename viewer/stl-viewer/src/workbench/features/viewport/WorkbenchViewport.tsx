@@ -321,6 +321,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
                 onSelectPart={onSelectPart}
                 onComponentSelected={setSelectedComponent}
                 rotationMode={rotationMode}
+                assemblyLoading={assembly.progress.loading > 0 || assembly.progress.queued > 0}
                 fitRequest={fitRequest}
                 frameSelectedRequest={frameSelectedRequest}
                 onReady={rendererBecameReady}

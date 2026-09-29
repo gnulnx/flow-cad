@@ -379,3 +379,11 @@ The working tree may contain user or other-agent changes.
   needed. Never change unrelated training processes to improve a benchmark.
 - Preserve STEP authority, exact measurement, placement and color while optimizing
   display assets. A quicker preview must not silently reduce CAD accuracy.
+- Browser display resources use revision- and API-bound caches: 128 MiB of
+  downloaded bytes and 256 MiB of decoded geometry. Visible geometry holds leases;
+  inactive least-recently-used entries are disposed to meet the budget. Never
+  dispose a leased geometry on a component unmount or attach one shared geometry
+  as a mutable R3F primitive. Keep failures retryable.
+- Test actual hide/show, isolate/restore, revision changes and a fresh browser
+  after viewer lifetime changes. Hot reload can retain older hook/cache state;
+  passing metadata counts alone does not prove the geometry returned on screen.

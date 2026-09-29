@@ -21,6 +21,7 @@ interface NavigationControlsProps {
   visibleBounds: Bounds3 | null
   selectedBounds: Bounds3 | null
   fitRequest: number
+  fittingReady?: boolean
   frameSelectedRequest: number
   measureMode: boolean
 }
@@ -61,6 +62,7 @@ export function NavigationControls({
   visibleBounds,
   selectedBounds,
   fitRequest,
+  fittingReady = true,
   frameSelectedRequest,
   measureMode,
 }: NavigationControlsProps) {
@@ -70,7 +72,7 @@ export function NavigationControls({
   const modeRef = useRef(rotationMode)
   const measureModeRef = useRef(measureMode)
   const fitRequestRef = useRef(-1)
-  const frameRequestRef = useRef(-1)
+  const frameRequestRef = useRef(frameSelectedRequest)
 
   useEffect(() => {
     modeRef.current = rotationMode
@@ -88,12 +90,12 @@ export function NavigationControls({
     if (!(camera instanceof THREE.PerspectiveCamera)) return
     const bounds = pendingFrameBounds(fitRequestRef.current, fitRequest, visibleBounds)
     if (!bounds) return
-    fitRequestRef.current = fitRequest
+    if (fittingReady) fitRequestRef.current = fitRequest
     const frame = fitFrameToBounds(bounds, camera.fov)
     pivotRef.current.copy(frame.pivot)
     applyFrame(camera, frame)
     invalidate()
-  }, [camera, fitRequest, invalidate, visibleBounds])
+  }, [camera, fitRequest, fittingReady, invalidate, visibleBounds])
 
   useEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return

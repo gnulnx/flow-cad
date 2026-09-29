@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ArtifactState, WorkbenchOccurrence, WorkbenchPart } from '../../contracts'
-import { loadDisplayBytes, type DisplayBytes } from './displayScene'
+import { cachedDisplayBytes, loadDisplayBytes, type DisplayBytes } from './displayScene'
 import {
   nextAssemblyLoadBatch,
   partLoadStates,
@@ -60,7 +60,13 @@ export function useAssemblyDisplayQueue(
 
   useEffect(() => {
     const desired = new Set(plan.map((item) => item.key))
-    setBytes((current) => Object.fromEntries(Object.entries(current).filter(([key]) => desired.has(key))))
+    const restored = Object.fromEntries(plan.flatMap((item) => {
+      const cached = cachedDisplayBytes(item.part)
+      return cached ? [[item.key, cached]] : []
+    }))
+    setBytes((current) => ({
+      ...Object.fromEntries(Object.entries(current).filter(([key]) => desired.has(key))), ...restored,
+    }))
     const aborted: string[] = []
     for (const [key, controller] of controllersRef.current) {
       if (!desired.has(key)) {
@@ -75,13 +81,17 @@ export function useAssemblyDisplayQueue(
         const record = reset[key]
         if (record?.state === 'loading') reset[key] = { ...record, state: 'queued', error: null }
       })
-      return reconcileLoadRecords(reset, plan)
+      const next = reconcileLoadRecords(reset, plan)
+      for (const key of Object.keys(restored)) {
+        if (next[key]?.state === 'queued') next[key] = { ...next[key], state: 'downloaded', error: null }
+      }
+      return next
     })
   }, [planKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const batch = nextAssemblyLoadBatch(plan, records, concurrency)
-      .filter((item) => !controllersRef.current.has(item.key))
+      .filter((item) => !controllersRef.current.has(item.key) && !cachedDisplayBytes(item.part))
     if (batch.length === 0) return
     setRecords((current) => {
       const next = { ...current }
@@ -94,12 +104,12 @@ export function useAssemblyDisplayQueue(
     batch.forEach((item) => {
       const controller = new AbortController()
       controllersRef.current.set(item.key, controller)
-      loadDisplayBytes(item.part, controller.signal).then((artifactBytes) => {
+      loadDisplayBytes(item.part, controller.signal, item.priority === 0).then((artifactBytes) => {
         if (controller.signal.aborted) return
         setBytes((current) => ({ ...current, [item.key]: artifactBytes }))
         setRecords((current) => ({
           ...current,
-          [item.key]: { ...current[item.key], state: 'downloaded', error: null },
+          [item.key]: { ...current[item.key], state: current[item.key]?.state === 'visible' ? 'visible' : 'downloaded', error: null },
         }))
       }).catch((reason: unknown) => {
         if (controller.signal.aborted) return
@@ -112,7 +122,7 @@ export function useAssemblyDisplayQueue(
           },
         }))
       }).finally(() => {
-        controllersRef.current.delete(item.key)
+        if (controllersRef.current.get(item.key) === controller) controllersRef.current.delete(item.key)
       })
     })
   }, [concurrency, plan, records])
