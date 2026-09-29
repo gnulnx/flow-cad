@@ -26,8 +26,9 @@ export function delay(milliseconds: number, signal: AbortSignal): Promise<void> 
 export const displayBytesCache = new ResourceCache<DisplayBytes>(128 * 1024 * 1024)
 
 function displayCacheKey(part: WorkbenchPart) {
-  return JSON.stringify([part.displaySceneUrl, part.authorityHash, part.displaySceneVersion,
-    part.displayArtifact?.url, part.displayArtifact?.contentHash])
+  return part.displaySceneUrl && part.authorityHash
+    ? JSON.stringify(['scene', part.displaySceneUrl, part.authorityHash, part.displaySceneVersion])
+    : JSON.stringify(['mesh', part.displayArtifact?.url, part.displayArtifact?.contentHash])
 }
 
 export function cachedDisplayBytes(part: WorkbenchPart) {

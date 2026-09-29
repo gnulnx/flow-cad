@@ -14,7 +14,7 @@ export interface DisplayComponent {
 export async function parseDisplay(bytes: ArrayBuffer, format: 'stl' | 'glb'): Promise<DisplayComponent[]> {
   if (format === 'stl') {
     const geometry = new STLLoader().parse(bytes)
-    if (!geometry.getAttribute('normal')) geometry.computeVertexNormals()
+    geometry.computeVertexNormals()
     return [{ id: 'mesh', label: 'STL mesh', geometry, color: new THREE.Color('#7792a3'), opacity: 1 }]
   }
   const gltf = await new GLTFLoader().parseAsync(bytes, '')

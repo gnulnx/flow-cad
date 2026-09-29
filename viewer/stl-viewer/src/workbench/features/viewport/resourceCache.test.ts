@@ -75,4 +75,21 @@ describe('bounded display reuse', () => {
     const aborted = new AbortController(); aborted.abort()
     await expect(loadDisplayBytes(part, aborted.signal)).rejects.toThrow('Aborted')
   })
+  it('retains unchanged color assets across an unrelated project revision', async () => {
+    const part = { uuid: 'p', authorityHash: 'step1', displaySceneVersion: 2,
+      displaySceneUrl: 'http://one/parts/p/display-scene',
+      displayArtifact: { url: 'http://one/model?revision=1', contentHash: 'stl1' } } as WorkbenchPart
+    const fetcher = vi.fn().mockImplementation(async (url: string) => url.includes('/model')
+      ? { ok: true, arrayBuffer: async () => triangle() }
+      : { ok: true, json: async () => ({ status: 'ready', sha256: 'glb1' }) })
+    vi.stubGlobal('fetch', fetcher)
+    const signal = new AbortController().signal
+    const first = await loadDisplayBytes(part, signal)
+    const unchanged = { ...part, displayArtifact: { ...part.displayArtifact!, url: 'http://one/model?revision=2' } }
+    expect(await loadDisplayBytes(unchanged, signal)).toBe(first)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    await loadDisplayBytes({ ...unchanged, displaySceneVersion: 3 }, signal)
+    expect(fetcher).toHaveBeenCalledTimes(4)
+  })
+
 })
