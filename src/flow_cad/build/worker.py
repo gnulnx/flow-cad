@@ -193,6 +193,9 @@ def prepare_scoped_part_build(plan: ScopedPartBuildPlan, work_dir: Path, *, cont
                 f"{target.kind.upper()} exporter reported failure for {target.relative_path}"
             )
         _require_fresh_file(staged_path, target)
+        if target.kind == "step":
+            from flow_cad.step_io import normalize_generated_occurrence_ids
+            normalize_generated_occurrence_ids(staged_path)
         timings[f"export_{target.kind}"] = _elapsed_ms(phase_started)
         staged.append((target, staged_path))
         progress = 0.70 if target.kind == "step" else 0.82

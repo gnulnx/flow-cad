@@ -55,6 +55,11 @@ source hierarchy; some STEP exporter roundtrips lose moved assembly styles.
 Exact topology and measurements still use the indexed STEP artifact. Preview
 failure is reported independently of successful STEP/STL generation.
 
+Fresh STEP exports also remove the process-global offset from OCCT's generated
+assembly usage IDs. Repeating an unchanged assembly in a warm worker therefore
+keeps its artifact hash and viewer revision. This touches only generated ID
+strings, never geometry, entity references, labels or imported STEP files.
+
 ## Reproducing measurements
 
 Use the same inputs, CPU affinity, memory limits and browser/render backend for

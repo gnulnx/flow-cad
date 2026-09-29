@@ -68,6 +68,26 @@ def test_pool_reuses_process_and_invalidates_transitive_source(tmp_path):
         pool.close()
 
 
+def test_warm_assembly_build_preserves_artifact_identity_and_revision(tmp_path):
+    plan = fixture_plan(tmp_path,
+        "from build123d import Compound, Location\n"
+        "left = Box(4, 5, 6)\nleft.label = 'left'\n"
+        "right = Box(4, 5, 6).moved(Location((10, 0, 0)))\nright.label = 'right'\n"
+        "return Compound(label='assembly', children=[left, right])", stl=True)
+    pool = CadWorkerPool(plan.project_root,
+                         replace(default_flow_config(), cad=CadResources(workers=1)))
+    try:
+        first = run_scoped_part_build(plan, Context(), pool=pool)
+        pid = pool._workers[0].process.pid
+        second = run_scoped_part_build(plan, Context(), pool=pool)
+        assert pool._workers[0].process.pid == pid
+        assert second['artifacts'] == first['artifacts']
+        assert second['artifact_changed'] is False
+        assert second['viewer_revision'] == first['viewer_revision']
+    finally:
+        pool.close()
+
+
 def test_cancellation_kills_busy_worker_preserves_outputs_and_recovers(tmp_path):
     plan = fixture_plan(tmp_path, "Path('entered').write_text(str(os.getpid()))\ntime.sleep(30)\nreturn Box(4, 5, 6)")
     destination = plan.artifacts[0].destination

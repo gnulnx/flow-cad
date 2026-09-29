@@ -404,3 +404,7 @@ The working tree may contain user or other-agent changes.
 - Keep `tests/build` in default pytest collection. Pytest's stock recursion
   exclusions include every directory named `build`; the explicit config override
   is required so worker/build tests run in CI without a focused path argument.
+- Warm OCCT exports advance a process-global assembly usage ID counter. Normalize
+  that offset only on freshly generated STEP exports before hashing; never rewrite
+  imported or frozen STEP. Test repeated assemblies, not just single solids, for
+  identical artifacts and unchanged viewer revisions in a reused worker.
