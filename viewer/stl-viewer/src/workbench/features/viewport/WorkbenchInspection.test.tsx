@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 import { expect, it, vi } from 'vitest'
@@ -22,7 +22,8 @@ vi.mock('./ModelCanvas', () => ({ default: function Canvas(props: ComponentProps
   fixture.canvas = props
   useEffect(() => props.onComponentsChange(fixture.components), [props.onComponentsChange])
   return <div>{fixture.components.filter((component) => !props.hiddenComponentKeys.has(component.key)).map((component) => (
-    <button key={component.key} onClick={() => { props.onSelectPart?.(component.partUuid); props.onComponentSelected(component.key) }}>Geometry {component.label}</button>
+    <button key={component.key} onClick={() => { props.onSelectPart?.(component.partUuid); props.onComponentSelected(component.key) }}
+      onContextMenu={(event) => { event.preventDefault(); props.onComponentContextMenu?.({ key: component.key, clientX: 200, clientY: 200 }) }}>Geometry {component.label}</button>
   ))}</div>
 } }))
 
@@ -43,6 +44,13 @@ it('connects mesh clicks, peel mode, hidden list recovery and shortcuts without 
   render(<WorkbenchViewport client={client} parts={[part]} part={part} visiblePartUuids={['view']}
     backendRevision={1} onSelectPart={onSelectPart} onAssemblyStateChange={onAssemblyStateChange} />)
   await screen.findByRole('button', { name: 'Geometry Cover' })
+  fireEvent.contextMenu(screen.getByRole('button', { name: 'Geometry Cover' }))
+  expect(screen.getByRole('menu', { name: 'Part actions' })).toBeVisible()
+  await user.click(screen.getByRole('menuitem', { name: /Hide part/ }))
+  expect(screen.queryByRole('button', { name: 'Geometry Cover' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Undo' }))
+  expect(screen.getByRole('button', { name: 'Geometry Cover' })).toBeVisible()
   await user.click(screen.getByRole('button', { name: 'Click to hide' }))
   await user.click(screen.getByRole('button', { name: 'Geometry Cover' }))
   expect(screen.queryByRole('button', { name: 'Geometry Cover' })).not.toBeInTheDocument()

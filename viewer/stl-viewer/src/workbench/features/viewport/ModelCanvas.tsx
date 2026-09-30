@@ -1,5 +1,5 @@
 import { Canvas, useThree } from '@react-three/fiber'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { isSelectionClick } from './displayScene'
 import { acquireDisplay, type DisplayComponent } from './displayGeometry'
@@ -17,6 +17,7 @@ import type { RotationMode } from './navigation'
 import { groundGridPosition } from './navigation'
 import type { LoadedAssemblyPart } from './useAssemblyDisplayQueue'
 import type { SceneComponent } from './componentInspection'
+import { listenForContextClick, pickContextComponent, type ComponentContextRequest } from './componentContext'
 
 interface ModelCanvasProps {
   models: LoadedAssemblyPart[]
@@ -26,6 +27,7 @@ interface ModelCanvasProps {
   hiddenComponentKeys: ReadonlySet<string>
   onComponentSelected(key: string | null): void
   onComponentsChange(components: SceneComponent[]): void
+  onComponentContextMenu?(request: ComponentContextRequest): void
   rotationMode: RotationMode
   fitRequest: number
   frameSelectedRequest: number
@@ -83,6 +85,21 @@ function geometryBounds(geometry: THREE.BufferGeometry): Bounds3 {
   }
 }
 
+function ComponentContextBridge({ components, onOpen }: { components: SceneComponent[]; onOpen?(request: ComponentContextRequest): void }) {
+  const { camera, scene, gl } = useThree()
+  const latest = useRef({ components, onOpen })
+  latest.current = { components, onOpen }
+  useEffect(() => {
+    return listenForContextClick(gl.domElement, (clientX, clientY) => {
+      const current = latest.current
+      if (!current.onOpen) return
+      const keys = new Set(current.components.map((component) => component.key))
+      current.onOpen({ key: pickContextComponent(scene, camera, gl.domElement.getBoundingClientRect(), clientX, clientY, keys), clientX, clientY })
+    })
+  }, [camera, scene, gl.domElement])
+  return null
+}
+
 export default function ModelCanvas({
   models,
   selectedPartUuid,
@@ -91,6 +108,7 @@ export default function ModelCanvas({
   selectedComponentKey,
   hiddenComponentKeys,
   onComponentsChange,
+  onComponentContextMenu,
   rotationMode,
   fitRequest,
   frameSelectedRequest,
@@ -148,7 +166,7 @@ export default function ModelCanvas({
       frameloop="demand"
       dpr={[1, 2]}
       gl={{ preserveDrawingBuffer: true }}
-      onPointerMissed={() => { if (!measureMode) onComponentSelected(null) }}
+      onPointerMissed={(event) => { if (!measureMode && event.button === 0) onComponentSelected(null) }}
     >
       <color attach="background" args={['#10161d']} />
       <hemisphereLight args={['#d3dde6', '#090c16', 1.62]} position={[0, 0, 1000]} />
@@ -191,6 +209,7 @@ export default function ModelCanvas({
         measureMode={measureMode}
       />
       <LiveViewportBridge register={registerLiveViewport} />
+      <ComponentContextBridge components={visibleComponents} onOpen={measureMode ? undefined : onComponentContextMenu} />
       <MeasurementProjectionBridge register={registerMeasurementProjection} />
       <ApproximateMeasurementBridge selected={approximateSelection} register={registerApproximateMeasurementSource} />
     </Canvas>

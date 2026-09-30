@@ -4,6 +4,11 @@ Open a saved view or an assembly in the normal workbench. Its individual display
 components are selectable immediately; they do not need separate catalog builds.
 
 - **Click a part**, then **Hide** or **Isolate** in the inspection toolbar.
+- **Right-click a part** for **Hide part**, **Isolate part**, and **Frame part**
+  beside the pointer. The menu also has **Undo visibility** and **Show all**.
+  Right-click empty space for those recovery actions, including when everything
+  is hidden. Right-drag still pans; releasing after a drag does not open a menu.
+  Escape or an outside click dismisses it. Arrow keys navigate the menu.
 - Turn on **Click to hide** to peel away covers with successive clicks. Dragging
   still rotates the view. Press **Escape** to leave this mode.
 - **Parts in view** opens a searchable list of the loaded components. Select a

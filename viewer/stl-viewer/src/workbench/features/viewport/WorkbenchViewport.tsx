@@ -23,6 +23,8 @@ import { useMeasurementGesture } from '../measurement/useMeasurementGesture'
 import { useExactFeatures } from '../measurement/useExactFeatures'
 import { planAssemblyLoads, transformExactFeature } from './assembly'
 import { ComponentInspector } from './ComponentInspector'
+import { ComponentContextMenu, type ContextAction } from './ComponentContextMenu'
+import type { ComponentContextRequest } from './componentContext'
 import { inspectionShortcut, type SceneComponent } from './componentInspection'
 import { useComponentInspection } from './useComponentInspection'
 import type { RotationMode } from './navigation'
@@ -88,6 +90,8 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   const [components, setComponents] = useState<SceneComponent[]>([])
   const [peel, setPeel] = useState(false)
   const [annotationActive, setAnnotationActive] = useState(false)
+  const [contextMenu, setContextMenu] = useState<(ComponentContextRequest & { scope: string }) | null>(null)
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -117,6 +121,21 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   const inspection = useComponentInspection(components, inspectionScope)
   const { dispatch: inspect, select: selectComponent, hiddenKeys, selected: selectedComponent } = inspection
   const inspectionDisabled = measureMode || annotationActive
+  const openContextMenu = useCallback((request: ComponentContextRequest) => {
+    if (inspectionDisabled) return
+    const component = components.find((item) => item.key === request.key)
+    if (component) onSelectPart?.(component.partUuid)
+    selectComponent(component?.key ?? null)
+    setContextMenu({ ...request, key: component?.key ?? null, scope: inspectionScope })
+  }, [inspectionDisabled, components, onSelectPart, selectComponent, inspectionScope])
+  const contextComponent = components.find((item) => item.key === contextMenu?.key)
+  const contextAction = (action: ContextAction) => {
+    if (action === 'hide' || action === 'isolate') {
+      if (contextComponent) inspect({ type: action, key: contextComponent.key })
+    } else if (action === 'frame') setFrameSelectedRequest((request) => request + 1)
+    else inspect({ type: action })
+  }
+  useEffect(closeContextMenu, [closeContextMenu, inspectionScope, inspectionDisabled])
   const visibleComponents = useMemo(() => components.filter((component) => !hiddenKeys.has(component.key)), [components, hiddenKeys])
   const visibleOccurrenceIds = useMemo(() => [...new Set(visibleComponents.map((component) => component.occurrenceId))], [visibleComponents])
   const selectedPartHasHiddenComponents = components.some((component) => component.partUuid === part?.uuid && hiddenKeys.has(component.key))
@@ -374,6 +393,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
                 selectedComponentKey={selectedComponent?.key ?? null}
                 hiddenComponentKeys={hiddenKeys}
                 onComponentsChange={setComponents}
+                onComponentContextMenu={inspectionDisabled ? undefined : openContextMenu}
                 rotationMode={rotationMode}
                 assemblyLoading={assembly.progress.loading > 0 || assembly.progress.queued > 0}
                 fitRequest={fitRequest}
@@ -416,6 +436,10 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
             <span>{rendererError}</span>
           </div>
         ) : null}
+        {contextMenu && contextMenu.scope === inspectionScope && !inspectionDisabled ? <ComponentContextMenu
+          clientX={contextMenu.clientX} clientY={contextMenu.clientY} label={contextComponent?.label ?? null}
+          canUndo={inspection.state.history.length > 0} hasHidden={hiddenKeys.size > 0 || inspection.state.isolated !== null}
+          onAction={contextAction} onClose={closeContextMenu} /> : null}
         <div className="viewport-progress" data-state={displayState}>
           <span className={`artifact-state artifact-state--${displayState === 'ready' || displayState === 'partial' ? 'visible' : displayState}`} />
           <span>{assemblyProgressLabel(assembly.progress)}</span>
