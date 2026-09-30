@@ -10,7 +10,8 @@ from pathlib import Path
 
 from flow_cad.measurement.service import ExactFeatureService
 
-SCENE_VERSION = 2
+# v3 discards direct previews written with sRGB factors by build123d 0.13.
+SCENE_VERSION = 3
 
 
 class DisplaySceneService:

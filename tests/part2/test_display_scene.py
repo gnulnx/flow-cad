@@ -11,12 +11,12 @@ from flow_cad.viewer.scene_export import export_scene
 from test_exact_measurement_api import _step_project, PART_UUID
 
 
-def linear_color(red, green, blue):
+def linear_color(red, green, blue, alpha=1.0):
     from build123d import Color
     from OCP.Quantity import Quantity_ColorRGBA
     # glTF factors and the assertions below use linear RGB. build123d 0.13
     # interprets bare Color(r, g, b) inputs as sRGB; 0.10 treated them as linear.
-    return Color(Quantity_ColorRGBA(red, green, blue, 1.0))
+    return Color(Quantity_ColorRGBA(red, green, blue, alpha))
 
 
 def glb_document(path):
@@ -60,7 +60,7 @@ def test_scene_api_jobs_cache_and_revision_guard(tmp_path):
     endpoint = f'/api/parts/{PART_UUID}/display-scene'
     params = {'artifact_revision': revision}
     with TestClient(app) as client:
-        assert client.get('/api/project').json()['display_scene_version'] == 2
+        assert client.get('/api/project').json()['display_scene_version'] == 3
         response = client.get(endpoint, params=params)
         assert response.json() == {'status': 'job_required'}
         assert not (root/'.flow/cache/display-scenes').exists()
@@ -113,14 +113,15 @@ def test_capture_tools_use_project_storage_without_legacy_loader(monkeypatch, tm
             module.agent_screen_service(str(tmp_path/'outside'))
 
 
-def test_build_preview_preserves_source_colors_and_step_placements_without_reimport(tmp_path, monkeypatch):
+@pytest.mark.parametrize('rgba', [(.1, .4, .8, 1), (.002, .04, .8, .35)])
+def test_build_preview_preserves_source_colors_and_step_placements_without_reimport(tmp_path, monkeypatch, rgba):
     from build123d import Box, Compound, Location, export_step
     from flow_cad.viewer.scene_export import export_shape_scene
     import flow_cad.viewer.step_components as reader
     leaf = Box(10,20,30).solid()
     leaf.label = 'leaf'
     parent = Compound(label='blue subassembly', children=[leaf.moved(Location((40,0,0))), leaf.moved(Location((-40,0,0)))])
-    parent.color = linear_color(.1,.4,.8)
+    parent.color = linear_color(*rgba)
     root = Compound(children=[parent.moved(Location((100,30,20),(0,0,35)))])
     step, imported, direct = tmp_path/'part.step', tmp_path/'imported.glb', tmp_path/'direct.glb'
     export_step(root,step)
@@ -134,9 +135,36 @@ def test_build_preview_preserves_source_colors_and_step_placements_without_reimp
     assert [n['extras']['componentId'] for n in a['nodes']] == [n['extras']['componentId'] for n in b['nodes']]
     # Some STEP exporters lose a moved assembly's inherited style. Direct
     # previews preserve the source color while matching the exact STEP placement.
-    assert b['materials'][0]['pbrMetallicRoughness']['baseColorFactor'] == pytest.approx([.1,.4,.8,1], abs=1e-6)
+    material = b['materials'][0]
+    assert material['pbrMetallicRoughness']['baseColorFactor'] == pytest.approx(rgba, abs=1e-6)
+    assert material.get('alphaMode', 'OPAQUE') == ('BLEND' if rgba[3] < 1 else 'OPAQUE')
     for ma,mb in zip(a['meshes'],b['meshes']):
         aa = a['accessors'][ma['primitives'][0]['attributes']['POSITION']]
         bb = b['accessors'][mb['primitives'][0]['attributes']['POSITION']]
         assert aa['min'] == pytest.approx(bb['min'],abs=1e-6)
         assert aa['max'] == pytest.approx(bb['max'],abs=1e-6)
+
+
+def test_scene_cache_rejects_pre_linear_color_fix_previews(tmp_path):
+    from flow_cad.viewer.services.scenes import DisplaySceneService
+
+    root, step, revision = _step_project(tmp_path)
+    service = DisplaySceneService(root)
+    binding, _ = service.lookup(PART_UUID, revision)
+    output = tmp_path / 'scene.glb'
+    stats = export_scene(step, output)
+    service.publish(binding, output, stats)
+    assert service.lookup(PART_UUID, revision)[1] is not None
+
+    # Old metadata must be rejected even if copied into the current cache.
+    _, metadata = service.paths(revision)
+    payload = json.loads(metadata.read_text())
+    payload['version'] = 2
+    metadata.write_text(json.dumps(payload))
+    assert service.lookup(PART_UUID, revision)[1] is None
+
+    # Existing v2 files remain untouched and cannot satisfy a v3 lookup.
+    previous_cache = service.cache.parent / 'v2'
+    service.cache.rename(previous_cache)
+    assert service.lookup(PART_UUID, revision)[1] is None
+    assert (previous_cache / f'{revision}.glb').is_file()

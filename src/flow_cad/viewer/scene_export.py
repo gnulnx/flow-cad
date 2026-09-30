@@ -27,7 +27,13 @@ def export_shape_scene(shape, output: Path) -> dict:
             for index, child in enumerate(item.children, 1):
                 yield from visit(child, location, f'{key}/{index}', color)
         else:
-            yield key, item.label, color, Compound.cast(item.wrapped.Located(location.wrapped))
+            rgba = None
+            if color is not None:
+                # glTF factors use linear RGB. Color iteration returns sRGB in
+                # build123d 0.13; read OCCT's linear channels, as STEP import does.
+                rgb = color.wrapped.GetRGB()
+                rgba = rgb.Red(), rgb.Green(), rgb.Blue(), color.wrapped.Alpha()
+            yield key, item.label, rgba, Compound.cast(item.wrapped.Located(location.wrapped))
     return export_components(visit(shape, Location(), '1'), output)
 
 
@@ -74,7 +80,7 @@ def export_components(components, output: Path) -> dict:
         add_component(*component)
     if not nodes:
         raise ValueError("STEP contains no tessellatable components")
-    document = {"asset": {"version": "2.0", "generator": "Flow CAD STEP display v2"},
+    document = {"asset": {"version": "2.0", "generator": "Flow CAD STEP display v3"},
                 "scene": 0, "scenes": [{"nodes": list(range(len(nodes)))}],
                 "nodes": nodes, "meshes": meshes, "materials": materials,
                 "buffers": [{"byteLength": len(binary)}], "bufferViews": views, "accessors": accessors}
