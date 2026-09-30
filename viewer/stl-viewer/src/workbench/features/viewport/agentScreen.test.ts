@@ -35,6 +35,7 @@ describe('live agent-screen capture payload', () => {
         fov: 42,
       },
     }, part, 9, {
+      componentVisibility: { visible: ['guard-shell'], hidden: ['guard-cap'], selected: 'guard-shell' },
       visibleOccurrenceIds: ['guard-main', 'chassis-main'],
       renderedParts: [part, {
         ...part,
@@ -59,7 +60,8 @@ describe('live agent-screen capture payload', () => {
         { part_uuid: 'chassis-uuid', content_hash: 'chassis-stl-sha', revision: 9 },
       ],
       viewport: { render_context: 'viewport-canvas', camera: { up: [0, 0, 1] } },
-      metadata: { render_context: 'viewport-canvas', capture_source: 'live-browser-workbench', annotation_overlay: false },
+      metadata: { render_context: 'viewport-canvas', capture_source: 'live-browser-workbench', annotation_overlay: false,
+        component_visibility: { visible: ['guard-shell'], hidden: ['guard-cap'], selected: 'guard-shell' } },
     })
   })
 

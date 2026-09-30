@@ -5,6 +5,7 @@ import { formatMm, isMeasurementStale, type MeasurementMode, type MeasurementPla
 export type MeasurementToolState = ExactFeatureLoadState
   | { status: 'approximate'; targetCount: number }
   | { status: 'mesh-loading' }
+  | { status: 'visibility-limited' }
 
 interface MeasurementToolButtonProps {
   active: boolean
@@ -23,7 +24,8 @@ export function MeasurementToolButton({ active, state, onToggle }: MeasurementTo
     return () => window.removeEventListener('keydown', keyDown)
   }, [onToggle])
 
-  const status = state.status === 'ready'
+  const status = state.status === 'visibility-limited' ? 'Show all parts in this view to restore exact snapping'
+    : state.status === 'ready'
     ? `${state.featureSet.features.length} exact targets`
     : state.status === 'approximate' ? `${state.targetCount} bounded approximate mesh targets`
       : state.status === 'mesh-loading' ? 'Preparing approximate mesh targets'
@@ -229,6 +231,7 @@ function measurementStatus(state: MeasurementToolState, start: SnapCandidate | n
   if (state.status === 'extracting') return 'Extracting STEP topology in a cancellable job…'
   if (state.status === 'loading') return 'Checking revision-bound exact targets…'
   if (state.status === 'failed') return state.error
+  if (state.status === 'visibility-limited') return 'Exit Measure and use Show all to restore exact snapping for this view.'
   return 'Select a visible STEP-backed part'
 }
 

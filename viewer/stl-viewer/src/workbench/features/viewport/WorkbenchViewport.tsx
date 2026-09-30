@@ -21,7 +21,10 @@ import {
 import { DimensionsPanel, type DisplayBounds } from '../measurement/DimensionsPanel'
 import { useMeasurementGesture } from '../measurement/useMeasurementGesture'
 import { useExactFeatures } from '../measurement/useExactFeatures'
-import { transformExactFeature } from './assembly'
+import { planAssemblyLoads, transformExactFeature } from './assembly'
+import { ComponentInspector } from './ComponentInspector'
+import { inspectionShortcut, type SceneComponent } from './componentInspection'
+import { useComponentInspection } from './useComponentInspection'
 import type { RotationMode } from './navigation'
 import { useAgentScreenCapture, type LiveCanvasCaptureMetadata, type LiveViewportSource } from './agentScreen'
 import { useAssemblyDisplayQueue } from './useAssemblyDisplayQueue'
@@ -82,7 +85,9 @@ interface WorkbenchViewportProps {
 }
 
 export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visiblePartUuids = null, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null, fitAssemblyRequest = 0 }: WorkbenchViewportProps) {
-  const [selectedComponent, setSelectedComponent] = useState<string | null>(null)
+  const [components, setComponents] = useState<SceneComponent[]>([])
+  const [peel, setPeel] = useState(false)
+  const [annotationActive, setAnnotationActive] = useState(false)
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
@@ -106,6 +111,44 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   const assembly = useAssemblyDisplayQueue(parts, activeAssemblyId, part?.uuid ?? null, visiblePartUuids)
   const selectedArtifactRevision = part?.authorityHash ?? part?.displayArtifact?.contentHash ?? null
   const modelSetKey = assembly.models.map((model) => model.key).join('|')
+  const inspectionScope = useMemo(() => JSON.stringify(planAssemblyLoads(parts, activeAssemblyId, part?.uuid ?? null, visiblePartUuids)
+    .map((model) => [model.key, model.occurrences]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))),
+  [parts, activeAssemblyId, part?.uuid, visiblePartUuids])
+  const inspection = useComponentInspection(components, inspectionScope)
+  const { dispatch: inspect, select: selectComponent, hiddenKeys, selected: selectedComponent } = inspection
+  const inspectionDisabled = measureMode || annotationActive
+  const visibleComponents = useMemo(() => components.filter((component) => !hiddenKeys.has(component.key)), [components, hiddenKeys])
+  const visibleOccurrenceIds = useMemo(() => [...new Set(visibleComponents.map((component) => component.occurrenceId))], [visibleComponents])
+  const selectedPartHasHiddenComponents = components.some((component) => component.partUuid === part?.uuid && hiddenKeys.has(component.key))
+  const exactVisibilityLimited = part?.geometryAuthority === 'step' && selectedPartHasHiddenComponents
+  const componentClicked = useCallback((key: string | null) => {
+    if (inspectionDisabled) return
+    selectComponent(key)
+    if (peel && key) inspect({ type: 'hide', key })
+  }, [inspectionDisabled, selectComponent, peel, inspect])
+  const selectListedComponent = (component: SceneComponent) => {
+    onSelectPart?.(component.partUuid)
+    selectComponent(component.key)
+  }
+  useEffect(() => { setPeel(false) }, [inspectionScope, inspectionDisabled])
+  useEffect(() => {
+    if (!assembly.models.length) setComponents([])
+  }, [assembly.models.length])
+  useEffect(() => {
+    const keyDown = (event: KeyboardEvent) => {
+      if (inspectionDisabled || event.repeat) return
+      if (event.key === 'Escape') { setPeel(false); return }
+      const action = inspectionShortcut(event)
+      if (!action) return
+      if (action === 'hide' || action === 'isolate') {
+        if (!selectedComponent) return
+        inspect({ type: action, key: selectedComponent.key })
+      } else inspect({ type: action })
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', keyDown)
+    return () => window.removeEventListener('keydown', keyDown)
+  }, [inspectionDisabled, inspect, selectedComponent])
   const displayState: ModelLoadState = rendererError
     ? 'failed'
     : assembly.progress.visible === assembly.progress.total && assembly.progress.total > 0
@@ -121,7 +164,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
     client,
     part?.uuid ?? null,
     part?.authorityHash ?? null,
-    measureMode && assembly.partStates[part?.uuid ?? ''] === 'visible' && part?.geometryAuthority === 'step',
+    measureMode && !exactVisibilityLimited && assembly.partStates[part?.uuid ?? ''] === 'visible' && part?.geometryAuthority === 'step',
   )
   const transformedExactFeatures = useMemo(() => exactFeatures.status === 'ready' && assembly.selectedOccurrence
     ? {
@@ -136,7 +179,9 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
     && approximateSource.artifactRevision === selectedArtifactRevision
     ? approximateSource
     : null
-  const measurementToolState: MeasurementToolState = part?.geometryAuthority === 'mesh'
+  const measurementToolState: MeasurementToolState = exactVisibilityLimited
+    ? { status: 'visibility-limited' }
+    : part?.geometryAuthority === 'mesh'
     ? selectedApproximateSource
       ? { status: 'approximate', targetCount: selectedApproximateSource.features.length }
       : { status: 'mesh-loading' }
@@ -155,7 +200,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   const annotationsChanged = useCallback((marks: AnnotationMark[], hidden: boolean) => {
     setAnnotationSnapshot({ marks, hidden })
   }, [])
-  const annotationModeChanged = useCallback((active: boolean) => { if (active) setMeasureMode(false) }, [])
+  const annotationModeChanged = useCallback((active: boolean) => { setAnnotationActive(active); if (active) setMeasureMode(false) }, [])
   const liveCaptureCompleted = useCallback((metadata: LiveCanvasCaptureMetadata) => setLatestCapture(metadata), [])
   const getLiveViewport = useCallback(() => liveViewportRef.current?.() ?? null, [])
   const getAnnotationOverlay = useCallback(() => annotationOverlayRef.current, [])
@@ -165,8 +210,9 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
     part,
     backendRevision,
     getAnnotationOverlay,
-    visibleOccurrenceIds: assembly.visibleOccurrenceIds,
-    renderedParts: assembly.models.map((model) => model.part),
+    visibleOccurrenceIds,
+    renderedParts: assembly.models.filter((model) => visibleComponents.some((component) => component.modelKey === model.key)).map((model) => model.part),
+    componentVisibility: { visible: visibleComponents.map((component) => component.key), hidden: [...hiddenKeys], selected: selectedComponent?.key ?? null },
     onCaptured: liveCaptureCompleted,
   })
   useViewportContextEmitter({
@@ -188,16 +234,19 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   useEffect(() => setRendererError(null), [modelSetKey])
 
   useEffect(() => {
-    if (fitAssemblyRequest > 0) setFitRequest((request) => request + 1)
-  }, [fitAssemblyRequest])
+    if (fitAssemblyRequest > 0) {
+      inspect({ type: 'show-all' })
+      setFitRequest((request) => request + 1)
+    }
+  }, [fitAssemblyRequest, inspect])
 
   useEffect(() => {
     onAssemblyStateChange?.({
       partStates: assembly.partStates,
-      visibleOccurrenceIds: assembly.visibleOccurrenceIds,
+      visibleOccurrenceIds,
       artifactHashes: assembly.artifactHashes,
     })
-  }, [assembly.artifactHashes, assembly.partStates, assembly.visibleOccurrenceIds, onAssemblyStateChange])
+  }, [assembly.artifactHashes, assembly.partStates, visibleOccurrenceIds, onAssemblyStateChange])
 
   useEffect(() => {
     onMeasurementsChange?.(measurements)
@@ -214,7 +263,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   const exitMeasureMode = useCallback(() => setMeasureMode(false), [])
   const snapAtPointer = useCallback((x: number, y: number, start: SnapCandidate | null) => {
     const source = measurementProjectionRef.current
-    if (!measureMode || !source) return null
+    if (!measureMode || !source || exactVisibilityLimited) return null
     const projector = source.createProjector()
     const features = transformedExactFeatures.status === 'ready'
       ? transformedExactFeatures.featureSet.features : selectedApproximateSource?.features ?? []
@@ -228,7 +277,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
       return anchor ? source.pickPlanePoint?.(x, y, freePlane, anchor) ?? null : null
     }
     return selectedApproximateSource?.pickFreePoint(x, y) ?? null
-  }, [measureMode, transformedExactFeatures, selectedApproximateSource, measurementMode, snapFilter, freePlane, displayBounds, part?.uuid])
+  }, [measureMode, exactVisibilityLimited, transformedExactFeatures, selectedApproximateSource, measurementMode, snapFilter, freePlane, displayBounds, part?.uuid])
 
   const commitMeasurement = useCallback((start: SnapCandidate, end: SnapCandidate, mode: MeasurementMode) => {
     if (!part || !selectedArtifactRevision) return
@@ -262,10 +311,10 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
       source,
       part,
       artifactRevision: selectedArtifactRevision,
-      visibleOccurrenceIds: assembly.visibleOccurrenceIds,
+      visibleOccurrenceIds,
       backendRevision,
     }))
-  }, [assembly.visibleOccurrenceIds, backendRevision, part, selectedArtifactRevision, threadId])
+  }, [visibleOccurrenceIds, backendRevision, part, selectedArtifactRevision, threadId])
 
   return (
     <section className="viewport-panel" aria-labelledby="viewport-title">
@@ -297,9 +346,11 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
           <MeasurementToolButton active={measureMode} state={measurementToolState} onToggle={toggleMeasureMode} />
         </div>
       </div>
+      <ComponentInspector components={components} inspection={inspection} peel={peel} disabled={inspectionDisabled}
+        onPeel={setPeel} onSelect={selectListedComponent} onFrame={() => setFrameSelectedRequest((request) => request + 1)} />
       <div
         ref={stageRef}
-        className={`viewport-stage${measureMode ? ' viewport-stage--measuring' : ''}`}
+        className={`viewport-stage${measureMode ? ' viewport-stage--measuring' : ''}${peel ? ' viewport-stage--peeling' : ''}`}
         onPointerDown={gesture.onPointerDown}
         onPointerMove={gesture.onPointerMove}
         onPointerUp={gesture.onPointerUp}
@@ -319,7 +370,10 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
                 models={assembly.models}
                 selectedPartUuid={part?.uuid ?? null}
                 onSelectPart={onSelectPart}
-                onComponentSelected={setSelectedComponent}
+                onComponentSelected={componentClicked}
+                selectedComponentKey={selectedComponent?.key ?? null}
+                hiddenComponentKeys={hiddenKeys}
+                onComponentsChange={setComponents}
                 rotationMode={rotationMode}
                 assemblyLoading={assembly.progress.loading > 0 || assembly.progress.queued > 0}
                 fitRequest={fitRequest}
@@ -368,7 +422,6 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
           {assembly.progress.total > 0 ? <progress value={assembly.progress.visible + assembly.progress.failed} max={assembly.progress.total} aria-label="Assembly loading progress" /> : null}
         </div>
         {assembly.models.some((model) => model.displayWarning) ? <div className="display-color-warning" role="status">{assembly.models.find((model) => model.displayWarning)?.displayWarning}</div> : null}
-        {selectedComponent ? <div className="component-selection" role="status">Selected: {selectedComponent}</div> : null}
         <div className="navigation-hint">{measureMode ? 'Left select / drag measure · Right / middle pan · Wheel dolly · Esc cancel' : 'Click select · Drag rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
         {dimensionsOpen ? <DimensionsPanel
           bounds={dimensionScope === 'visible' ? displayBounds.visible : displayBounds.selectedPartUuid === part?.uuid ? displayBounds.selected : null}
@@ -414,7 +467,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
 
 function assemblyProgressLabel(progress: { total: number; queued: number; loading: number; visible: number; failed: number }): string {
   if (progress.total === 0) return 'Viewport ready'
-  if (progress.visible === progress.total) return `${progress.visible} of ${progress.total} assembly parts visible`
+  if (progress.visible === progress.total) return `${progress.visible} of ${progress.total} display artifacts loaded`
   const activity = [
     progress.loading ? `${progress.loading} loading` : '',
     progress.queued ? `${progress.queued} queued` : '',
