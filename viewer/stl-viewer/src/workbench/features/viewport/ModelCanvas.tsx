@@ -162,10 +162,13 @@ export default function ModelCanvas({
 
   return (
     <Canvas
+      key="logarithmic-depth"
       camera={{ position: [140, 110, 140], fov: 42, near: 0.1, far: 100000, up: [0, 0, 1] }}
       frameloop="demand"
       dpr={[1, 2]}
-      gl={{ preserveDrawingBuffer: true }}
+      // Keep sub-millimetre CAD layers distinct across whole-assembly zoom levels.
+      // The key also recreates existing renderers when this constructor option changes.
+      gl={{ preserveDrawingBuffer: true, logarithmicDepthBuffer: true }}
       onPointerMissed={(event) => { if (!measureMode && event.button === 0) onComponentSelected(null) }}
     >
       <color attach="background" args={['#10161d']} />
