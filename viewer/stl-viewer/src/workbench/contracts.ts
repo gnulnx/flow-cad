@@ -32,6 +32,8 @@ export interface WorkbenchPart {
   uuid: string
   key: string
   aliases: string[]
+  category?: 'make' | 'purchased' | 'hardware' | 'view' | 'reference' | null
+  displayName?: string | null
   family?: string | null
   material?: string | null
   role: 'printable' | 'reference' | 'inspection' | 'legacy'

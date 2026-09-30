@@ -1,3 +1,4 @@
+import { ResourceCache } from './resourceCache'
 import type { WorkbenchPart } from '../../contracts'
 
 export interface DisplayBytes {
@@ -22,7 +23,32 @@ export function delay(milliseconds: number, signal: AbortSignal): Promise<void> 
   })
 }
 
-export async function loadDisplayBytes(part: WorkbenchPart, signal: AbortSignal): Promise<DisplayBytes> {
+export const displayBytesCache = new ResourceCache<DisplayBytes>(128 * 1024 * 1024)
+
+function displayCacheKey(part: WorkbenchPart) {
+  return part.displaySceneUrl && part.authorityHash
+    ? JSON.stringify(['scene', part.displaySceneUrl, part.authorityHash, part.displaySceneVersion])
+    : JSON.stringify(['mesh', part.displayArtifact?.url, part.displayArtifact?.contentHash])
+}
+
+export function cachedDisplayBytes(part: WorkbenchPart) {
+  return displayBytesCache.get(displayCacheKey(part))
+}
+
+export async function loadDisplayBytes(part: WorkbenchPart, signal: AbortSignal, selected = false): Promise<DisplayBytes> {
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  const key = displayCacheKey(part)
+  const cached = displayBytesCache.get(key)
+  if (cached) return cached
+  const loaded = await fetchDisplayBytes(part, signal, selected)
+  // Failed color conversion must be retryable; aborted callers cannot publish.
+  if (!signal.aborted && !loaded.warning && !displayBytesCache.get(key)) {
+    displayBytesCache.put(key, loaded, loaded.artifactBytes.byteLength)
+  }
+  return loaded
+}
+
+async function fetchDisplayBytes(part: WorkbenchPart, signal: AbortSignal, selected = false): Promise<DisplayBytes> {
   let warning: string | null = null
   if (part.displaySceneUrl && part.authorityHash) {
     const base = part.displaySceneUrl
@@ -30,7 +56,7 @@ export async function loadDisplayBytes(part: WorkbenchPart, signal: AbortSignal)
     try {
       let scene = await json(base + query, signal)
       if (scene.status !== 'ready') {
-        const queued = await json(base + '/jobs' + query, signal, 'POST')
+        const queued = await json(base + '/jobs' + query + (selected ? '&selected=true' : ''), signal, 'POST')
         if (queued.status === 'ready') scene = queued
         else {
           const jobUrl = new URL(queued.job_url, base).href

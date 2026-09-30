@@ -12,7 +12,7 @@ from .measurement_routes import _http_error
 
 
 def create_scene_router(root: Path, job_service: JobService):
-    service = DisplaySceneService(root)
+    service = DisplaySceneService(root, job_service.cad_pool)
     router = APIRouter(prefix="/api/parts", tags=["display scenes"])
     active = {}
     submission_lock = threading.Lock()
@@ -37,7 +37,7 @@ def create_scene_router(root: Path, job_service: JobService):
                             headers={"Cache-Control": "no-cache", "ETag": f'"{payload["sha256"]}"'})
 
     @router.post("/{part_uuid}/display-scene/jobs")
-    def queue(part_uuid: str, artifact_revision: str):
+    def queue(part_uuid: str, artifact_revision: str, selected: bool = False):
         binding, payload = lookup(part_uuid, artifact_revision)
         if payload:
             return payload
@@ -50,6 +50,7 @@ def create_scene_router(root: Path, job_service: JobService):
                     payload={"label": "Prepare component colors", "part_uuid": part_uuid,
                              "artifact_revision": artifact_revision, "version": SCENE_VERSION},
                     work=lambda context: service.build(binding, context),
+                    priority=0 if selected else 10,
                 )
                 job = submission.job
                 active[artifact_revision] = job.job_id

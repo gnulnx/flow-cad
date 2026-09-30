@@ -6,11 +6,13 @@ import json
 import os
 import tempfile
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from pathlib import Path
 from typing import Any
 
 from flow_cad.core.bundler import create_bundle
-from flow_cad.jobs import JobContext
+from flow_cad.jobs import JobContext, JobCancelled
 from flow_cad.jobs.service import JobWork
 
 from .service import ProjectBuildPlan
@@ -53,33 +55,29 @@ class _PartProgressContext:
         )
 
 
-def project_build_work(plan: ProjectBuildPlan) -> JobWork:
+def project_build_work(plan: ProjectBuildPlan, pool=None) -> JobWork:
     def work(context: JobContext) -> dict[str, object]:
-        return run_project_build(plan, context)
+        return run_project_build(plan, context, pool=pool)
 
     return work
 
 
-def run_project_build(plan: ProjectBuildPlan, context: JobContext) -> dict[str, object]:
+def run_project_build(plan: ProjectBuildPlan, context: JobContext, *, pool=None) -> dict[str, object]:
     started = time.perf_counter()
     context.report(
         "plan",
         0.02,
         f"Planned {len(plan.parts)} active part build(s) for {plan.project_id}",
     )
-    results: list[dict[str, object]] = []
-    for index, part in enumerate(plan.parts):
-        context.checkpoint()
-        result = run_scoped_part_build(
-            part,
-            _PartProgressContext(
-                context,
-                part_key=part.part_key,
-                part_index=index,
-                part_count=len(plan.parts),
-            ),
-        )
-        results.append(result)
+    if pool is not None and len(plan.parts) > 1:
+        results = _parallel_parts(plan, context, pool)
+    else:
+        results = []
+        for index, part in enumerate(plan.parts):
+            context.checkpoint()
+            results.append(run_scoped_part_build(part, _PartProgressContext(
+                context, part_key=part.part_key, part_index=index, part_count=len(plan.parts)),
+                pool=pool, priority=20))
 
     if not plan.parts:
         context.report(
@@ -159,6 +157,52 @@ def run_project_build(plan: ProjectBuildPlan, context: JobContext) -> dict[str, 
         else None,
         "elapsed_ms": (time.perf_counter() - started) * 1000.0,
     }
+
+
+def _parallel_parts(plan, context, pool):
+    """A bounded window lets selected jobs claim a freed CAD slot first."""
+    fractions = [0.] * len(plan.parts)
+    results = [None] * len(plan.parts)
+    lock = threading.Lock()
+    stopped = threading.Event()
+
+    class PartContext:
+        def __init__(self, index):
+            self.index = index
+        def checkpoint(self):
+            context.checkpoint()
+            if stopped.is_set():
+                raise JobCancelled('Sibling part build failed')
+        def report(self, phase, progress, message=None):
+            self.checkpoint()
+            with lock:
+                fractions[self.index] = max(fractions[self.index], progress)
+                context.report(f'part:{plan.parts[self.index].part_key}:{phase}',
+                    min(.89, .03 + .86 * sum(fractions) / len(fractions)), message)
+
+    def build(index):
+        return run_scoped_part_build(plan.parts[index], PartContext(index), pool=pool, priority=20)
+
+    count = min(pool.config.cad.workers, len(plan.parts))
+    with ThreadPoolExecutor(max_workers=count, thread_name_prefix='flow-cad-project') as executor:
+        pending = {executor.submit(build, index): index for index in range(count)}
+        next_index = count
+        try:
+            while pending:
+                context.checkpoint()
+                completed, _ = wait(pending, timeout=.05, return_when=FIRST_COMPLETED)
+                for task in completed:
+                    index = pending.pop(task)
+                    results[index] = task.result()
+                    if next_index < len(plan.parts):
+                        pending[executor.submit(build, next_index)] = next_index
+                        next_index += 1
+        except BaseException:
+            stopped.set()
+            for task in pending:
+                task.cancel()
+            raise
+    return results
 
 
 def _viewer_revision(project_root: Path) -> int:

@@ -90,6 +90,7 @@ def create_measurement_router(
                 binding.artifact_revision,
                 report=context.report,
                 checkpoint=context.checkpoint,
+                pool=job_service.cad_pool, context=context,
             )
 
         contract = service.job_contract(binding)

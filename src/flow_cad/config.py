@@ -52,11 +52,29 @@ class AgentConfig:
 
 
 @dataclass(frozen=True)
+class CadResources:
+    workers: int = 2
+    native_threads: int = 1
+    memory_mb: int = 2048
+    timeout_seconds: int = 600
+    recycle_after_tasks: int = 32
+
+    def __post_init__(self):
+        for name in self.__dataclass_fields__:
+            value = getattr(self, name)
+            if type(value) is not int or value < 1:
+                raise FlowCadConfigError(f'cad.{name} must be a positive integer')
+        if self.workers > 8:
+            raise FlowCadConfigError('cad.workers must not exceed 8')
+
+
+@dataclass(frozen=True)
 class FlowCadConfig:
     user_config_path: Path
     project_config_path: Path | None
     agent: AgentConfig = field(default_factory=AgentConfig)
     sources: tuple[Path, ...] = ()
+    cad: CadResources = field(default_factory=CadResources)
 
     def active_agent_profile(self, profile_id: str | None = None) -> AgentProfile:
         return self.agent.profile(profile_id)
@@ -183,7 +201,11 @@ def _merge_config(config: FlowCadConfig, raw: dict[str, Any], *, source: Path) -
         existing = profiles.get(str(profile_id))
         profiles[str(profile_id)] = _profile_from_table(str(profile_id), profile_table, existing)
 
-    return replace(config, agent=AgentConfig(default_profile=default_profile, profiles=profiles))
+    cad = raw.get('cad', {})
+    if not isinstance(cad, dict) or set(cad) - set(CadResources.__dataclass_fields__):
+        raise FlowCadConfigError(f'Invalid cad resource settings in {source}')
+    return replace(config, agent=AgentConfig(default_profile=default_profile, profiles=profiles),
+                   cad=replace(config.cad, **cad))
 
 
 def _profile_from_table(profile_id: str, table: dict[str, Any], existing: AgentProfile | None = None) -> AgentProfile:
@@ -254,7 +276,7 @@ def _apply_env_overrides(config: FlowCadConfig, env: Mapping[str, str]) -> FlowC
 
 
 def _format_config_toml(config: FlowCadConfig) -> str:
-    lines = [
+    lines = ['[cad]', *(f'{name} = {getattr(config.cad, name)}' for name in CadResources.__dataclass_fields__), '',
         "[agent]",
         f"default_profile = {_toml_string(config.agent.default_profile)}",
         "",

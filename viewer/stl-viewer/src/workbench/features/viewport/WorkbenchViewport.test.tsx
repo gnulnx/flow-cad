@@ -60,6 +60,21 @@ describe('WorkbenchViewport measurement integration', () => {
     expect(screen.getByText(/Drag rotate/)).toBeInTheDocument()
   })
 
+  it('keeps annotation and measurement gestures mutually exclusive', async () => {
+    const user = userEvent.setup()
+    render(<WorkbenchViewport client={createTestWorkbenchClient()} part={null} backendRevision={7} />)
+    const measure = screen.getByRole('button', { name: 'Measure geometry' })
+    const annotate = screen.getByRole('button', { name: 'Annotate' })
+    await user.click(annotate)
+    expect(annotate).toHaveAttribute('aria-pressed', 'true')
+    await user.keyboard('{Control>}m{/Control}')
+    expect(measure).toHaveAttribute('aria-pressed', 'true')
+    expect(annotate).toHaveAttribute('aria-pressed', 'false')
+    await user.click(annotate)
+    expect(annotate).toHaveAttribute('aria-pressed', 'true')
+    expect(measure).toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('exposes a debounced local context snapshot without requiring shared app contracts', () => {
     vi.useFakeTimers()
     const onViewportContextChange = vi.fn()

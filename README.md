@@ -73,6 +73,11 @@ the preferred ports are busy, and opens the browser by default. Use
 configured and the local `codex` CLI is available, `flow start` selects Codex for
 the viewer process.
 
+Inside a saved view, click components to **Hide** or **Isolate** them, or enable
+**Click to hide** to peel away covers. **Parts in view** lists all components,
+including hidden ones, with search and individual Show controls. **Undo** and
+**Show all** restore visibility without rebuilding. See [view inspection](docs/VIEW_INSPECTION.md).
+
 Ask a running workbench to refresh project source, registry, geometry, and cache
 state:
 

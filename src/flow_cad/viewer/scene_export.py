@@ -14,6 +14,30 @@ from pathlib import Path
 
 def export_scene(step_path: Path, output: Path) -> dict:
     from .step_components import step_components
+    return export_components(step_components(step_path), output)
+
+
+def export_shape_scene(shape, output: Path) -> dict:
+    """Mesh the generated shape directly, using STEP's occurrence transform convention."""
+    from build123d import Compound, Location
+    def visit(item, parent_location, key, inherited_color=None):
+        location = parent_location * item.location
+        color = item.color if item.color is not None else inherited_color
+        if item.children:
+            for index, child in enumerate(item.children, 1):
+                yield from visit(child, location, f'{key}/{index}', color)
+        else:
+            rgba = None
+            if color is not None:
+                # glTF factors use linear RGB. Color iteration returns sRGB in
+                # build123d 0.13; read OCCT's linear channels, as STEP import does.
+                rgb = color.wrapped.GetRGB()
+                rgba = rgb.Red(), rgb.Green(), rgb.Blue(), color.wrapped.Alpha()
+            yield key, item.label, rgba, Compound.cast(item.wrapped.Located(location.wrapped))
+    return export_components(visit(shape, Location(), '1'), output)
+
+
+def export_components(components, output: Path) -> dict:
     binary = bytearray()
     views, accessors, meshes, materials, nodes = [], [], [], [], []
     palette = {}
@@ -52,11 +76,11 @@ def export_scene(step_path: Path, output: Path) -> dict:
         nodes.append({"name": name, "mesh": len(meshes)-1,
                       "extras": {"componentId": path, "label": name}})
 
-    for component in step_components(step_path):
+    for component in components:
         add_component(*component)
     if not nodes:
         raise ValueError("STEP contains no tessellatable components")
-    document = {"asset": {"version": "2.0", "generator": "Flow CAD STEP display v2"},
+    document = {"asset": {"version": "2.0", "generator": "Flow CAD STEP display v3"},
                 "scene": 0, "scenes": [{"nodes": list(range(len(nodes)))}],
                 "nodes": nodes, "meshes": meshes, "materials": materials,
                 "buffers": [{"byteLength": len(binary)}], "bufferViews": views, "accessors": accessors}

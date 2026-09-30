@@ -23,6 +23,7 @@ def test_public_sdk_surface_is_small_and_explicit() -> None:
         "ManifestError",
         "ManifestPart",
         "PartRole",
+        "PartCategory",
         "PartStatus",
         "PrintSpec",
         "ProjectManifest",

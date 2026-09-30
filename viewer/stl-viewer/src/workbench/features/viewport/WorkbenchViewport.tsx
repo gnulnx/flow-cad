@@ -1,6 +1,6 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { applicationApiUrl } from '../../client'
-import type { ArtifactState, WorkbenchClient, WorkbenchPart } from '../../contracts'
+import type { ArtifactState, WorkbenchClient, WorkbenchPart, Point3 } from '../../contracts'
 import { AnnotationOverlay } from '../annotation/AnnotationOverlay'
 import { saveAnnotationSnapshot } from '../annotation/client'
 import { createAnnotationSnapshotInput } from '../annotation/context'
@@ -14,9 +14,19 @@ import {
   type MeasurementProjectionSource,
   type MeasurementResult,
   type SnapCandidate,
+  type MeasurementMode,
+  type MeasurementPlane,
+  type SnapFilter,
 } from '../measurement/measurement'
+import { DimensionsPanel, type DisplayBounds } from '../measurement/DimensionsPanel'
+import { useMeasurementGesture } from '../measurement/useMeasurementGesture'
 import { useExactFeatures } from '../measurement/useExactFeatures'
-import { transformExactFeature } from './assembly'
+import { planAssemblyLoads, transformExactFeature } from './assembly'
+import { ComponentInspector } from './ComponentInspector'
+import { ComponentContextMenu, type ContextAction } from './ComponentContextMenu'
+import type { ComponentContextRequest } from './componentContext'
+import { inspectionShortcut, type SceneComponent } from './componentInspection'
+import { useComponentInspection } from './useComponentInspection'
 import type { RotationMode } from './navigation'
 import { useAgentScreenCapture, type LiveCanvasCaptureMetadata, type LiveViewportSource } from './agentScreen'
 import { useAssemblyDisplayQueue } from './useAssemblyDisplayQueue'
@@ -77,20 +87,27 @@ interface WorkbenchViewportProps {
 }
 
 export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visiblePartUuids = null, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null, fitAssemblyRequest = 0 }: WorkbenchViewportProps) {
-  const [selectedComponent, setSelectedComponent] = useState<string | null>(null)
+  const [components, setComponents] = useState<SceneComponent[]>([])
+  const [peel, setPeel] = useState(false)
+  const [annotationActive, setAnnotationActive] = useState(false)
+  const [contextMenu, setContextMenu] = useState<(ComponentContextRequest & { scope: string }) | null>(null)
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
   const [rotationMode, setRotationMode] = useState<RotationMode>('turntable')
   const [fitRequest, setFitRequest] = useState(0)
   const [frameSelectedRequest, setFrameSelectedRequest] = useState(0)
   const [rendererReady, setRendererReady] = useState(false)
   const [rendererError, setRendererError] = useState<string | null>(null)
   const [measureMode, setMeasureMode] = useState(false)
-  const [hoverTarget, setHoverTarget] = useState<SnapCandidate | null>(null)
-  const [startTarget, setStartTarget] = useState<SnapCandidate | null>(null)
+  const [measurementMode, setMeasurementMode] = useState<MeasurementMode>('distance')
+  const [snapFilter, setSnapFilter] = useState<SnapFilter>('all')
+  const [freePlane, setFreePlane] = useState<MeasurementPlane | 'off'>('off')
+  const [dimensionsOpen, setDimensionsOpen] = useState(false)
+  const [dimensionScope, setDimensionScope] = useState<'selected' | 'visible'>('selected')
+  const [displayBounds, setDisplayBounds] = useState<DisplayBounds>({ selected: null, visible: null, selectedPartUuid: null })
   const [measurements, setMeasurements] = useState<MeasurementResult[]>([])
   const [approximateSource, setApproximateSource] = useState<ApproximateMeasurementSource | null>(null)
   const [annotationSnapshot, setAnnotationSnapshot] = useState<{ marks: AnnotationMark[]; hidden: boolean }>({ marks: [], hidden: false })
   const [latestCapture, setLatestCapture] = useState<LiveCanvasCaptureMetadata | null>(null)
-  const measurementSequence = useRef(0)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const annotationOverlayRef = useRef<SVGSVGElement>(null)
   const measurementProjectionRef = useRef<MeasurementProjectionSource | null>(null)
@@ -98,6 +115,59 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   const assembly = useAssemblyDisplayQueue(parts, activeAssemblyId, part?.uuid ?? null, visiblePartUuids)
   const selectedArtifactRevision = part?.authorityHash ?? part?.displayArtifact?.contentHash ?? null
   const modelSetKey = assembly.models.map((model) => model.key).join('|')
+  const inspectionScope = useMemo(() => JSON.stringify(planAssemblyLoads(parts, activeAssemblyId, part?.uuid ?? null, visiblePartUuids)
+    .map((model) => [model.key, model.occurrences]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))),
+  [parts, activeAssemblyId, part?.uuid, visiblePartUuids])
+  const inspection = useComponentInspection(components, inspectionScope)
+  const { dispatch: inspect, select: selectComponent, hiddenKeys, selected: selectedComponent } = inspection
+  const inspectionDisabled = measureMode || annotationActive
+  const openContextMenu = useCallback((request: ComponentContextRequest) => {
+    if (inspectionDisabled) return
+    const component = components.find((item) => item.key === request.key)
+    if (component) onSelectPart?.(component.partUuid)
+    selectComponent(component?.key ?? null)
+    setContextMenu({ ...request, key: component?.key ?? null, scope: inspectionScope })
+  }, [inspectionDisabled, components, onSelectPart, selectComponent, inspectionScope])
+  const contextComponent = components.find((item) => item.key === contextMenu?.key)
+  const contextAction = (action: ContextAction) => {
+    if (action === 'hide' || action === 'isolate') {
+      if (contextComponent) inspect({ type: action, key: contextComponent.key })
+    } else if (action === 'frame') setFrameSelectedRequest((request) => request + 1)
+    else inspect({ type: action })
+  }
+  useEffect(closeContextMenu, [closeContextMenu, inspectionScope, inspectionDisabled])
+  const visibleComponents = useMemo(() => components.filter((component) => !hiddenKeys.has(component.key)), [components, hiddenKeys])
+  const visibleOccurrenceIds = useMemo(() => [...new Set(visibleComponents.map((component) => component.occurrenceId))], [visibleComponents])
+  const selectedPartHasHiddenComponents = components.some((component) => component.partUuid === part?.uuid && hiddenKeys.has(component.key))
+  const exactVisibilityLimited = part?.geometryAuthority === 'step' && selectedPartHasHiddenComponents
+  const componentClicked = useCallback((key: string | null) => {
+    if (inspectionDisabled) return
+    selectComponent(key)
+    if (peel && key) inspect({ type: 'hide', key })
+  }, [inspectionDisabled, selectComponent, peel, inspect])
+  const selectListedComponent = (component: SceneComponent) => {
+    onSelectPart?.(component.partUuid)
+    selectComponent(component.key)
+  }
+  useEffect(() => { setPeel(false) }, [inspectionScope, inspectionDisabled])
+  useEffect(() => {
+    if (!assembly.models.length) setComponents([])
+  }, [assembly.models.length])
+  useEffect(() => {
+    const keyDown = (event: KeyboardEvent) => {
+      if (inspectionDisabled || event.repeat) return
+      if (event.key === 'Escape') { setPeel(false); return }
+      const action = inspectionShortcut(event)
+      if (!action) return
+      if (action === 'hide' || action === 'isolate') {
+        if (!selectedComponent) return
+        inspect({ type: action, key: selectedComponent.key })
+      } else inspect({ type: action })
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', keyDown)
+    return () => window.removeEventListener('keydown', keyDown)
+  }, [inspectionDisabled, inspect, selectedComponent])
   const displayState: ModelLoadState = rendererError
     ? 'failed'
     : assembly.progress.visible === assembly.progress.total && assembly.progress.total > 0
@@ -113,7 +183,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
     client,
     part?.uuid ?? null,
     part?.authorityHash ?? null,
-    assembly.partStates[part?.uuid ?? ''] === 'visible' && part?.geometryAuthority === 'step',
+    measureMode && !exactVisibilityLimited && assembly.partStates[part?.uuid ?? ''] === 'visible' && part?.geometryAuthority === 'step',
   )
   const transformedExactFeatures = useMemo(() => exactFeatures.status === 'ready' && assembly.selectedOccurrence
     ? {
@@ -128,7 +198,9 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
     && approximateSource.artifactRevision === selectedArtifactRevision
     ? approximateSource
     : null
-  const measurementToolState: MeasurementToolState = part?.geometryAuthority === 'mesh'
+  const measurementToolState: MeasurementToolState = exactVisibilityLimited
+    ? { status: 'visibility-limited' }
+    : part?.geometryAuthority === 'mesh'
     ? selectedApproximateSource
       ? { status: 'approximate', targetCount: selectedApproximateSource.features.length }
       : { status: 'mesh-loading' }
@@ -147,6 +219,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   const annotationsChanged = useCallback((marks: AnnotationMark[], hidden: boolean) => {
     setAnnotationSnapshot({ marks, hidden })
   }, [])
+  const annotationModeChanged = useCallback((active: boolean) => { setAnnotationActive(active); if (active) setMeasureMode(false) }, [])
   const liveCaptureCompleted = useCallback((metadata: LiveCanvasCaptureMetadata) => setLatestCapture(metadata), [])
   const getLiveViewport = useCallback(() => liveViewportRef.current?.() ?? null, [])
   const getAnnotationOverlay = useCallback(() => annotationOverlayRef.current, [])
@@ -156,8 +229,9 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
     part,
     backendRevision,
     getAnnotationOverlay,
-    visibleOccurrenceIds: assembly.visibleOccurrenceIds,
-    renderedParts: assembly.models.map((model) => model.part),
+    visibleOccurrenceIds,
+    renderedParts: assembly.models.filter((model) => visibleComponents.some((component) => component.modelKey === model.key)).map((model) => model.part),
+    componentVisibility: { visible: visibleComponents.map((component) => component.key), hidden: [...hiddenKeys], selected: selectedComponent?.key ?? null },
     onCaptured: liveCaptureCompleted,
   })
   useViewportContextEmitter({
@@ -170,85 +244,74 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   })
 
   useEffect(() => {
-    if (assembly.models.length === 0) setRendererReady(false)
+    if (assembly.models.length === 0) {
+      setRendererReady(false)
+      setDisplayBounds({ selected: null, visible: null, selectedPartUuid: null })
+    }
   }, [assembly.models.length])
 
   useEffect(() => setRendererError(null), [modelSetKey])
 
   useEffect(() => {
-    if (fitAssemblyRequest > 0) setFitRequest((request) => request + 1)
-  }, [fitAssemblyRequest])
+    if (fitAssemblyRequest > 0) {
+      inspect({ type: 'show-all' })
+      setFitRequest((request) => request + 1)
+    }
+  }, [fitAssemblyRequest, inspect])
 
   useEffect(() => {
     onAssemblyStateChange?.({
       partStates: assembly.partStates,
-      visibleOccurrenceIds: assembly.visibleOccurrenceIds,
+      visibleOccurrenceIds,
       artifactHashes: assembly.artifactHashes,
     })
-  }, [assembly.artifactHashes, assembly.partStates, assembly.visibleOccurrenceIds, onAssemblyStateChange])
-
-  useEffect(() => {
-    setHoverTarget(null)
-    setStartTarget(null)
-  }, [part?.authorityHash, part?.uuid])
+  }, [assembly.artifactHashes, assembly.partStates, visibleOccurrenceIds, onAssemblyStateChange])
 
   useEffect(() => {
     onMeasurementsChange?.(measurements)
   }, [measurements, onMeasurementsChange])
 
   useEffect(() => {
-    if (!measurementRestore) return
-    setMeasurements(measurementRestore.measurements)
-    setHoverTarget(null)
-    setStartTarget(null)
+    if (measurementRestore) setMeasurements(measurementRestore.measurements)
   }, [measurementRestore])
 
   const toggleMeasureMode = useCallback(() => {
-    setMeasureMode((active) => {
-      if (active) {
-        setHoverTarget(null)
-        setStartTarget(null)
-      }
-      return !active
-    })
+    setMeasureMode((active) => !active)
+    setDimensionsOpen(false)
   }, [])
-
-  const snapAtPointer = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!measureMode || !measurementProjectionRef.current) return null
-    const pointer = { x: event.clientX, y: event.clientY }
-    const projector = measurementProjectionRef.current.createProjector()
-    if (transformedExactFeatures.status === 'ready') {
-      return findScreenSpaceSnap(pointer, transformedExactFeatures.featureSet.features, projector)
+  const exitMeasureMode = useCallback(() => setMeasureMode(false), [])
+  const snapAtPointer = useCallback((x: number, y: number, start: SnapCandidate | null) => {
+    const source = measurementProjectionRef.current
+    if (!measureMode || !source || exactVisibilityLimited) return null
+    const projector = source.createProjector()
+    const features = transformedExactFeatures.status === 'ready'
+      ? transformedExactFeatures.featureSet.features : selectedApproximateSource?.features ?? []
+    const snapped = findScreenSpaceSnap({ x, y }, features, projector, 16,
+      measurementMode === 'edge_length' ? 'line_edge' : snapFilter)
+    if (snapped) return snapped
+    if (measurementMode === 'edge_length') return null
+    if (freePlane !== 'off') {
+      const bounds = displayBounds.selectedPartUuid === part?.uuid ? displayBounds.selected : null
+      const anchor = start?.pointMm ?? (bounds ? bounds.min.map((v, i) => (v + bounds.max[i]) / 2) as Point3 : null)
+      return anchor ? source.pickPlanePoint?.(x, y, freePlane, anchor) ?? null : null
     }
-    if (part?.geometryAuthority !== 'mesh' || !selectedApproximateSource) return null
-    return findScreenSpaceSnap(pointer, selectedApproximateSource.features, projector)
-      ?? selectedApproximateSource.pickFreePoint(event.clientX, event.clientY)
-  }, [measureMode, part?.geometryAuthority, selectedApproximateSource, transformedExactFeatures])
+    return selectedApproximateSource?.pickFreePoint(x, y) ?? null
+  }, [measureMode, exactVisibilityLimited, transformedExactFeatures, selectedApproximateSource, measurementMode, snapFilter, freePlane, displayBounds, part?.uuid])
 
-  const pointerMoved = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if ((event.target as Element).closest?.('.measurement-labels')) return
-    setHoverTarget(snapAtPointer(event))
-  }, [snapAtPointer])
-
-  const pointerClicked = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!measureMode || event.button !== 0 || (event.target as Element).closest?.('.measurement-labels')) return
-    const target = snapAtPointer(event)
-    if (!target || !part || !selectedArtifactRevision) return
+  const commitMeasurement = useCallback((start: SnapCandidate, end: SnapCandidate, mode: MeasurementMode) => {
+    if (!part || !selectedArtifactRevision) return
     const binding = { partUuid: part.uuid, artifactRevision: selectedArtifactRevision }
-    measurementSequence.current += 1
-    const id = `${part.uuid}:measurement:${measurementSequence.current}`
-    if (target.quality === 'Exact' && target.kind === 'line_edge' && !startTarget) {
-      const edge = createEdgeLengthMeasurement(id, target, binding)
-      if (edge) setMeasurements((current) => [...current, edge])
-      return
-    }
-    if (!startTarget) {
-      setStartTarget(target)
-      return
-    }
-    setMeasurements((current) => [...current, createDistanceMeasurement(id, startTarget, target, binding)])
-    setStartTarget(null)
-  }, [measureMode, part, selectedArtifactRevision, snapAtPointer, startTarget])
+    const id = `${part.uuid}:measurement:${crypto.randomUUID()}`
+    const result = mode === 'edge_length' ? createEdgeLengthMeasurement(id, end, binding)
+      : createDistanceMeasurement(id, start, end, binding)
+    if (result) setMeasurements((current) => [...current, result])
+  }, [part, selectedArtifactRevision])
+  const gesture = useMeasurementGesture({
+    active: measureMode, mode: measurementMode,
+    resetKey: `${part?.uuid}:${selectedArtifactRevision}:${snapFilter}:${freePlane}:${measurementRestore?.key}:${assembly.partStates[part?.uuid ?? '']}:${JSON.stringify(assembly.selectedOccurrence)}`,
+    snap: snapAtPointer, commit: commitMeasurement, exit: exitMeasureMode,
+  })
+  const { start: startTarget, hover: hoverTarget } = gesture
 
   const updateMeasurement = useCallback((id: string, update: (record: MeasurementResult) => MeasurementResult) => {
     setMeasurements((current) => current.map((record) => record.id === id ? update(record) : record))
@@ -267,17 +330,17 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
       source,
       part,
       artifactRevision: selectedArtifactRevision,
-      visibleOccurrenceIds: assembly.visibleOccurrenceIds,
+      visibleOccurrenceIds,
       backendRevision,
     }))
-  }, [assembly.visibleOccurrenceIds, backendRevision, part, selectedArtifactRevision, threadId])
+  }, [visibleOccurrenceIds, backendRevision, part, selectedArtifactRevision, threadId])
 
   return (
     <section className="viewport-panel" aria-labelledby="viewport-title">
       <div className="viewport-toolbar">
         <div>
           <span className="eyebrow">Viewport</span>
-          <h1 id="viewport-title">{part?.key ?? 'Assembly review'}</h1>
+          <h1 id="viewport-title">{part?.displayName ?? part?.key ?? 'Assembly review'}</h1>
         </div>
         <div className="viewport-actions" aria-label="Viewport controls">
           <div className="segmented-control" aria-label="Rotation mode">
@@ -298,15 +361,20 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
           </div>
           <button type="button" className="tool-button" onClick={() => setFitRequest((request) => request + 1)}>Fit</button>
           <button type="button" className="tool-button" onClick={() => setFrameSelectedRequest((request) => request + 1)}>Frame part</button>
+          <button type="button" className="tool-button" aria-pressed={dimensionsOpen} onClick={() => { setDimensionsOpen((open) => !open); setMeasureMode(false) }}>Dimensions</button>
           <MeasurementToolButton active={measureMode} state={measurementToolState} onToggle={toggleMeasureMode} />
         </div>
       </div>
+      <ComponentInspector components={components} inspection={inspection} peel={peel} disabled={inspectionDisabled}
+        onPeel={setPeel} onSelect={selectListedComponent} onFrame={() => setFrameSelectedRequest((request) => request + 1)} />
       <div
         ref={stageRef}
-        className={`viewport-stage${measureMode ? ' viewport-stage--measuring' : ''}`}
-        onPointerMove={pointerMoved}
-        onPointerLeave={() => setHoverTarget(null)}
-        onClick={pointerClicked}
+        className={`viewport-stage${measureMode ? ' viewport-stage--measuring' : ''}${peel ? ' viewport-stage--peeling' : ''}`}
+        onPointerDown={gesture.onPointerDown}
+        onPointerMove={gesture.onPointerMove}
+        onPointerUp={gesture.onPointerUp}
+        onPointerCancel={gesture.onPointerCancel}
+        onPointerLeave={gesture.onPointerLeave}
       >
         {assembly.models.length > 0 ? (
           <ModelErrorBoundary resetKey={modelSetKey} onError={rendererFailed}>
@@ -321,8 +389,13 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
                 models={assembly.models}
                 selectedPartUuid={part?.uuid ?? null}
                 onSelectPart={onSelectPart}
-                onComponentSelected={setSelectedComponent}
+                onComponentSelected={componentClicked}
+                selectedComponentKey={selectedComponent?.key ?? null}
+                hiddenComponentKeys={hiddenKeys}
+                onComponentsChange={setComponents}
+                onComponentContextMenu={inspectionDisabled ? undefined : openContextMenu}
                 rotationMode={rotationMode}
+                assemblyLoading={assembly.progress.loading > 0 || assembly.progress.queued > 0}
                 fitRequest={fitRequest}
                 frameSelectedRequest={frameSelectedRequest}
                 onReady={rendererBecameReady}
@@ -331,6 +404,8 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
                 registerLiveViewport={registerLiveViewport}
                 registerMeasurementProjection={registerMeasurementProjection}
                 registerApproximateMeasurementSource={registerApproximateMeasurementSource}
+                dimensionScope={dimensionsOpen ? dimensionScope : null}
+                onBoundsChange={setDisplayBounds}
                 measureMode={measureMode}
                 measurementHover={hoverTarget}
                 measurementStart={startTarget}
@@ -361,15 +436,27 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
             <span>{rendererError}</span>
           </div>
         ) : null}
+        {contextMenu && contextMenu.scope === inspectionScope && !inspectionDisabled ? <ComponentContextMenu
+          clientX={contextMenu.clientX} clientY={contextMenu.clientY} label={contextComponent?.label ?? null}
+          canUndo={inspection.state.history.length > 0} hasHidden={hiddenKeys.size > 0 || inspection.state.isolated !== null}
+          onAction={contextAction} onClose={closeContextMenu} /> : null}
         <div className="viewport-progress" data-state={displayState}>
           <span className={`artifact-state artifact-state--${displayState === 'ready' || displayState === 'partial' ? 'visible' : displayState}`} />
           <span>{assemblyProgressLabel(assembly.progress)}</span>
           {assembly.progress.total > 0 ? <progress value={assembly.progress.visible + assembly.progress.failed} max={assembly.progress.total} aria-label="Assembly loading progress" /> : null}
         </div>
         {assembly.models.some((model) => model.displayWarning) ? <div className="display-color-warning" role="status">{assembly.models.find((model) => model.displayWarning)?.displayWarning}</div> : null}
-        {selectedComponent ? <div className="component-selection" role="status">Selected: {selectedComponent}</div> : null}
-        <div className="navigation-hint">{measureMode ? 'Left select · Right / middle pan · Wheel dolly · Z-up' : 'Click select · Drag rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
+        <div className="navigation-hint">{measureMode ? 'Left select / drag measure · Right / middle pan · Wheel dolly · Esc cancel' : 'Click select · Drag rotate · Right / middle pan · Wheel dolly · Z-up'}</div>
+        {dimensionsOpen ? <DimensionsPanel
+          bounds={dimensionScope === 'visible' ? displayBounds.visible : displayBounds.selectedPartUuid === part?.uuid ? displayBounds.selected : null}
+          scope={dimensionScope} onScope={setDimensionScope}
+          loading={dimensionScope === 'visible' ? assembly.progress.visible !== assembly.progress.total : assembly.partStates[part?.uuid ?? ''] !== 'visible'}
+        /> : null}
         <MeasurementOverlay
+          mode={measurementMode} onMode={setMeasurementMode}
+          filter={snapFilter} onFilter={setSnapFilter}
+          freePlane={freePlane} onFreePlane={setFreePlane}
+          partName={part?.displayName ?? part?.key}
           active={measureMode}
           state={measurementToolState}
           hover={hoverTarget}
@@ -388,6 +475,8 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
           }))}
         />
         <AnnotationOverlay
+          deactivate={measureMode}
+          onActiveChange={annotationModeChanged}
           overlayRef={annotationOverlayRef}
           onChange={annotationsChanged}
           onAskAgent={onAskAgentAboutMarkup}
@@ -402,7 +491,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
 
 function assemblyProgressLabel(progress: { total: number; queued: number; loading: number; visible: number; failed: number }): string {
   if (progress.total === 0) return 'Viewport ready'
-  if (progress.visible === progress.total) return `${progress.visible} of ${progress.total} assembly parts visible`
+  if (progress.visible === progress.total) return `${progress.visible} of ${progress.total} display artifacts loaded`
   const activity = [
     progress.loading ? `${progress.loading} loading` : '',
     progress.queued ? `${progress.queued} queued` : '',

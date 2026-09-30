@@ -21,6 +21,8 @@ class PartSummary:
     version: str | None
     artifact_count: int
     missing_artifact_count: int
+    category: str | None = None
+    display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +46,8 @@ class PartDetail:
     metadata_status: str | None
     metadata_notes: str | None
     artifacts: tuple[tuple[str, str, str], ...]
+    category: str | None = None
+    display_name: str | None = None
 
 
 def list_parts(
@@ -70,14 +74,14 @@ def list_parts(
         parameters.append(limit)
     sql = f"""
         SELECT
-            p.uuid, p.key, p.role, p.status, p.material, p.family, p.version,
+            p.uuid, p.key, p.role, p.status, p.material, p.family, p.version, p.category, p.display_name,
             COUNT(a.kind) AS artifact_count,
             COALESCE(SUM(CASE WHEN a.state = 'missing' THEN 1 ELSE 0 END), 0)
                 AS missing_artifact_count
         FROM parts p
         LEFT JOIN artifacts a ON a.part_uuid = p.uuid
         {where}
-        GROUP BY p.uuid, p.key, p.role, p.status, p.material, p.family, p.version
+        GROUP BY p.uuid, p.key, p.role, p.status, p.material, p.family, p.version, p.category, p.display_name
         ORDER BY p.key
         {limit_sql}
     """
@@ -92,6 +96,8 @@ def list_parts(
             material=str(row["material"]) if row["material"] is not None else None,
             family=str(row["family"]) if row["family"] is not None else None,
             version=str(row["version"]) if row["version"] is not None else None,
+            category=row["category"],
+            display_name=row["display_name"],
             artifact_count=int(row["artifact_count"]),
             missing_artifact_count=int(row["missing_artifact_count"]),
         )
@@ -155,6 +161,8 @@ def get_part(project_root: Path, key_or_alias: str) -> PartDetail | None:
         if row["metadata_notes"] is not None
         else None,
         artifacts=artifacts,
+        category=row["category"],
+        display_name=row["display_name"],
     )
 
 

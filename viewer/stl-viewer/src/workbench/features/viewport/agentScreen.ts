@@ -26,6 +26,7 @@ interface UseAgentScreenCaptureOptions {
   backendRevision: number | null
   visibleOccurrenceIds?: string[]
   renderedParts?: WorkbenchPart[]
+  componentVisibility?: ComponentVisibilityMetadata
   onCaptured?(metadata: LiveCanvasCaptureMetadata): void
 }
 
@@ -45,6 +46,13 @@ interface AgentScreenCaptureOptions {
   annotationOverlay?: boolean
   visibleOccurrenceIds?: string[]
   renderedParts?: WorkbenchPart[]
+  componentVisibility?: ComponentVisibilityMetadata
+}
+
+interface ComponentVisibilityMetadata {
+  visible: string[]
+  hidden: string[]
+  selected: string | null
 }
 
 export function buildAgentScreenPayload(
@@ -83,6 +91,7 @@ export function buildAgentScreenPayload(
       render_context: 'viewport-canvas',
       capture_source: 'live-browser-workbench',
       annotation_overlay: options.annotationOverlay ?? false,
+      ...(options.componentVisibility ? { component_visibility: options.componentVisibility } : {}),
     },
   }
 }
@@ -94,7 +103,7 @@ export async function captureAgentScreenPayload(
   backendRevision: number | null,
   overlay: SVGSVGElement | null,
   capture: typeof captureViewportWithAnnotations = captureViewportWithAnnotations,
-  options: Pick<AgentScreenCaptureOptions, 'visibleOccurrenceIds' | 'renderedParts'> = {},
+  options: Pick<AgentScreenCaptureOptions, 'visibleOccurrenceIds' | 'renderedParts' | 'componentVisibility'> = {},
 ) {
   const annotationOverlay = Boolean(
     overlay
@@ -122,9 +131,9 @@ export function liveCaptureMetadata(payload: Record<string, unknown>): LiveCanva
   }
 }
 
-export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay, part, backendRevision, visibleOccurrenceIds, renderedParts, onCaptured }: UseAgentScreenCaptureOptions) {
+export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay, part, backendRevision, visibleOccurrenceIds, renderedParts, componentVisibility, onCaptured }: UseAgentScreenCaptureOptions) {
   const inFlightRef = useRef(new Set<string>())
-  const sceneKey = `${visibleOccurrenceIds?.join('|') ?? ''}:${renderedParts?.map((item) => item.displayArtifact?.contentHash ?? '').join('|') ?? ''}`
+  const sceneKey = `${visibleOccurrenceIds?.join('|') ?? ''}:${renderedParts?.map((item) => item.displayArtifact?.contentHash ?? '').join('|') ?? ''}:${JSON.stringify(componentVisibility)}`
 
   useEffect(() => {
     if (!enabled) return
@@ -150,7 +159,7 @@ export function useAgentScreenCapture({ enabled, getSource, getAnnotationOverlay
             backendRevision,
             getAnnotationOverlay?.() ?? null,
             captureViewportWithAnnotations,
-            { visibleOccurrenceIds, renderedParts },
+            { visibleOccurrenceIds, renderedParts, componentVisibility },
           )
           const capture = await fetch(applicationApiUrl('/api/agent-screen/capture'), {
             method: 'POST',

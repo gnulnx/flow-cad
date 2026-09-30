@@ -1,10 +1,11 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ExactFeatureLoadState } from './useExactFeatures'
-import { formatMm, isMeasurementStale, type MeasurementResult, type SnapCandidate } from './measurement'
+import { formatMm, isMeasurementStale, type MeasurementMode, type MeasurementPlane, type SnapFilter, type MeasurementResult, type SnapCandidate } from './measurement'
 
 export type MeasurementToolState = ExactFeatureLoadState
   | { status: 'approximate'; targetCount: number }
   | { status: 'mesh-loading' }
+  | { status: 'visibility-limited' }
 
 interface MeasurementToolButtonProps {
   active: boolean
@@ -15,7 +16,7 @@ interface MeasurementToolButtonProps {
 export function MeasurementToolButton({ active, state, onToggle }: MeasurementToolButtonProps) {
   useEffect(() => {
     const keyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'm' || event.repeat || isEditableTarget(event.target)) return
+      if (event.key.toLowerCase() !== 'm' || event.repeat || event.altKey || event.shiftKey || isEditableTarget(event.target)) return
       event.preventDefault()
       onToggle()
     }
@@ -23,7 +24,8 @@ export function MeasurementToolButton({ active, state, onToggle }: MeasurementTo
     return () => window.removeEventListener('keydown', keyDown)
   }, [onToggle])
 
-  const status = state.status === 'ready'
+  const status = state.status === 'visibility-limited' ? 'Show all parts in this view to restore exact snapping'
+    : state.status === 'ready'
     ? `${state.featureSet.features.length} exact targets`
     : state.status === 'approximate' ? `${state.targetCount} bounded approximate mesh targets`
       : state.status === 'mesh-loading' ? 'Preparing approximate mesh targets'
@@ -38,17 +40,25 @@ export function MeasurementToolButton({ active, state, onToggle }: MeasurementTo
       className="tool-button measurement-tool-button"
       aria-pressed={active}
       aria-label="Measure geometry"
-      title={`${status} · Shortcut M`}
+      title={`${status} · Ctrl/Cmd+M (or M)`}
+      aria-keyshortcuts="Control+M Meta+M M"
       onClick={onToggle}
     >
       <span aria-hidden="true">⌁</span>
       Measure
-      <kbd>M</kbd>
+      <kbd>Ctrl M</kbd>
     </button>
   )
 }
 
 interface MeasurementOverlayProps {
+  mode?: MeasurementMode
+  onMode?(mode: MeasurementMode): void
+  filter?: SnapFilter
+  onFilter?(filter: SnapFilter): void
+  freePlane?: MeasurementPlane | 'off'
+  onFreePlane?(plane: MeasurementPlane | 'off'): void
+  partName?: string
   active: boolean
   state: MeasurementToolState
   hover: SnapCandidate | null
@@ -65,6 +75,7 @@ interface MeasurementOverlayProps {
 }
 
 export function MeasurementOverlay({
+  mode = 'distance', onMode, filter = 'all', onFilter, freePlane = 'off', onFreePlane, partName,
   active,
   state,
   hover,
@@ -90,16 +101,31 @@ export function MeasurementOverlay({
       {active ? (
         <div className="measurement-mode-status" role="status">
           <strong>Measure · {measurementQuality(state, start)}</strong>
-          <span>{measurementStatus(state, start)}</span>
+          {partName ? <span className="measurement-part-name" title={partName}>Part: {partName}</span> : null}
+          <span>{state.status === 'ready' || state.status === 'approximate'
+            ? mode === 'edge_length' ? 'Click a straight edge to measure its length.'
+              : start ? 'Drag or click the end target · Esc cancels'
+                : 'Click edge: length · Drag: distance · Click two points: distance'
+            : measurementStatus(state, start)}</span>
+          {onMode ? <label>Mode <select aria-label="Measurement mode" value={mode} onChange={(e) => onMode(e.target.value as MeasurementMode)}>
+            <option value="distance">Automatic</option><option value="edge_length">Edge length only</option>
+          </select></label> : null}
+          {onFilter && mode === 'distance' ? <label>Snap <select aria-label="Snap targets" value={filter} onChange={(e) => onFilter(e.target.value as SnapFilter)}>
+            <option value="all">All features</option><option value="circle_center">Circle centers</option><option value="vertex">Vertices</option><option value="line_edge">Edges</option>
+          </select></label> : null}
+          {onFreePlane && mode === 'distance' ? <label>Free points <select aria-label="Free point plane" value={freePlane} onChange={(e) => onFreePlane(e.target.value as MeasurementPlane | 'off')}>
+            <option value="off">Off</option><option value="view">View plane</option><option value="xy">XY plane</option><option value="xz">XZ plane</option><option value="yz">YZ plane</option>
+          </select></label> : null}
+          {freePlane !== 'off' && mode === 'distance' ? <small>Plane through {start ? 'the start point' : 'the part center'} · free points are approximate</small> : null}
         </div>
       ) : null}
       {active && hover && hoverStyle ? (
         <div className={`measurement-hover measurement-hover--${hover.kind}`} style={hoverStyle}>
           <span className="measurement-snap-dot" aria-hidden="true" />
           <strong>{hover.label}</strong>
-          <span>{hover.quality === 'Exact' && hover.kind === 'line_edge'
-            ? 'Click for exact edge length'
-            : start ? 'Click to finish distance' : 'Click to pin start'}</span>
+          {hover.radiusMm !== undefined ? <span>Diameter {formatMm(hover.radiusMm * 2)}</span> : null}
+          {start ? <strong className="measurement-preview">{formatMm(Math.hypot(...hover.pointMm.map((value, axis) => value - start.pointMm[axis])))}</strong> : null}
+          <span>{mode === 'edge_length' ? 'Click for edge length' : start ? 'Release or click to finish' : hover.kind === 'line_edge' ? 'Click for length · Drag for distance' : 'Drag or click to start'}</span>
         </div>
       ) : null}
       {measurements.length ? (
@@ -205,6 +231,7 @@ function measurementStatus(state: MeasurementToolState, start: SnapCandidate | n
   if (state.status === 'extracting') return 'Extracting STEP topology in a cancellable job…'
   if (state.status === 'loading') return 'Checking revision-bound exact targets…'
   if (state.status === 'failed') return state.error
+  if (state.status === 'visibility-limited') return 'Exit Measure and use Show all to restore exact snapping for this view.'
   return 'Select a visible STEP-backed part'
 }
 

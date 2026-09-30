@@ -125,7 +125,7 @@ class InventoryService:
             parts = connection.execute(
                 f"""
                 SELECT p.uuid, p.key, p.generator, p.role, p.status, p.material,
-                       p.family, p.version, p.compatible_versions_json,
+                       p.family, p.version, p.compatible_versions_json, p.category, p.display_name,
                        p.shell_count, p.infill_density, p.mass_kg,
                        p.center_of_mass_mm_json, p.inertia_kg_m2_json,
                        p.mass_source, p.metadata_status, p.metadata_notes
@@ -285,6 +285,8 @@ def _part_payload(row, *, aliases, artifacts, occurrences) -> dict[str, Any]:
         "generator": str(row["generator"]),
         "role": str(row["role"]),
         "status": str(row["status"]),
+        "category": row["category"],
+        "display_name": row["display_name"],
         "material": str(row["material"]) if row["material"] is not None else None,
         "family": str(row["family"]) if row["family"] is not None else None,
         "version": str(row["version"]) if row["version"] is not None else None,

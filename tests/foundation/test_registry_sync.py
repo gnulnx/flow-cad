@@ -14,6 +14,7 @@ from flow_cad.sdk import (
     MassProperties,
     ManifestPart,
     PartRole,
+    PartCategory,
     PartStatus,
     PrintSpec,
     ProjectManifest,
@@ -165,6 +166,8 @@ def test_sync_indexes_project_owned_print_and_physical_metadata(tmp_path: Path) 
                 status=PartStatus.ACTIVE,
                 artifacts=(),
                 material="PETG",
+                category=PartCategory.MAKE,
+                display_name="Compute carrier",
                 family="compute",
                 version="b3_v2",
                 compatible_versions=("b3_v1",),
@@ -187,6 +190,8 @@ def test_sync_indexes_project_owned_print_and_physical_metadata(tmp_path: Path) 
     summary = list_parts(root)[0]
     detail = get_part(root, "measured_part")
 
+    assert summary.category == detail.category == "make"
+    assert summary.display_name == detail.display_name == "Compute carrier"
     assert summary.family == "compute"
     assert summary.version == "b3_v2"
     assert detail is not None
@@ -198,3 +203,21 @@ def test_sync_indexes_project_owned_print_and_physical_metadata(tmp_path: Path) 
     assert detail.inertia_kg_m2 == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
     assert detail.mass_source == "measured"
     assert detail.metadata_status == "complete"
+
+
+def test_sync_rebuilds_old_schema_even_when_manifest_is_unchanged(tmp_path: Path) -> None:
+    from flow_cad.registry.schema import DATABASE_SCHEMA_VERSION
+
+    root = _copy_fixture(tmp_path)
+    first = sync_project(root)
+    with sqlite3.connect(first.database_path) as connection:
+        connection.execute("ALTER TABLE parts DROP COLUMN category")
+        connection.execute("ALTER TABLE parts DROP COLUMN display_name")
+        connection.execute("PRAGMA user_version = 2")
+    refreshed = sync_project(root)
+    assert refreshed.changed
+    assert refreshed.revision == first.revision + 1
+    assert list_parts(root)[0].category is None
+    with sqlite3.connect(first.database_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == DATABASE_SCHEMA_VERSION
+    assert not sync_project(root).changed

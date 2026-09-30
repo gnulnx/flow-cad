@@ -34,7 +34,7 @@ export function useExactFeatures(
           setState({ status: 'extracting', featureSet: null, error: null })
           const queued = await client.queueExactFeatures(partUuid, artifactRevision, requestId, controller.signal)
           if (queued.status === 'ready') {
-            setState({ status: 'ready', featureSet: queued, error: null })
+            if (!controller.signal.aborted) setState({ status: 'ready', featureSet: queued, error: null })
             return
           }
           while (!controller.signal.aborted) {
@@ -65,6 +65,9 @@ export function useExactFeatures(
     return () => controller.abort()
   }, [artifactRevision, client, enabled, partUuid])
 
+  if (state.status === 'ready' && (state.featureSet.partUuid !== partUuid || state.featureSet.artifactRevision !== artifactRevision)) {
+    return { status: 'loading', featureSet: null, error: null }
+  }
   return state
 }
 

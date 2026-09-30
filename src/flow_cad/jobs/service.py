@@ -5,7 +5,8 @@ from __future__ import annotations
 import fcntl
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
+from .executor import PriorityExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, TypeAlias
@@ -82,6 +83,9 @@ class JobService:
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be at least 1")
         self.store = JobStore(project_root)
+        from flow_cad.config import load_flow_config
+        from flow_cad.workers.pool import CadWorkerPool
+        self.cad_pool = CadWorkerPool(project_root, load_flow_config(project_root))
         self._runtime_lock = (self.store.project_root / ".flow/jobs.runtime.lock").open(
             "a+b"
         )
@@ -91,10 +95,7 @@ class JobService:
             self._runtime_lock.close()
             raise
         self.max_concurrency = max_concurrency
-        self._executor = ThreadPoolExecutor(
-            max_workers=max_concurrency,
-            thread_name_prefix="flow-cad-job",
-        )
+        self._executor = PriorityExecutor(max_workers=max_concurrency)
         self._active: dict[str, _ActiveJob] = {}
         self._lock = threading.RLock()
         self._closed = False
@@ -106,6 +107,7 @@ class JobService:
         kind: str,
         work: JobWork,
         payload: Mapping[str, Any] | None = None,
+        priority: int | None = None,
     ) -> JobSubmission:
         if not callable(work):
             raise TypeError("work must be callable")
@@ -118,7 +120,9 @@ class JobService:
             active = _ActiveJob(cancel_event=threading.Event())
             self._active[job.job_id] = active
             try:
-                active.future = self._executor.submit(self._run, job.job_id, work, active.cancel_event)
+                active.future = self._executor.submit(self._run, job.job_id, work, active.cancel_event,
+                    priority=priority if priority is not None else
+                    {'part-build': 0, 'exact-feature-extraction': 0, 'project-build': 20}.get(kind, 10))
             except BaseException as exc:
                 self._active.pop(job.job_id, None)
                 self.store.fail(job.job_id, f"job dispatch failed: {type(exc).__name__}: {exc}")
@@ -170,6 +174,7 @@ class JobService:
         for job_id in active_ids:
             self.cancel(job_id)
         self._executor.shutdown(wait=wait, cancel_futures=cancel_pending)
+        self.cad_pool.close()
         fcntl.flock(self._runtime_lock.fileno(), fcntl.LOCK_UN)
         self._runtime_lock.close()
 

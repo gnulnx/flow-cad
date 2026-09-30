@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from flow_cad.step_io import STABLE_STEP_TIMESTAMP, normalize_step_file
+from flow_cad.step_io import STABLE_STEP_TIMESTAMP, normalize_step_file, normalize_generated_occurrence_ids
 
 
 def test_normalize_step_file_replaces_opencascade_timestamp(tmp_path: Path) -> None:
@@ -89,3 +89,26 @@ def test_normalize_step_file_is_noop_when_header_is_absent(tmp_path: Path) -> No
 
     assert changed is False
     assert step_file.read_text(encoding="utf-8") == original
+
+
+def test_generated_occurrence_ids_remove_only_counter_offset(tmp_path: Path) -> None:
+    path = tmp_path / "assembly.step"
+    original = (
+        "#7 = NEXT_ASSEMBLY_USAGE_OCCURRENCE('104','left 104','',#2,#3,$);\n"
+        "#8 = NEXT_ASSEMBLY_USAGE_OCCURRENCE(\n  '103','right','',#2,#4,$);\n"
+        "#9 = CARTESIAN_POINT('',(103.,104.,0.));\n"
+    )
+    path.write_text(original)
+    assert normalize_generated_occurrence_ids(path) is True
+    expected = original.replace("('104',", "('2',").replace("'103','right'", "'1','right'")
+    assert path.read_text() == expected
+    assert normalize_generated_occurrence_ids(path) is False
+    assert path.read_text() == expected
+
+
+def test_no_generated_occurrences_preserves_step_bytes(tmp_path: Path) -> None:
+    path = tmp_path / "solid.step"
+    original = "#1 = CARTESIAN_POINT('',(1.,2.,3.));\n"
+    path.write_text(original)
+    assert normalize_generated_occurrence_ids(path) is False
+    assert path.read_text() == original

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { loadDisplayBytes, isSelectionClick } from './displayScene'
+import { loadDisplayBytes, isSelectionClick, displayBytesCache } from './displayScene'
 import { parseDisplay } from './displayGeometry'
 import type { WorkbenchPart } from '../../contracts'
 
 const part = { uuid: 'part', authorityHash: 'step-hash', displaySceneUrl: 'http://localhost/api/parts/part/display-scene',
   displayArtifact: { url: '/stl', contentHash: 'stl-hash', format: 'stl' } } as WorkbenchPart
-afterEach(() => { vi.unstubAllGlobals() })
+afterEach(() => { displayBytesCache.clear(); vi.unstubAllGlobals() })
 
 describe('component display', () => {
   it('loads cached colors and binds the actual GLB content hash', async () => {

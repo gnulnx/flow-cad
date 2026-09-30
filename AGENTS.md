@@ -362,3 +362,49 @@ The working tree may contain user or other-agent changes.
   separately with an ownership-appropriate message.
 - Run `git status --short` after the final commit. A task is not complete until
   the output is empty.
+
+## Performance work and bounded output
+
+- Never print diffs or whitespace-check output for generated STEP/STL/GLB assets.
+  Limit `git diff --check` to source/docs, and use CAD facts, artifact hashes and
+  path-limited status for generated outputs. Send full build/test logs to files;
+  return short summaries and bounded error tails to the conversation.
+- Record a reproducible before/after baseline for performance changes. Separate
+  cold preparation, cached opening, isolate/restore and actual geometry builds.
+  Keep the input artifacts, browser/render backend, CPU affinity and memory limits
+  consistent; disclose shared-workstation and software-renderer limitations.
+- Run resource-heavy CAD workloads sequentially. Verify effective resource limits;
+  a requested systemd CPU quota is not proof that the CPU controller is delegated.
+  Use explicit CPU affinity and native-library thread limits for benchmarks when
+  needed. Never change unrelated training processes to improve a benchmark.
+- Preserve STEP authority, exact measurement, placement and color while optimizing
+  display assets. A quicker preview must not silently reduce CAD accuracy.
+- Browser display resources use revision- and API-bound caches: 128 MiB of
+  downloaded bytes and 256 MiB of decoded geometry. Visible geometry holds leases;
+  inactive least-recently-used entries are disposed to meet the budget. Never
+  dispose a leased geometry on a component unmount or attach one shared geometry
+  as a mutable R3F primitive. Keep failures retryable.
+- Test actual hide/show, isolate/restore, revision changes and a fresh browser
+  after viewer lifetime changes. Hot reload can retain older hook/cache state;
+  passing metadata counts alone does not prove the geometry returned on screen.
+- CAD jobs share `JobService.cad_pool`: two persistent spawned processes by
+  default, one CPU/native thread and 2048 MiB RSS per process. Configure typed
+  `[cad]` settings through `FlowCadConfig`; do not create another unbounded pool.
+  Project-local slot locks also bound work from concurrent CLI/API runners.
+- Keep native generation/tessellation/extraction inside workers and artifact,
+  registry and cache publication in the parent. A cancelled or failed worker is
+  killed and replaced; it must never publish partial outputs. Source revisions
+  include transitive project Python and package assets, and force a new worker.
+- Build previews mesh the generated shape in memory. Keep exact measurements
+  STEP-backed. Test transforms, repeated occurrences and inherited source colors;
+  a moved assembly's source colors can be more complete than an exporter roundtrip.
+- Mesh build previews before fine STL exports. OCCT can retain a finer existing
+  triangulation when asked for a coarser display mesh; regression-test display
+  triangle counts against print mesh counts as well as geometry/appearance.
+- Keep `tests/build` in default pytest collection. Pytest's stock recursion
+  exclusions include every directory named `build`; the explicit config override
+  is required so worker/build tests run in CI without a focused path argument.
+- Warm OCCT exports advance a process-global assembly usage ID counter. Normalize
+  that offset only on freshly generated STEP exports before hashing; never rewrite
+  imported or frozen STEP. Test repeated assemblies, not just single solids, for
+  identical artifacts and unchanged viewer revisions in a reused worker.

@@ -210,6 +210,8 @@ def test_manifest_round_trips_project_owned_print_and_physical_metadata() -> Non
     version: b3_v2
     compatible_versions: [b3_v1]
     material: PETG
+    category: make
+    display_name: Compute carrier
     print:
       shell_count: 4
       infill_density: 0.4
@@ -227,6 +229,8 @@ def test_manifest_round_trips_project_owned_print_and_physical_metadata() -> Non
     manifest = loads_manifest(source, source="metadata.yaml")
     part = manifest.parts[0]
 
+    assert part.category == "make"
+    assert part.display_name == "Compute carrier"
     assert part.family == "compute"
     assert part.version == "b3_v2"
     assert part.compatible_versions == ("b3_v1",)
@@ -307,3 +311,10 @@ assemblies:
         translation_mm: [0, 0, 0]
         rotation_deg: [0, 0, 0]
 """
+
+
+@pytest.mark.parametrize("field", ["category: unknown", "display_name: ''"])
+def test_manifest_rejects_invalid_browsing_metadata(field: str) -> None:
+    source = _manifest_yaml().replace("    artifacts:\n", f"    {field}\n    artifacts:\n")
+    with pytest.raises(ManifestError):
+        loads_manifest(source)

@@ -1,5 +1,4 @@
-import { useEffect, useMemo } from 'react'
-import * as THREE from 'three'
+import { Line } from '@react-three/drei'
 import type { Point3 } from '../../contracts'
 import { isMeasurementStale, type MeasurementResult, type SnapCandidate } from './measurement'
 
@@ -23,12 +22,14 @@ export function MeasurementScene({
       {hover?.edge ? <ExactLine start={hover.edge.startMm} end={hover.edge.endMm} color={qualityColor(hover.quality)} opacity={0.78} /> : null}
       {hover ? <ExactMarker point={hover.pointMm} color={qualityColor(hover.quality)} scale={1.7} /> : null}
       {start ? <ExactMarker point={start.pointMm} color={qualityColor(start.quality)} scale={2.1} /> : null}
+      {start && hover ? <ExactLine start={start.pointMm} end={hover.pointMm} color="#56ed83" opacity={1} width={3.5} /> : null}
       {measurements.map((measurement) => measurement.hidden ? null : (
         <ExactLine
           key={measurement.id}
           start={measurement.startMm}
           end={measurement.endMm}
-          color={isMeasurementStale(measurement, currentPartUuid, currentArtifactRevision) || measurement.quality === 'Approximate' ? '#e6b66a' : '#f0c983'}
+          color={isMeasurementStale(measurement, currentPartUuid, currentArtifactRevision) ? '#e6b66a' : '#56ed83'}
+          width={3.5}
           opacity={0.95}
         />
       ))}
@@ -49,38 +50,14 @@ function ExactMarker({ point, color, scale }: { point: Point3; color: string; sc
   )
 }
 
-function ExactLine({
-  start,
-  end,
-  color,
-  opacity,
-}: {
+export function ExactLine({ start, end, color, opacity, width = 2 }: {
   start: Point3
   end: Point3
   color: string
   opacity: number
+  width?: number
 }) {
-  const line = useMemo(() => {
-    const geometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(...start),
-      new THREE.Vector3(...end),
-    ])
-    const material = new THREE.LineBasicMaterial({
-      color,
-      transparent: opacity < 1,
-      opacity,
-      depthTest: false,
-      toneMapped: false,
-    })
-    const object = new THREE.Line(geometry, material)
-    object.renderOrder = 51
-    return object
-  }, [color, end, opacity, start])
-
-  useEffect(() => () => {
-    line.geometry.dispose()
-    ;(line.material as THREE.Material).dispose()
-  }, [line])
-
-  return <primitive object={line} />
+  return <Line points={[start, end]} color={color} lineWidth={width}
+    transparent={opacity < 1} opacity={opacity} depthTest={false}
+    toneMapped={false} renderOrder={51} raycast={() => undefined} />
 }

@@ -319,25 +319,23 @@ describe('workbench HTTP adapter', () => {
     }
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({
-        snapshot: {
-          thread_id: 'thread-1',
-          part_uuid: 'part-1',
-          artifact_revision: revision,
-          measurements: [{
-            measurement_id: measurement.measurementId,
-            kind: measurement.kind,
-            title: measurement.title,
-            quality: measurement.quality,
-            start_mm: measurement.startMm,
-            end_mm: measurement.endMm,
-            total_mm: measurement.totalMm,
-            delta_mm: measurement.deltaMm,
-            feature_ids: measurement.featureIds,
-            hidden: measurement.hidden,
-            pinned: measurement.pinned,
-            label_offset_px: measurement.labelOffsetPx,
-          }],
-        },
+        thread_id: 'thread-1',
+        part_uuid: 'part-1',
+        artifact_revision: revision,
+        measurements: [{
+          measurement_id: measurement.measurementId,
+          kind: measurement.kind,
+          title: measurement.title,
+          quality: measurement.quality,
+          start_mm: measurement.startMm,
+          end_mm: measurement.endMm,
+          total_mm: measurement.totalMm,
+          delta_mm: measurement.deltaMm,
+          feature_ids: measurement.featureIds,
+          hidden: measurement.hidden,
+          pinned: measurement.pinned,
+          label_offset_px: measurement.labelOffsetPx,
+        }],
       }))
       .mockResolvedValueOnce(jsonResponse({ created: true }, 201))
     vi.stubGlobal('fetch', fetchMock)

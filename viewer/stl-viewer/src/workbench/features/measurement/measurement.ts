@@ -13,13 +13,19 @@ export interface ScreenPoint {
   y: number
   depth: number
   visible: boolean
+  clipW?: number
 }
 
 export type PointProjector = (pointMm: Point3) => ScreenPoint | null
 
 export interface MeasurementProjectionSource {
   createProjector(): PointProjector
+  pickPlanePoint?(x: number, y: number, plane: MeasurementPlane, anchor: Point3): SnapCandidate | null
 }
+
+export type MeasurementPlane = 'view' | 'xy' | 'xz' | 'yz'
+export type MeasurementMode = 'distance' | 'edge_length'
+export type SnapFilter = 'all' | 'circle_center' | 'vertex' | 'line_edge'
 
 export interface ApproximateMeasurementSource {
   partUuid: string
@@ -41,6 +47,7 @@ export interface SnapCandidate {
     endMm: Point3
     lengthMm: number
   }
+  radiusMm?: number
 }
 
 export interface MeasurementBinding {
@@ -89,22 +96,27 @@ export function findScreenSpaceSnap(
   features: readonly (MeasurementFeature | ExactFeature)[],
   project: PointProjector,
   radiusPx = DEFAULT_SNAP_RADIUS_PX,
+  filter: SnapFilter = 'all',
 ): SnapCandidate | null {
   let best: SnapCandidate | null = null
   for (const feature of features) {
+    if (filter !== 'all' && feature.kind !== filter) continue
     const candidate = candidateForFeature(pointer, feature, project)
     if (!candidate || candidate.distancePx > radiusPx) continue
     if (!best
       || QUALITY_PRIORITY[candidate.quality] < QUALITY_PRIORITY[best.quality]
-      || (candidate.quality === best.quality && candidate.distancePx < best.distancePx)
-      || (candidate.quality === best.quality && candidate.distancePx === best.distancePx && KIND_PRIORITY[candidate.kind] < KIND_PRIORITY[best.kind])
-      || (candidate.quality === best.quality && candidate.distancePx === best.distancePx
-        && KIND_PRIORITY[candidate.kind] === KIND_PRIORITY[best.kind]
-        && candidate.featureId.localeCompare(best.featureId) < 0)) {
+      || (candidate.quality === best.quality && snapScore(candidate) < snapScore(best))) {
       best = candidate
     }
   }
   return best
+}
+
+// Point targets need a small preference over edges passing through them.
+// Otherwise floating-point pixel differences make corners almost unpickable.
+function snapScore(candidate: SnapCandidate): number {
+  return candidate.distancePx + (candidate.kind === 'line_edge' ? 5 : 0)
+    + candidate.screen.depth * 0.0001 + KIND_PRIORITY[candidate.kind] * 0.000001
 }
 
 function candidateForFeature(
@@ -118,13 +130,14 @@ function candidateForFeature(
     const end = project(feature.endMm)
     if (!start?.visible || !end?.visible) return null
     const nearest = nearestPointOnSegment(pointer, start, end)
+    const t = perspectiveSegmentParameter(nearest.t, start.clipW ?? 1, end.clipW ?? 1)
     const quality = feature.quality === 'exact' ? 'Exact' : 'Approximate'
     return {
       featureId: feature.id,
       kind: feature.kind,
       quality,
       label: `${featureLabel(feature.kind, quality)} · ${formatMm(feature.lengthMm)}`,
-      pointMm: lerpPoint(feature.startMm, feature.endMm, nearest.t),
+      pointMm: lerpPoint(feature.startMm, feature.endMm, t),
       screen: { x: nearest.x, y: nearest.y, depth: start.depth + (end.depth - start.depth) * nearest.t, visible: true },
       distancePx: nearest.distance,
       edge: { startMm: feature.startMm, endMm: feature.endMm, lengthMm: feature.lengthMm },
@@ -142,6 +155,7 @@ function candidateForFeature(
     quality,
     label: featureLabel(feature.kind, quality),
     pointMm: point,
+    radiusMm: feature.radiusMm,
     screen,
     distancePx: Math.hypot(pointer.x - screen.x, pointer.y - screen.y),
   }
@@ -158,17 +172,27 @@ export function createDistanceMeasurement(
   return {
     id,
     kind: 'distance',
-    title: `${featureLabel(start.kind, start.quality)} to ${featureLabel(end.kind, end.quality)}`,
+    title: `${start.label.split(' · ')[0]} to ${end.label.split(' · ')[0]}`,
     quality,
     startMm: start.pointMm,
     endMm: end.pointMm,
     totalMm: length(deltaMm),
     deltaMm,
-    binding: { ...binding, featureIds: [start.featureId, end.featureId] },
+    binding: { ...binding, featureIds: [anchorFeatureId(start), anchorFeatureId(end)] },
     hidden: false,
     pinned: false,
     offsetPx: [0, 0],
   }
+}
+
+function anchorFeatureId(target: SnapCandidate): string {
+  return target.kind === 'line_edge'
+    ? `${target.featureId}@${target.pointMm.map((value) => value.toFixed(6)).join(',')}`
+    : target.featureId
+}
+
+export function perspectiveSegmentParameter(screenT: number, startW: number, endW: number): number {
+  return (screenT / endW) / ((1 - screenT) / startW + screenT / endW)
 }
 
 export function createEdgeLengthMeasurement(
