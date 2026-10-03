@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from flow_cad.registry import sync_project
+from flow_cad.registry.deletion import PartDeleteNotFound, delete_part
+from flow_cad.registry.lifecycle import LifecycleError
 from flow_cad.viewer.services import (
     InventoryService,
     PreviewPlacementError,
@@ -28,6 +30,15 @@ def create_workbench_command_router(project_root: Path) -> APIRouter:
     inventory = InventoryService(root)
     preview_placements = PreviewPlacementStore(root)
     router = APIRouter(prefix="/api", tags=["workbench commands"])
+
+    @router.delete("/parts/{part_id}")
+    def delete_project_part(part_id: str) -> dict[str, Any]:
+        try:
+            return delete_part(root, part_id)
+        except PartDeleteNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (LifecycleError, OSError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post("/reload")
     def reload_project() -> dict[str, Any]:

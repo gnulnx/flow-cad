@@ -29,6 +29,7 @@ export interface TestClientOverrides {
   buildPart?: (partIdentity: string, requestId: string) => Promise<WorkbenchJob>
   buildProject?: (requestId: string) => Promise<WorkbenchJob>
   clearPreview?: () => Promise<void>
+  deletePart?: (partUuid: string) => Promise<void>
 }
 
 const project: ProjectSummary = {
@@ -81,6 +82,7 @@ export function createTestWorkbenchClient(overrides: TestClientOverrides = {}): 
       lastUpdate: new Date(0).toISOString(),
     },
     clearPreview: async () => overrides.clearPreview?.(),
+    deletePart: async (partUuid) => overrides.deletePart?.(partUuid),
     cancelTurn: async () => undefined,
     cancelJob: async () => undefined,
     getExactFeatures: async () => overrides.exactFeatures ?? {
