@@ -70,7 +70,14 @@ export default function AppShell({ client }: AppShellProps) {
     observedProjectState.current = projectStateKey(nextProject)
     setProject(nextProject)
   }, [])
-  const inventoryChanged = useCallback((snapshot: InventorySnapshot) => setInventory(snapshot), [])
+  const inventoryChanged = useCallback((snapshot: InventorySnapshot) => {
+    setInventory(snapshot)
+    const ids = new Set(snapshot.parts.map((part) => part.uuid))
+    setSelection((current) => ({
+      activePartUuid: current.activePartUuid && ids.has(current.activePartUuid) ? current.activePartUuid : null,
+      explicitVisiblePartUuids: current.explicitVisiblePartUuids?.filter((uuid) => ids.has(uuid)) ?? null,
+    }))
+  }, [])
   const assemblyChanged = useCallback((snapshot: AssemblyViewportSnapshot) => setAssemblyState(snapshot), [])
   const buildSubmitted = useCallback((jobId: string) => setWatchedBuildJobId(jobId), [])
   const buildFinished = useCallback((job: WorkbenchJob) => {

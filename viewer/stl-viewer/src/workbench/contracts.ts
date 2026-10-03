@@ -225,6 +225,7 @@ export interface SaveMeasurementSnapshotInput extends SavedMeasurementSnapshot {
 export interface WorkbenchClient {
   getProject(signal?: AbortSignal): Promise<ProjectSummary>
   getInventory(signal?: AbortSignal): Promise<InventorySnapshot>
+  deletePart(partUuid: string): Promise<void>
   getJobs(signal?: AbortSignal): Promise<WorkbenchJob[]>
   getDefaultThread(signal?: AbortSignal): Promise<DefaultThread>
   getChatProvider(signal?: AbortSignal): Promise<ChatProviderStatus>

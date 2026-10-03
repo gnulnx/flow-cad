@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { WorkbenchPart } from '../../contracts'
@@ -14,6 +14,48 @@ function part(authorityHash: string): WorkbenchPart {
 }
 
 describe('PartInventoryDock refresh', () => {
+  it('deletes from the right-click menu and refreshes inventory without selecting the row', async () => {
+    const target = part('sha')
+    const client = createTestWorkbenchClient()
+    client.getInventory = vi.fn().mockResolvedValueOnce({ revision: 1, parts: [target] })
+      .mockResolvedValue({ revision: 2, parts: [] })
+    client.deletePart = vi.fn().mockResolvedValue(undefined)
+    const changed = vi.fn()
+    const select = vi.fn()
+    render(<PartInventoryDock client={client} activePartUuid={target.uuid} onSelect={select} onInventoryChange={changed} />)
+    const row = await screen.findByRole('option', { name: /arch_guard/ })
+    select.mockClear()
+    fireEvent.contextMenu(row, { clientX: 100, clientY: 200 })
+    expect(select).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete part' }))
+    await waitFor(() => expect(client.deletePart).toHaveBeenCalledExactlyOnceWith(target.uuid))
+    await screen.findByText('No matching parts')
+    expect(changed).toHaveBeenLastCalledWith({ revision: 2, parts: [] })
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('retains the part and reports a deletion failure', async () => {
+    const client = createTestWorkbenchClient({ inventory: { revision: 1, activeAssemblyId: null, parts: [part('sha')] },
+      deletePart: async () => { throw new Error('Part build is still running') } })
+    render(<PartInventoryDock client={client} activePartUuid={null} onSelect={vi.fn()} />)
+    const row = await screen.findByRole('option', { name: /arch_guard/ })
+    fireEvent.contextMenu(row)
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete part' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Part build is still running')
+    expect(row).toBeInTheDocument()
+  })
+
+  it('opens with the keyboard and dismisses without deletion', async () => {
+    const client = createTestWorkbenchClient({ inventory: { revision: 1, activeAssemblyId: null, parts: [part('sha')] } })
+    client.deletePart = vi.fn()
+    render(<PartInventoryDock client={client} activePartUuid={null} onSelect={vi.fn()} />)
+    const row = await screen.findByRole('option', { name: /arch_guard/ })
+    fireEvent.keyDown(row, { key: 'F10', shiftKey: true })
+    expect(screen.getByRole('menuitem', { name: 'Delete part' })).toHaveFocus()
+    fireEvent.keyDown(screen.getByRole('menuitem'), { key: 'Escape' })
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(client.deletePart).not.toHaveBeenCalled()
+  })
   it('does not refetch when inventory delivery changes parent callback identities', async () => {
     const client = createTestWorkbenchClient()
     client.getInventory = vi.fn().mockResolvedValue({ revision: 1, activeAssemblyId: 'active', parts: [part('sha')] })

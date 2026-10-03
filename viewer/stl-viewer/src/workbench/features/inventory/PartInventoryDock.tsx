@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ArtifactState, InventorySnapshot, WorkbenchClient, WorkbenchPart } from '../../contracts'
 import type { PartSelectionMode } from './selection'
+import { PartDeleteMenu } from './PartDeleteMenu'
 
 interface PartInventoryDockProps {
   client: WorkbenchClient
@@ -36,6 +37,10 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
   const [material, setMaterial] = useState('')
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ part: WorkbenchPart; x: number; y: number } | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null)
   const activePartUuidRef = useRef(activePartUuid)
   const callbacksRef = useRef({ onSelect, onInventoryChange })
 
@@ -91,6 +96,31 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
     }
     return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right))
   }, [filtered])
+
+  async function removePart(part: WorkbenchPart) {
+    if (deleting) return
+    setContextMenu(null)
+    setDeleting(part.uuid)
+    setDeleteError(null)
+    setDeleteMessage(null)
+    try {
+      await client.deletePart(part.uuid)
+      // Immediately drop the deleted row even if the following refresh fails.
+      if (snapshot) {
+        const next = { ...snapshot, parts: snapshot.parts.filter((p) => p.uuid !== part.uuid) }
+        setSnapshot(next)
+        callbacksRef.current.onInventoryChange?.(next)
+      }
+      const next = await client.getInventory()
+      setSnapshot(next)
+      callbacksRef.current.onInventoryChange?.(next)
+      setDeleteMessage(`Deleted ${part.displayName ?? part.key}. Removed files are recoverable from project trash.`)
+    } catch (reason: unknown) {
+      setDeleteError(reason instanceof Error ? reason.message : 'Could not delete part')
+    } finally {
+      setDeleting(null)
+    }
+  }
 
   return (
     <section className="inventory-dock" aria-labelledby="inventory-title">
@@ -151,6 +181,12 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
             : 'Loading metadata…'}
       </div>
       <div className="inventory-selection-hint">Click isolates · Ctrl/Cmd-click adds or removes</div>
+      {deleting ? <div role="status">Deleting part…</div> : null}
+      {deleteError ? <div role="alert">{deleteError}</div> : null}
+      {deleteMessage ? <div role="status">{deleteMessage}</div> : null}
+      {contextMenu ? <PartDeleteMenu label={contextMenu.part.displayName ?? contextMenu.part.key}
+        x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu(null)}
+        onDelete={() => void removePart(contextMenu.part)} /> : null}
       {grouped.length > 1 ? <div className="inventory-section-actions">
         <button type="button" onClick={() => setExpandedGroups(Object.fromEntries(grouped.map(([group]) => [group, true])))}>Expand all</button>
         <button type="button" onClick={() => setExpandedGroups(Object.fromEntries(grouped.map(([group]) => [group, false])))}>Collapse all</button>
@@ -186,6 +222,18 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
                   data-active={part.uuid === activePartUuid ? 'true' : 'false'}
                   className="part-row"
                   key={part.uuid}
+                  aria-busy={deleting === part.uuid}
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    if (!deleting) setContextMenu({ part, x: event.clientX, y: event.clientY })
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                      event.preventDefault()
+                      const box = event.currentTarget.getBoundingClientRect()
+                      if (!deleting) setContextMenu({ part, x: box.left + 20, y: box.bottom })
+                    }
+                  }}
                 >
                   <button
                     type="button"
