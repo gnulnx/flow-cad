@@ -132,3 +132,9 @@ def test_delete_rejects_active_job_without_changes(project):
         response = client.delete('/api/parts/alpha_panel')
         assert response.status_code == 409
         assert get_part(project, 'alpha_panel') is not None
+
+
+def test_unrelated_display_job_does_not_block_delete(project):
+    with TestClient(create_workbench_app(project, enable_default_chat_provider=False)) as client:
+        client.app.state.job_service.store.create(request_id='old-display-job', kind='display-scene')
+        assert client.delete('/api/parts/alpha_panel').status_code == 200

@@ -35,7 +35,7 @@ describe('PartInventoryDock refresh', () => {
   })
 
   it('retains the part and reports a deletion failure', async () => {
-    const client = createTestWorkbenchClient({ inventory: { revision: 1, parts: [part('sha')] },
+    const client = createTestWorkbenchClient({ inventory: { revision: 1, activeAssemblyId: null, parts: [part('sha')] },
       deletePart: async () => { throw new Error('Part build is still running') } })
     render(<PartInventoryDock client={client} activePartUuid={null} onSelect={vi.fn()} />)
     const row = await screen.findByRole('option', { name: /arch_guard/ })
@@ -46,7 +46,7 @@ describe('PartInventoryDock refresh', () => {
   })
 
   it('opens with the keyboard and dismisses without deletion', async () => {
-    const client = createTestWorkbenchClient({ inventory: { revision: 1, parts: [part('sha')] } })
+    const client = createTestWorkbenchClient({ inventory: { revision: 1, activeAssemblyId: null, parts: [part('sha')] } })
     client.deletePart = vi.fn()
     render(<PartInventoryDock client={client} activePartUuid={null} onSelect={vi.fn()} />)
     const row = await screen.findByRole('option', { name: /arch_guard/ })

@@ -41,7 +41,10 @@ def delete_part(project_root: Path, identity: str) -> dict:
     jobs = root / ".flow/jobs.sqlite3"
     if jobs.is_file():
         with closing(sqlite3.connect(f"file:{jobs}?mode=ro", uri=True)) as connection:
-            if connection.execute("SELECT 1 FROM jobs WHERE state IN ('queued', 'running') LIMIT 1").fetchone():
+            if connection.execute(
+                "SELECT 1 FROM jobs WHERE state IN ('queued', 'running') "
+                "AND kind IN ('part-build', 'project-build', 'release-gate') LIMIT 1"
+            ).fetchone():
                 raise LifecycleError("Wait for the current CAD job to finish or cancel it before deleting a part.")
     sync_project(root)
     affected = tuple(a for a in manifest.assemblies if any(o.part_uuid == part.uuid for o in a.occurrences))
