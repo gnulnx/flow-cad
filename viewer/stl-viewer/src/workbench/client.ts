@@ -73,6 +73,7 @@ interface PartDto {
   warnings: string[]
   artifact_revision: string | null
   display_revision: string | null
+  display_format?: 'stl' | 'glb' | null
   model_url: string | null
   display_scene_url?: string | null
 }
@@ -502,7 +503,7 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         displayArtifact: part.model_url && part.display_revision
           ? {
               contentHash: part.display_revision,
-              format: 'stl',
+              format: part.display_format ?? 'stl',
               url: part.model_url.startsWith('http') ? part.model_url : `${API_ROOT}${part.model_url}`,
               revision: dto.revision,
             }

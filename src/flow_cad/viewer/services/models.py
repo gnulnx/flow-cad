@@ -83,7 +83,7 @@ class ContentAddressedModelService:
                     sha256=digest,
                     byte_count=byte_count,
                     kind=kind,
-                    media_type="model/step" if kind == "step" else "model/stl",
+                    media_type={"step":"model/step", "stl":"model/stl", "glb":"model/gltf-binary"}[kind],
                     geometry_authority="step_kernel" if kind == "step" else "mesh",
                 )
             except (FileNotFoundError, ArtifactChangedError, UnsafeArtifactPathError) as exc:
@@ -98,7 +98,7 @@ class ContentAddressedModelService:
                 """
                 SELECT DISTINCT kind, relative_path, byte_count
                 FROM artifacts
-                WHERE kind IN ('step', 'stl') AND sha256 = ? AND state = 'indexed'
+                WHERE kind IN ('step', 'stl', 'glb') AND sha256 = ? AND state = 'indexed'
                 ORDER BY CASE kind WHEN 'step' THEN 0 ELSE 1 END, relative_path
                 """,
                 (digest,),

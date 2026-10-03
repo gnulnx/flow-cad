@@ -81,7 +81,7 @@ async function fetchDisplayBytes(part: WorkbenchPart, signal: AbortSignal, selec
   }
   const response = await fetch(part.displayArtifact!.url, { signal })
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
-  return { artifactBytes: await response.arrayBuffer(), format: 'stl', hash: part.displayArtifact!.contentHash, warning }
+  return { artifactBytes: await response.arrayBuffer(), format: part.displayArtifact!.format, hash: part.displayArtifact!.contentHash, warning }
 }
 
 export function isSelectionClick(delta: number, button: number, measureMode: boolean) {

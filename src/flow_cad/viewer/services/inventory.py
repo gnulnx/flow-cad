@@ -235,7 +235,7 @@ def _part_payload(row, *, aliases, artifacts, occurrences) -> dict[str, Any]:
         (
             artifact
             for artifact in artifact_payloads
-            if artifact["kind"] == "stl"
+            if artifact["kind"] in {"stl", "glb"}
             and artifact["state"] == "indexed"
             and artifact["sha256"] is not None
         ),
@@ -258,7 +258,7 @@ def _part_payload(row, *, aliases, artifacts, occurrences) -> dict[str, Any]:
                 "Exact STEP is indexed, but no content-addressed STL display model is available."
             )
     elif display_artifact is not None:
-        source_kind = "stl"
+        source_kind = display_artifact["kind"]
         authority = "mesh"
         quality = "approximate"
         capabilities = dict(_MESH_CAPABILITIES)
@@ -266,7 +266,7 @@ def _part_payload(row, *, aliases, artifacts, occurrences) -> dict[str, Any]:
         authority_url = None
         display_revision = display_artifact["sha256"]
         model_url = display_artifact["content_url"]
-        warnings.append("STL is mesh-only; exact topology and measurement are unavailable.")
+        warnings.append("Display mesh is mesh-only; exact topology and measurement are unavailable.")
     else:
         source_kind = "missing"
         authority = "missing"
@@ -338,13 +338,14 @@ def _part_payload(row, *, aliases, artifacts, occurrences) -> dict[str, Any]:
         "authority_url": authority_url,
         "display_revision": display_revision,
         "model_url": model_url,
+        "display_format": display_artifact["kind"] if display_artifact else None,
         "display_scene_url": f"/api/parts/{row['uuid']}/display-scene" if exact_artifact else None,
     }
 
 
 def _content_url(artifact) -> str | None:
     if (
-        str(artifact["kind"]) in {"step", "stl"}
+        str(artifact["kind"]) in {"step", "stl", "glb"}
         and str(artifact["state"]) == "indexed"
         and artifact["sha256"] is not None
     ):

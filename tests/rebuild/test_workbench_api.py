@@ -256,3 +256,23 @@ def test_inventory_http_gate_for_one_thousand_parts(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert len(response.json()["parts"]) == 1000
     assert elapsed < 0.250
+
+
+def test_glb_mesh_study_is_served_without_exact_authority(tmp_path):
+    from dataclasses import replace
+    from flow_cad.sdk import load_manifest
+    root, *_ = _project(tmp_path)
+    target = root / 'exports' / 'study.glb'
+    target.write_bytes(b'glTF-test-content')
+    manifest = load_manifest(root / 'flowcad.project.yaml')
+    part = replace(manifest.parts[0], artifacts=(ArtifactSpec(kind='glb', path='exports/study.glb'),))
+    (root / 'flowcad.project.yaml').write_text(dump_manifest(replace(manifest, parts=(part,))))
+    sync_project(root)
+    with TestClient(create_workbench_app(root)) as client:
+        item = client.get('/api/parts').json()['parts'][0]
+        assert item['geometry_authority'] == 'mesh'
+        assert item['display_format'] == 'glb'
+        assert item['authority_url'] is None
+        response = client.get(item['model_url'])
+        assert response.content == target.read_bytes()
+        assert response.headers['content-type'] == 'model/gltf-binary'
