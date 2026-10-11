@@ -516,6 +516,9 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
   return {
     getProject: (signal) => fetch(`${applicationUrl}/api/project`, { signal }).then(readJson<ProjectDto>).then(projectSummary),
     getInventory: (signal) => fetch(`${applicationUrl}/api/parts`, { signal }).then(readJson<InventoryDto>).then(inventorySnapshot),
+    deletePart: async (partUuid) => {
+      await fetch(`${applicationUrl}/api/parts/${encodeURIComponent(partUuid)}`, { method: 'DELETE' }).then(readJson)
+    },
     getJobs: (signal) => fetch(`${baseUrl}/jobs`, { signal }).then(readJson<JobDto[] | { jobs: JobDto[] }>).then(jobRecords),
     getDefaultThread: (signal) => fetch(`${applicationUrl}/api/chat/threads/default`, { signal })
       .then(readJson<ThreadDto>)
