@@ -3,8 +3,8 @@
 The header's **Hide chat / Show chat** control reclaims the chat column without
 unmounting the conversation. Drafts and running streams remain intact. Asking
 about viewport markup opens chat automatically. The **Showroom** viewport toggle
-switches between the inspection grid and a studio setup: warm key, cool fill/rim,
-local reflection cards and a shadow-catching floor fitted below visible bounds.
+switches between the inspection grid and a dark studio setup: neutral key, cyan/amber rim accents,
+subdued local reflection cards and a shadow-catching floor fitted below visible bounds.
 Both preferences are remembered in this browser using local storage, with a
 session-only fallback when storage is unavailable.
 
