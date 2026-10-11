@@ -7,10 +7,12 @@ interface ProjectStatusBarProps {
   onProjectChange(project: ProjectSummary | null): void
   chatProviderStatus?: ChatProviderStatus | null
   onRetryChatProvider?(): void
+  chatVisible?: boolean
+  onToggleChat?(): void
   refreshToken?: number
 }
 
-export function ProjectStatusBar({ client, onProjectChange, chatProviderStatus = null, onRetryChatProvider = () => undefined, refreshToken = 0 }: ProjectStatusBarProps) {
+export function ProjectStatusBar({ client, onProjectChange, chatProviderStatus = null, onRetryChatProvider = () => undefined, refreshToken = 0, chatVisible = true, onToggleChat }: ProjectStatusBarProps) {
   const [project, setProject] = useState<ProjectSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -51,6 +53,7 @@ export function ProjectStatusBar({ client, onProjectChange, chatProviderStatus =
         </div>
       )}
       <div className="project-status-bar__health">
+        {onToggleChat ? <button type="button" className="settings-button" aria-expanded={chatVisible} aria-controls="design-chat-panel" onClick={onToggleChat}>{chatVisible ? 'Hide chat' : 'Show chat'}</button> : null}
         <span className={`health-dot ${error ? 'health-dot--error' : project ? 'health-dot--ready' : ''}`} />
         <span>{error ? 'Disconnected' : project ? 'Ready' : 'Connecting'}</span>
         {project?.gitCommit ? <code>{project.gitCommit.slice(0, 8)}{project.gitDirty ? '*' : ''}</code> : null}

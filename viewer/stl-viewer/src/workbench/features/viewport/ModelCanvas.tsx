@@ -1,3 +1,4 @@
+import { Showroom } from './Showroom'
 import { Canvas, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
@@ -20,6 +21,7 @@ import type { SceneComponent } from './componentInspection'
 import { listenForContextClick, pickContextComponent, type ComponentContextRequest } from './componentContext'
 
 interface ModelCanvasProps {
+  showroom?: boolean
   models: LoadedAssemblyPart[]
   selectedPartUuid: string | null
   onSelectPart?(partUuid: string): void
@@ -101,6 +103,7 @@ function ComponentContextBridge({ components, onOpen }: { components: SceneCompo
 }
 
 export default function ModelCanvas({
+  showroom = false,
   models,
   selectedPartUuid,
   onSelectPart,
@@ -164,6 +167,7 @@ export default function ModelCanvas({
     <Canvas
       key="logarithmic-depth"
       camera={{ position: [140, 110, 140], fov: 42, near: 0.1, far: 100000, up: [0, 0, 1] }}
+      shadows={showroom ? 'soft' : false}
       frameloop="demand"
       dpr={[1, 2]}
       // Keep sub-millimetre CAD layers distinct across whole-assembly zoom levels.
@@ -171,6 +175,7 @@ export default function ModelCanvas({
       gl={{ preserveDrawingBuffer: true, logarithmicDepthBuffer: true }}
       onPointerMissed={(event) => { if (!measureMode && event.button === 0) onComponentSelected(null) }}
     >
+      {showroom ? <Showroom bounds={visibleBounds} /> : <>
       <color attach="background" args={['#10161d']} />
       <hemisphereLight args={['#d3dde6', '#090c16', 1.62]} position={[0, 0, 1000]} />
       <directionalLight position={[240, -150, 340]} color="#d6e0ea" intensity={.82} />
@@ -178,9 +183,11 @@ export default function ModelCanvas({
       <directionalLight position={[-260, 240, 180]} color="#6db6e8" intensity={.04} />
       <gridHelper args={[1000, 40, '#40505d', '#25313b']} position={groundGridPosition(visibleBounds)} rotation={[Math.PI / 2, 0, 0]} />
       <axesHelper args={[45]} />
+      </>}
       {models.map((model) => (
         <AssemblyModel
           key={model.key}
+          showroom={showroom}
           model={model}
           selectedKey={selectedComponentKey}
           hiddenKeys={hiddenComponentKeys}
@@ -220,8 +227,9 @@ export default function ModelCanvas({
 }
 
 export function AssemblyModel({
-  model, selectedKey, hiddenKeys, measureMode, onSelect, onReady, onRemoved, onError,
+  model, selectedKey, hiddenKeys, measureMode, onSelect, onReady, onRemoved, onError, showroom = false,
 }: {
+  showroom?: boolean
   model: LoadedAssemblyPart
   selectedKey: string | null
   hiddenKeys: ReadonlySet<string>
@@ -261,7 +269,7 @@ export function AssemblyModel({
         const key = componentKey(model.key, occurrence.id, component.id, index)
         const hidden = hiddenKeys.has(key)
         const selected = key === selectedKey
-        return <mesh key={key} name={key} geometry={component.geometry} visible={!hidden}
+        return <mesh castShadow={showroom} receiveShadow={showroom} key={key} name={key} geometry={component.geometry} visible={!hidden}
           raycast={hidden ? skipRaycast : THREE.Mesh.prototype.raycast}
           onClick={(event) => {
             if (!isSelectionClick(event.delta, event.button, measureMode)) return

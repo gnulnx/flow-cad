@@ -13,6 +13,7 @@ import { WorkbenchViewport, type AssemblyViewportSnapshot } from './features/vie
 import { planAssemblyLoads } from './features/viewport/assembly'
 import type { WorkbenchViewportContext } from './features/viewport/viewportContext'
 import './workbench.css'
+import { useViewerPreference } from './useViewerPreference'
 
 interface AppShellProps {
   client?: WorkbenchClient
@@ -27,6 +28,7 @@ function projectStateKey(project: ProjectSummary | null): string | null {
 
 export default function AppShell({ client }: AppShellProps) {
   const workbenchClient = useMemo(() => client ?? configuredWorkbenchClient(), [client])
+  const [chatVisible, setChatVisible] = useViewerPreference('chat-visible', true)
   const [project, setProject] = useState<ProjectSummary | null>(null)
   const [inventory, setInventory] = useState<InventorySnapshot | null>(null)
   const [selection, setSelection] = useState<PartSelectionState>({
@@ -109,12 +111,13 @@ export default function AppShell({ client }: AppShellProps) {
     setInventoryRefreshToken((value) => value + 1)
     setFitAssemblyRequest((value) => value + 1)
   }, [workbenchClient])
-  const askAgentAboutMarkup = useCallback(() => {
+  const askAgentAboutMarkup = () => {
+    setChatVisible(true)
     setChatDraftRequest({
       id: crypto.randomUUID(),
       content: 'Review the attached viewport markup and explain what geometry change it indicates.',
     })
-  }, [])
+  }
   const measurementKey = activeThreadId && activePart?.authorityHash
     ? `${activeThreadId}:${activePart.uuid}:${activePart.authorityHash}`
     : null
@@ -220,6 +223,8 @@ export default function AppShell({ client }: AppShellProps) {
   return (
     <div className="workbench-shell">
       <ProjectStatusBar
+        chatVisible={chatVisible}
+        onToggleChat={() => setChatVisible(!chatVisible)}
         client={workbenchClient}
         onProjectChange={projectChanged}
         chatProviderStatus={chatProviderStatus}
@@ -229,7 +234,7 @@ export default function AppShell({ client }: AppShellProps) {
         }}
         refreshToken={inventoryRefreshToken}
       />
-      <div className="workbench-shell__body">
+      <div className={`workbench-shell__body${chatVisible ? "" : " workbench-shell__body--chat-hidden"}`}>
         <aside className="left-workbench-dock">
           <PartInventoryDock
             client={workbenchClient}
@@ -266,29 +271,31 @@ export default function AppShell({ client }: AppShellProps) {
           {measurementSaveError ? <p className="measurement-save-error" role="status">{measurementSaveError}</p> : null}
           <JobDrawer client={workbenchClient} watchJobId={watchedBuildJobId} onWatchedJobTerminal={buildFinished} />
         </main>
-        <ChatDock
-          client={workbenchClient}
-          available={chatProviderStatus?.available ?? project?.chatAvailable ?? false}
-          onThreadChange={setActiveThreadId}
-          draftRequest={chatDraftRequest}
-          context={{
-            projectRevision: project?.revision ?? null,
-            selectedPartUuid: activePart?.uuid ?? null,
-            selectedPartKey: activePart?.key ?? null,
-            visibleOccurrenceIds: assemblyState.visibleOccurrenceIds,
-            artifactHashes: {
-              ...assemblyState.artifactHashes,
-              ...(activePart?.authorityHash ? { [`${activePart.uuid}:authority`]: activePart.authorityHash } : {}),
-            },
-            camera: viewportContext?.camera as unknown as Record<string, unknown> ?? {},
-            measurements: savedLabels(viewportContext?.measurements ?? chatMeasurements) as unknown as Record<string, unknown>[],
-            annotations: viewportContext ? [{
-              hidden: viewportContext.annotations.hidden,
-              marks: viewportContext.annotations.marks,
-            }] as unknown as Record<string, unknown>[] : [],
-            viewportAttachment: viewportContext?.latestCapture as unknown as Record<string, unknown> ?? null,
-          }}
-        />
+        <div id="design-chat-panel" className="chat-panel" hidden={!chatVisible}>
+          <ChatDock
+            client={workbenchClient}
+            available={chatProviderStatus?.available ?? project?.chatAvailable ?? false}
+            onThreadChange={setActiveThreadId}
+            draftRequest={chatDraftRequest}
+            context={{
+              projectRevision: project?.revision ?? null,
+              selectedPartUuid: activePart?.uuid ?? null,
+              selectedPartKey: activePart?.key ?? null,
+              visibleOccurrenceIds: assemblyState.visibleOccurrenceIds,
+              artifactHashes: {
+                ...assemblyState.artifactHashes,
+                ...(activePart?.authorityHash ? { [`${activePart.uuid}:authority`]: activePart.authorityHash } : {}),
+              },
+              camera: viewportContext?.camera as unknown as Record<string, unknown> ?? {},
+              measurements: savedLabels(viewportContext?.measurements ?? chatMeasurements) as unknown as Record<string, unknown>[],
+              annotations: viewportContext ? [{
+                hidden: viewportContext.annotations.hidden,
+                marks: viewportContext.annotations.marks,
+              }] as unknown as Record<string, unknown>[] : [],
+              viewportAttachment: viewportContext?.latestCapture as unknown as Record<string, unknown> ?? null,
+            }}
+          />
+        </div>
       </div>
     </div>
   )

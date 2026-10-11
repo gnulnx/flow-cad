@@ -38,6 +38,25 @@ function deferred<T>() {
 }
 
 describe('replacement AppShell', () => {
+  it('preserves the chat panel when hidden and remembers display preferences after remount', async () => {
+    const user = userEvent.setup()
+    const client = createTestWorkbenchClient()
+    const view = render(<AppShell client={client} />)
+    const panel = document.getElementById('design-chat-panel')!
+    await user.click(screen.getByRole('button', { name: 'Hide chat' }))
+    expect(panel).not.toBeVisible()
+    expect(panel.querySelector('.chat-dock')).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Showroom' }))
+    view.unmount()
+    render(<AppShell client={client} />)
+    expect(screen.getByRole('button', { name: 'Show chat' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Showroom' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: 'Show chat' }))
+    expect(screen.getByRole('heading', { name: 'Design chat' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Showroom' }))
+    localStorage.clear()
+  })
+
   it('renders the shell, viewport state, and permanent chat before inventory resolves', async () => {
     const inventory = deferred<InventorySnapshot>()
     render(<AppShell client={createTestWorkbenchClient({ inventory: inventory.promise })} />)
