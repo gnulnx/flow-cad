@@ -231,7 +231,7 @@ describe('workbench HTTP adapter', () => {
         request_id: 'robot-request-1',
         mode: 'default',
         create_report: true,
-        create_bundle: false,
+        create_bundle: true,
       }),
     }))
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/refresh', expect.objectContaining({

@@ -593,7 +593,7 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
           request_id: requestId,
           mode: 'default',
           create_report: true,
-          create_bundle: false,
+          create_bundle: true,
         }),
         signal,
       },
