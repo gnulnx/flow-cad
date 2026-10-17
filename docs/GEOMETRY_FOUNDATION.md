@@ -14,7 +14,7 @@ Flow CAD uses a STEP-first geometry authority model. Python generators and param
 
 `PartGeometry` describes the active authority for a part:
 
-- `source_kind`: `flow_python`, `step`, `stl`, or `missing`.
+- `source_kind`: `flow_python`, `step`, `stl`, `glb`, or `missing`.
 - `geometry_authority`: `step_kernel`, `mesh`, or `missing`.
 - `quality_label`: `exact`, `approximate`, or `missing`.
 - `capabilities`: booleans for display mesh, mesh metrics, exact topology, exact snap, exact measurement, approximate measurement, exact editing, and mesh-only status.
@@ -79,3 +79,13 @@ The model is intended to support a saved Flow document/operation graph without r
 ## Milestone Boundary
 
 This foundation milestone does not add editable primitives, booleans, hole creation, sketch editing, or GUI direct modeling. It establishes the authority and capability contract those tools must consume later. STL remains supported for viewing and approximate mesh measurement, but STL-derived topology is not an editing foundation.
+
+### Registered mesh study views
+
+Declared GLB artifacts are served directly through `/api/models/{sha256}` with
+`model/gltf-binary`, byte verification and immutable content caching. Inventory
+exposes `display_format` so the browser selects the correct mesh decoder. A GLB
+view needs neither a companion STL nor a STEP artifact to be displayed. Mesh-only
+GLB views have approximate geometry capabilities; exact topology and measurement
+remain available only with STEP authority. Existing STL display selection is
+preserved when both STL and GLB exports are declared.

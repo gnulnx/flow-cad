@@ -48,3 +48,18 @@ describe('component display', () => {
     items[0].geometry.dispose()
   })
 })
+
+
+it('loads a registered GLB directly without conversion or STL decoding', async () => {
+  const bytes = new ArrayBuffer(16)
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => bytes })
+  vi.stubGlobal('fetch', fetcher)
+  const direct = { ...part, displaySceneUrl: null,
+    displayArtifact: { url: '/api/models/glb-hash', contentHash: 'glb-hash', format: 'glb' },
+  } as WorkbenchPart
+  expect(await loadDisplayBytes(direct, new AbortController().signal)).toEqual({
+    artifactBytes: bytes, format: 'glb', hash: 'glb-hash', warning: null,
+  })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher.mock.calls[0][0]).toBe('/api/models/glb-hash')
+})

@@ -117,7 +117,7 @@ def _artifact_revisions(snapshot: dict[str, Any]) -> dict[str, str]:
 
 def _rendered_artifact(part: dict[str, Any]) -> dict[str, Any]:
     display = next(
-        (artifact for artifact in part["artifacts"] if artifact["kind"] == "stl"),
+        (artifact for artifact in part["artifacts"] if artifact["sha256"] == part["display_revision"] and artifact["kind"] in {"stl", "glb"}),
         None,
     )
     return {

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
+
+import pytest
 import os
 import subprocess
 import sys
@@ -22,6 +25,7 @@ from flow_cad.sdk import (
     PartStatus,
     ProjectManifest,
     dump_manifest,
+    load_manifest,
 )
 from flow_cad.viewer.api import create_workbench_app
 
@@ -256,3 +260,40 @@ def test_inventory_http_gate_for_one_thousand_parts(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert len(response.json()["parts"]) == 1000
     assert elapsed < 0.250
+
+
+@pytest.mark.parametrize("with_step", [False, True])
+def test_glb_display_is_loadable_without_stl_and_keeps_authority_separate(tmp_path, with_step):
+    root, _content, step_digest, _display_content, _display_digest = _project(tmp_path)
+    # A valid minimal GLB is enough here: delivery must not import a CAD kernel.
+    content = b'glTF' + b'\x00' * 16
+    path = root / "exports/panel.glb"
+    path.write_bytes(content)
+    digest = hashlib.sha256(content).hexdigest()
+    manifest = load_manifest(root / "flowcad.project.yaml")
+    part = manifest.parts[0]
+    artifacts = tuple(a for a in part.artifacts if with_step and a.kind == "step") + (
+        ArtifactSpec(kind="glb", path="exports/panel.glb"),
+    )
+    manifest = replace(manifest, parts=(replace(part, artifacts=artifacts),))
+    (root / "flowcad.project.yaml").write_text(dump_manifest(manifest))
+    sync_project(root)
+    with TestClient(create_workbench_app(root)) as client:
+        part = client.get("/api/parts").json()["parts"][0]
+        assert part["model_url"] == f"/api/models/{digest}"
+        assert part["display_revision"] == digest
+        assert part["capabilities"]["display_model"] is True
+        assert part["capabilities"]["exact_measurement"] is with_step
+        assert part["geometry_authority"] == ("step_kernel" if with_step else "mesh")
+        assert part["source_kind"] == ("flow_python" if with_step else "glb")
+        assert part["authority_url"] == (f"/api/models/{step_digest}" if with_step else None)
+        assert bool(part["display_scene_url"]) is with_step
+        response = client.get(part["model_url"])
+        assert response.status_code == 200
+        assert response.content == content
+        assert response.headers["content-type"] == "model/gltf-binary"
+        assert response.headers["x-flow-cad-geometry-authority"] == "mesh"
+        assert response.headers["x-flow-cad-artifact-kind"] == "glb"
+        assert response.headers["etag"] == f'"{digest}"'
+        path.write_bytes(b'glTF' + b'\x01' * 16)
+        assert client.get(part["model_url"]).status_code == 409

@@ -379,3 +379,21 @@ describe('workbench HTTP adapter', () => {
     })
   })
 })
+
+
+it('maps GLB-only views to a loadable mesh with the correct decoder', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+    revision: 1, parts: [{ uuid: 'study', key: 'study', aliases: [], role: 'inspection',
+      status: 'inspection', occurrences: [],
+      artifacts: [{ kind: 'stl', state: 'missing', sha256: null },
+        { kind: 'glb', state: 'indexed', sha256: 'glb-sha' }],
+      capabilities: { exact_topology: false, mesh_only: true }, warnings: [],
+      artifact_revision: 'glb-sha', display_revision: 'glb-sha', model_url: '/api/models/glb-sha',
+    }],
+  })))
+  const snapshot = await createHttpWorkbenchClient().getInventory()
+  expect(snapshot.parts[0]).toMatchObject({ artifactState: 'indexed', geometryAuthority: 'mesh',
+    qualityLabel: 'Approximate', displaySceneUrl: null,
+    displayArtifact: { format: 'glb', contentHash: 'glb-sha', url: '/api/models/glb-sha' },
+  })
+})

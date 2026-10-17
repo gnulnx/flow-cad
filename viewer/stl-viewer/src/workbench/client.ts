@@ -73,6 +73,7 @@ interface PartDto {
   warnings: string[]
   artifact_revision: string | null
   display_revision: string | null
+  display_format?: 'stl' | 'glb' | null
   model_url: string | null
   display_scene_url?: string | null
 }
@@ -459,7 +460,9 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
       revision: dto.revision,
       activeAssemblyId,
       parts: dto.parts.map((part) => {
-      const displayArtifact = part.artifacts.find((artifact) => artifact.kind.toLocaleLowerCase() === 'stl')
+      const displayArtifact = part.artifacts.find((artifact) => artifact.sha256 === part.display_revision
+        && ['stl', 'glb'].includes(artifact.kind.toLowerCase()))
+        ?? part.artifacts.find((artifact) => artifact.kind.toLowerCase() === 'stl')
       const rawState = displayArtifact?.state ?? (part.model_url ? 'indexed' : 'missing')
       const artifactState = ['indexed', 'queued', 'loading', 'visible', 'stale', 'missing', 'failed'].includes(rawState)
         ? rawState as InventorySnapshot['parts'][number]['artifactState']
@@ -502,7 +505,7 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         displayArtifact: part.model_url && part.display_revision
           ? {
               contentHash: part.display_revision,
-              format: 'stl',
+              format: part.display_format ?? (displayArtifact?.kind.toLowerCase() === 'glb' ? 'glb' : 'stl'),
               url: part.model_url.startsWith('http') ? part.model_url : `${API_ROOT}${part.model_url}`,
               revision: dto.revision,
             }
