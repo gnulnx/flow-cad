@@ -64,7 +64,7 @@ def create_query_router(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @router.get("/models/{artifact_sha256}")
-    async def model(artifact_sha256: str, request: Request) -> Response:
+    async def model(artifact_sha256: str, request: Request, download: bool = False) -> Response:
         try:
             resolved = await models.resolve(artifact_sha256)
         except InvalidArtifactDigestError as exc:
@@ -87,6 +87,7 @@ def create_query_router(
             resolved.path,
             media_type=resolved.media_type,
             headers=headers,
+            filename=resolved.path.name if download else None,
         )
 
     return router

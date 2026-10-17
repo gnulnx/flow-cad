@@ -44,4 +44,17 @@ describe('InspectorDock scoped build', () => {
     render(<InspectorDock client={createTestWorkbenchClient()} part={{ ...ACTIVE_PART, status: 'preserved-only' }} />)
     expect(screen.queryByRole('button', { name: 'Build selected part' })).not.toBeInTheDocument()
   })
+
+  it('copies the exact part key and links only this part’s built files', async () => {
+    const user = userEvent.setup()
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    render(<InspectorDock client={createTestWorkbenchClient()} part={{ ...ACTIVE_PART,
+      downloads: [{ kind: 'step', url: '/api/models/exact?download=true', filename: 'arch_guard.step' },
+        { kind: 'stl', url: '/api/models/mesh?download=true', filename: 'arch_guard.stl' }],
+    }} />)
+    await user.click(screen.getByRole('button', { name: 'Copy part name' }))
+    expect(copy).toHaveBeenCalledWith('arch_guard')
+    expect(screen.getByRole('link', { name: 'Download STEP' })).toHaveAttribute('href', '/api/models/exact?download=true')
+    expect(screen.getByRole('link', { name: 'Download STL' })).toHaveAttribute('download', 'arch_guard.stl')
+  })
 })

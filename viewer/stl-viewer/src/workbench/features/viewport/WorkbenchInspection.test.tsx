@@ -11,6 +11,7 @@ import type { ComponentProps } from 'react'
 const fixture = vi.hoisted(() => ({
   components: ['Cover', 'Motor'].map((label, index) => ({
     key: `mesh-${index}`, modelKey: 'view:rev', partUuid: 'view', occurrenceId: 'view-installed', label,
+    linkedPartUuid: index === 0 ? 'cover' : undefined,
     context: 'Robot view', bounds: { min: [0, 0, 0] as [number, number, number], max: [10, 10, 10] as [number, number, number] },
   })),
   queue: {} as Record<string, unknown>,
@@ -29,11 +30,15 @@ vi.mock('./ModelCanvas', () => ({ default: function Canvas(props: ComponentProps
 
 it('connects mesh clicks, peel mode, hidden list recovery and shortcuts without changing loads or camera', async () => {
   const part: WorkbenchPart = {
-    uuid: 'view', key: 'robot_closed', displayName: 'Closed robot', aliases: [], role: 'inspection', status: 'active',
+    uuid: 'view', key: 'robot_closed', category: 'view', displayName: 'Closed robot', aliases: [], role: 'inspection', status: 'active',
     artifactState: 'visible', geometryAuthority: 'step', qualityLabel: 'Exact', occurrenceCount: 1,
     occurrenceIds: ['view-installed'], occurrences: [{ id: 'view-installed', assemblyId: 'active', translationMm: [0, 0, 0], rotationDeg: [0, 0, 0] }],
     authorityHash: 'step-rev', displayArtifact: { contentHash: 'rev', format: 'glb', url: '/display', revision: 1 }, bounds: null, warnings: [],
   }
+  const cover: WorkbenchPart = { ...part, uuid: 'cover', key: 'printed_cover', category: 'make',
+    displayName: 'Printed cover', role: 'printable', downloads: [
+      { kind: 'step', url: '/api/models/cover?download=true', filename: 'printed_cover.step' },
+    ] }
   const models = [{ key: 'view:rev', part, occurrences: part.occurrences, artifactBytes: new ArrayBuffer(0) }]
   fixture.queue = { models, partStates: { view: 'visible' }, visibleOccurrenceIds: ['view-installed'], artifactHashes: { view: 'rev' },
     progress: { total: 1, visible: 1, queued: 0, loading: 0, failed: 0 }, selectedOccurrence: part.occurrences[0], reportVisible: vi.fn(), reportParseFailure: vi.fn() }
@@ -41,7 +46,7 @@ it('connects mesh clicks, peel mode, hidden list recovery and shortcuts without 
   const client = createTestWorkbenchClient()
   const onSelectPart = vi.fn()
   const onAssemblyStateChange = vi.fn()
-  render(<WorkbenchViewport client={client} parts={[part]} part={part} visiblePartUuids={['view']}
+  render(<WorkbenchViewport client={client} parts={[part, cover]} part={part} visiblePartUuids={['view']}
     backendRevision={1} onSelectPart={onSelectPart} onAssemblyStateChange={onAssemblyStateChange} />)
   await screen.findByRole('button', { name: 'Geometry Cover' })
   fireEvent.contextMenu(screen.getByRole('button', { name: 'Geometry Cover' }))
@@ -83,4 +88,10 @@ it('connects mesh clicks, peel mode, hidden list recovery and shortcuts without 
   await waitFor(() => expect(onAssemblyStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ visibleOccurrenceIds: ['view-installed'] })))
   expect(fixture.canvas?.models).toBe(models)
   expect(fixture.canvas?.fitRequest).toBe(0)
+  await user.click(screen.getByRole('button', { name: 'Geometry Cover' }))
+  expect(screen.getByText('Printed cover')).toBeVisible()
+  expect(screen.getByRole('link', { name: 'Download STEP' })).toHaveAttribute('href', '/api/models/cover?download=true')
+  expect(onSelectPart).toHaveBeenLastCalledWith('view')
+  await user.click(screen.getByRole('button', { name: 'Open part' }))
+  expect(onSelectPart).toHaveBeenLastCalledWith('cover')
 })

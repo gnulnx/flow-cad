@@ -5,6 +5,7 @@ export interface SceneComponent {
   key: string
   modelKey: string
   partUuid: string
+  linkedPartUuid?: string
   occurrenceId: string
   label: string
   context: string

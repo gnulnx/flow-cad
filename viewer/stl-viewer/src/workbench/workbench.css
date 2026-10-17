@@ -434,6 +434,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .inspection-toolbar button[aria-pressed="true"] { color: #bcefff; border-color: #3d9bb7; background: #183442; }
 .inspection-toolbar button:disabled, .inspection-list button:disabled { opacity: .4; cursor: default; }
 .inspection-selection { padding: 3px 12px 7px; font-size: 12px; color: var(--quiet); overflow-wrap: anywhere; }
+.part-file-actions { padding: 8px 12px; display: grid; gap: 5px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.part-file-actions > code { user-select: text; font-size: 11px; }
+.part-file-actions .inspection-toolbar { padding: 0; flex-wrap: wrap; }
 .inspection-hidden-count { color: #bcefff; }
 .inspection-list { position: absolute; top: 100%; right: 8px; width: min(330px, calc(100% - 16px)); max-height: min(60vh, 600px); display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid #45606d; border-radius: 0 0 8px 8px; background: #101820fa; box-shadow: 0 8px 24px #0008; }
 .inspection-list__heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

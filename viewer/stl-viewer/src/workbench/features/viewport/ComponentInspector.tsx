@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { SceneComponent } from './componentInspection'
 import type { useComponentInspection } from './useComponentInspection'
+import type { WorkbenchPart } from '../../contracts'
+import { PartFileActions } from '../inspector/PartFileActions'
 
 interface Props {
   components: SceneComponent[]
@@ -10,9 +12,11 @@ interface Props {
   onPeel(active: boolean): void
   onSelect(component: SceneComponent): void
   onFrame(): void
+  selectedPart?: WorkbenchPart | null
+  onOpenPart?(uuid: string): void
 }
 
-export function ComponentInspector({ components, inspection, peel, disabled, onPeel, onSelect, onFrame }: Props) {
+export function ComponentInspector({ components, inspection, peel, disabled, onPeel, onSelect, onFrame, selectedPart, onOpenPart }: Props) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState<'all' | 'hidden'>('all')
   const [query, setQuery] = useState('')
@@ -45,6 +49,9 @@ export function ComponentInspector({ components, inspection, peel, disabled, onP
         : selected ? `Selected: ${selected.label}${hiddenKeys.has(selected.key) ? ' (hidden)' : ''}` : 'Click any part to select it, then Hide or Isolate.'}
       {!disabled && components.length > 0 && hiddenKeys.size === components.length ? ' Everything is hidden — use Show all or Undo.' : null}
     </div>
+    {selected && selectedPart ? <PartFileActions key={selectedPart.uuid} part={selectedPart}
+      onOpen={onOpenPart ? () => onOpenPart(selectedPart.uuid) : undefined} /> : null}
+    {selected && !selectedPart ? <div className="inspection-selection">This view component has no linked catalog part.</div> : null}
     {open ? <aside id="view-components" className="inspection-list" aria-label="Parts in loaded view">
       <div className="inspection-list__heading"><strong>Parts in this view</strong>
         <button type="button" className="tool-button" aria-label="Close parts in view" onClick={() => setOpen(false)}>×</button></div>

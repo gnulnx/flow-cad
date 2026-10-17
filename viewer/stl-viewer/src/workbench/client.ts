@@ -55,6 +55,8 @@ interface PartDto {
     kind: string
     sha256: string | null
     state: string
+    content_url?: string | null
+    relative_path?: string
   }>
   occurrences: Array<{
     assembly_key: string
@@ -512,6 +514,13 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
           : null,
         bounds: null,
         warnings: part.warnings,
+        downloads: part.artifacts.flatMap((artifact) => {
+          if ((artifact.kind !== 'step' && artifact.kind !== 'stl') || artifact.state !== 'indexed'
+            || !artifact.sha256 || !artifact.content_url) return []
+          const url = artifact.content_url.startsWith('http') ? artifact.content_url : `${API_ROOT}${artifact.content_url}`
+          return [{ kind: artifact.kind, url: `${url}${url.includes('?') ? '&' : '?'}download=true`,
+            filename: artifact.relative_path?.split('/').pop() ?? `${part.key}.${artifact.kind}` }]
+        }),
       }
       }),
     }

@@ -122,6 +122,8 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   [parts, activeAssemblyId, part?.uuid, visiblePartUuids])
   const inspection = useComponentInspection(components, inspectionScope)
   const { dispatch: inspect, select: selectComponent, hiddenKeys, selected: selectedComponent } = inspection
+  const selectedCatalogPart = selectedComponent ? parts.find((candidate) => candidate.uuid ===
+    (selectedComponent.linkedPartUuid ?? selectedComponent.partUuid) && candidate.category !== 'view') ?? null : null
   const inspectionDisabled = measureMode || annotationActive
   const openContextMenu = useCallback((request: ComponentContextRequest) => {
     if (inspectionDisabled) return
@@ -369,6 +371,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
         </div>
       </div>
       <ComponentInspector components={components} inspection={inspection} peel={peel} disabled={inspectionDisabled}
+        selectedPart={selectedCatalogPart} onOpenPart={onSelectPart}
         onPeel={setPeel} onSelect={selectListedComponent} onFrame={() => setFrameSelectedRequest((request) => request + 1)} />
       <div
         ref={stageRef}

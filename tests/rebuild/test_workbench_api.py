@@ -190,6 +190,13 @@ def test_model_endpoint_verifies_and_immutably_serves_exact_step(tmp_path: Path)
     assert display_response.headers["x-flow-cad-geometry-authority"] == "mesh"
     assert display_response.headers["x-flow-cad-artifact-kind"] == "stl"
 
+    for artifact_digest, expected_bytes in ((digest, content), (display_digest, display_content)):
+        download = client.get(f"/api/models/{artifact_digest}?download=true")
+        assert download.status_code == 200
+        assert download.content == expected_bytes
+        assert download.headers["content-disposition"].startswith("attachment;")
+        assert "filename=" in download.headers["content-disposition"]
+
     unchanged = client.get(
         f"/api/models/{digest}",
         headers={"If-None-Match": f'W/"{digest}"'},

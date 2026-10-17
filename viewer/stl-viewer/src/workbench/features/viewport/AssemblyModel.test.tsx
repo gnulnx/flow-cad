@@ -81,10 +81,11 @@ it('keeps real R3F meshes and cache leases across hide/show, and hidden parts ca
 })
 
 it('describes every nested component and repeated occurrence with distinct identities and installed bounds', () => {
-  const items = [0, 1].map(() => ({ id: 'duplicate-id', label: 'motor_cover', geometry: new THREE.BoxGeometry(2, 4, 6), color: new THREE.Color('#aaaaaa'), opacity: 1 }))
+  const items = [0, 1].map(() => ({ id: 'duplicate-id', label: 'motor_cover', linkedPartUuid: 'printable-cover', geometry: new THREE.BoxGeometry(2, 4, 6), color: new THREE.Color('#aaaaaa'), opacity: 1 }))
   const components = describeComponents(model, items)
   expect(components).toHaveLength(4)
   expect(new Set(components.map((item) => item.key)).size).toBe(4)
+  expect(components.every((item) => item.linkedPartUuid === 'printable-cover' && item.partUuid === model.part.uuid)).toBe(true)
   expect(components.map((item) => item.label)).toEqual(['motor cover (1)', 'motor cover (2)', 'motor cover (3)', 'motor cover (4)'])
   expect(components[2].bounds.min[0]).toBeCloseTo(18)
   expect(components[2].bounds.max[1]).toBeCloseTo(1)

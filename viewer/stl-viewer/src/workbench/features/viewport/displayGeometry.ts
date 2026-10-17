@@ -6,6 +6,7 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 export interface DisplayComponent {
   id: string
   label: string
+  linkedPartUuid?: string
   geometry: THREE.BufferGeometry
   color: THREE.Color
   opacity: number
@@ -33,7 +34,10 @@ export async function parseDisplay(bytes: ArrayBuffer, format: 'stl' | 'glb'): P
     const shared = usages.get(object.geometry)! > 1
     const geometry = (shared ? object.geometry.clone() : object.geometry).applyMatrix4(object.matrixWorld)
     if (!geometry.getAttribute('normal')) geometry.computeVertexNormals()
+    let source: THREE.Object3D | null = object
+    while (source && typeof source.userData.flow_cad?.part_uuid !== 'string') source = source.parent
     result.push({ id: object.userData.componentId ?? String(result.length),
+      linkedPartUuid: source?.userData.flow_cad.part_uuid,
       label: object.userData.label ?? object.name ?? 'Component', geometry,
       color: material.color.clone(), opacity: material.opacity })
 

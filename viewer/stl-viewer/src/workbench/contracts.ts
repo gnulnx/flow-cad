@@ -52,6 +52,7 @@ export interface WorkbenchPart {
   displayArtifact: DisplayArtifact | null
   bounds: Bounds3 | null
   warnings: string[]
+  downloads?: { kind: 'step' | 'stl'; url: string; filename: string }[]
 }
 
 export interface ProjectSummary {

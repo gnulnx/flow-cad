@@ -1,3 +1,5 @@
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { loadDisplayBytes, isSelectionClick, displayBytesCache } from './displayScene'
 import { parseDisplay } from './displayGeometry'
@@ -62,4 +64,21 @@ it('loads a registered GLB directly without conversion or STL decoding', async (
   })
   expect(fetcher).toHaveBeenCalledTimes(1)
   expect(fetcher.mock.calls[0][0]).toBe('/api/models/glb-hash')
+})
+
+
+it('retains catalog identity from a multi-primitive GLB parent independently of display labels', async () => {
+  const scene = new THREE.Group()
+  const parent = new THREE.Group()
+  parent.userData.flow_cad = { part_uuid: 'catalog-cover' }
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial())
+  mesh.name = 'legacy source label'
+  parent.add(mesh); scene.add(parent)
+  const parse = vi.spyOn(GLTFLoader.prototype, 'parseAsync').mockResolvedValue({ scene } as Awaited<ReturnType<GLTFLoader['parseAsync']>>)
+  try {
+    const components = await parseDisplay(new ArrayBuffer(0), 'glb')
+    expect(components[0].linkedPartUuid).toBe('catalog-cover')
+    expect(components[0].label).toBe('legacy source label')
+    components.forEach((component) => component.geometry.dispose())
+  } finally { parse.mockRestore() }
 })

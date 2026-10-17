@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { WorkbenchClient, WorkbenchPart } from '../../contracts'
+import { PartFileActions } from './PartFileActions'
 
 interface InspectorDockProps {
   client: WorkbenchClient
@@ -61,6 +62,7 @@ export function InspectorDock({ client, part, onBuildSubmitted }: InspectorDockP
           {buildError ? <span role="alert">{buildError}</span> : null}
         </div>
       ) : null}
+      {part && part.category !== 'view' ? <PartFileActions key={part.uuid} part={part} /> : null}
     </section>
   )
 }

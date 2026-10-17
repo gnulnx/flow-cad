@@ -29,8 +29,8 @@ describe('workbench HTTP adapter', () => {
           role: 'printable',
           status: 'active',
           artifacts: [
-            { kind: 'step', sha256: 'step-sha', state: 'indexed' },
-            { kind: 'stl', sha256: 'stl-sha', state: 'indexed' },
+            { kind: 'step', sha256: 'step-sha', state: 'indexed', content_url: '/api/models/step-sha', relative_path: 'exports/guard.step' },
+            { kind: 'stl', sha256: 'stl-sha', state: 'indexed', content_url: '/api/models/stl-sha', relative_path: 'exports/guard.stl' },
           ],
           occurrences: [{
             assembly_key: 'active',
@@ -65,6 +65,10 @@ describe('workbench HTTP adapter', () => {
         rotationDeg: [0, 90, 0],
       }],
       authorityHash: 'step-sha',
+      downloads: [
+        { kind: 'step', url: '/api/models/step-sha?download=true', filename: 'guard.step' },
+        { kind: 'stl', url: '/api/models/stl-sha?download=true', filename: 'guard.stl' },
+      ],
       displayArtifact: {
         contentHash: 'stl-sha',
         url: '/api/models/stl-sha',
