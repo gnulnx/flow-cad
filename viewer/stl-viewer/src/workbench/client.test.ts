@@ -397,3 +397,19 @@ it('maps GLB-only views to a loadable mesh with the correct decoder', async () =
     displayArtifact: { format: 'glb', contentHash: 'glb-sha', url: '/api/models/glb-sha' },
   })
 })
+
+it('exports prototype workspaces and exposes the archive download', async () => {
+  const fetcher = vi.fn(async () => jsonResponse({ created: true, job: {
+    job_id: 'export-1', kind: 'workspace-export', state: 'succeeded', phase: 'complete',
+    progress: 1, elapsed_seconds: 1, updated_at: 'now', cancellation_requested: false,
+    payload: { label: 'Export workspace' },
+    result: { download_url: '/api/workbench/v1/build/workspace/export-1', missing_artifact_count: 2 },
+  } }))
+  vi.stubGlobal('fetch', fetcher)
+  expect(await createHttpWorkbenchClient().exportWorkspace!('export-request')).toMatchObject({
+    state: 'complete', downloadUrl: '/api/workbench/v1/build/workspace/export-1', missingArtifactCount: 2,
+  })
+  expect(fetcher).toHaveBeenCalledWith('/api/workbench/v1/build/workspace', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ request_id: 'export-request' }),
+  }))
+})

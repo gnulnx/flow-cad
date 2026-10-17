@@ -14,6 +14,7 @@ interface PartInventoryDockProps {
   onShowFullyAssembled?(): void
   onBuildRobot?(): void
   buildRobotSubmitting?: boolean
+  buildRobotLabel?: string
   actionError?: string | null
 }
 
@@ -30,7 +31,7 @@ function statusLabel(part: WorkbenchPart, loadStates: Record<string, ArtifactSta
   return (loadStates[part.uuid] ?? part.artifactState).replace('-', ' ')
 }
 
-export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [], onSelect, onInventoryChange, loadStates = {}, refreshToken = 0, onShowFullyAssembled, onBuildRobot, buildRobotSubmitting = false, actionError = null }: PartInventoryDockProps) {
+export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [], onSelect, onInventoryChange, loadStates = {}, refreshToken = 0, onShowFullyAssembled, onBuildRobot, buildRobotSubmitting = false, buildRobotLabel = 'Build robot', actionError = null }: PartInventoryDockProps) {
   const [snapshot, setSnapshot] = useState<InventorySnapshot | null>(null)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<InventoryTab>('make')
@@ -135,8 +136,8 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
         <button type="button" className="tool-button tool-button--assembly" onClick={onShowFullyAssembled}>
           Show fully assembled
         </button>
-        <button type="button" className="tool-button" disabled={buildRobotSubmitting} onClick={onBuildRobot}>
-          {buildRobotSubmitting ? 'Submitting…' : 'Build robot'}
+        <button type="button" className="tool-button" disabled={buildRobotSubmitting || !snapshot} onClick={onBuildRobot}>
+          {buildRobotSubmitting ? 'Submitting…' : buildRobotLabel}
         </button>
         {actionError ? <span role="alert">{actionError}</span> : null}
       </div>

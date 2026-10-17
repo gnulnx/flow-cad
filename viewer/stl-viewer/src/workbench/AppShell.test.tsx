@@ -221,3 +221,16 @@ describe('replacement AppShell', () => {
     })
   })
 })
+
+it('offers a workspace export for inspection projects without submitting a production build', async () => {
+  const client = createTestWorkbenchClient({ inventory: {
+    revision: 1, activeAssemblyId: 'active', parts: [part('prototype', {status: 'inspection', role: 'inspection'})],
+  } })
+  client.exportWorkspace = vi.fn(async () => ({ id: 'export-1', label: 'Export workspace', state: 'queued' as const,
+    phase: 'queued', progress: 0, cancellable: true, elapsedMs: 0, lastUpdate: 'now' }))
+  client.buildProject = vi.fn(client.buildProject)
+  render(<AppShell client={client} />)
+  await userEvent.click(await screen.findByRole('button', {name: 'Export workspace'}))
+  expect(client.exportWorkspace).toHaveBeenCalledOnce()
+  expect(client.buildProject).not.toHaveBeenCalled()
+})

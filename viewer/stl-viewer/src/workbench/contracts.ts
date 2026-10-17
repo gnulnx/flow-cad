@@ -132,6 +132,8 @@ export interface WorkbenchJob {
   cancellable: boolean
   elapsedMs: number
   lastUpdate: string
+  downloadUrl?: string | null
+  missingArtifactCount?: number
 }
 
 export interface ThreadSummary {
@@ -239,6 +241,7 @@ export interface WorkbenchClient {
   ): Promise<void>
   buildPart(partIdentity: string, requestId: string, signal?: AbortSignal): Promise<WorkbenchJob>
   buildProject(requestId: string, signal?: AbortSignal): Promise<WorkbenchJob>
+  exportWorkspace?(requestId: string, signal?: AbortSignal): Promise<WorkbenchJob>
   clearPreview(signal?: AbortSignal): Promise<void>
   cancelTurn(threadId: string, turnId: string): Promise<void>
   cancelJob(jobId: string): Promise<void>

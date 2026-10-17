@@ -116,6 +116,7 @@ interface BeginTurnDto {
 }
 
 interface JobDto {
+  result?: { download_url?: string; missing_artifact_count?: number } | null
   job_id: string
   kind: string
   state: string
@@ -342,6 +343,8 @@ function jobRecords(payload: JobDto[] | { jobs: JobDto[] }): WorkbenchJob[] {
     cancellable: !job.cancellation_requested && (job.state === 'queued' || job.state === 'running'),
     elapsedMs: job.elapsed_seconds * 1000,
     lastUpdate: job.updated_at,
+    downloadUrl: job.result?.download_url ? `${API_ROOT}${job.result.download_url}` : null,
+    missingArtifactCount: job.result?.missing_artifact_count ?? 0,
   }))
 }
 
@@ -598,6 +601,10 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         signal,
       },
     ).then(readJson<BuildSubmissionDto>).then((dto) => jobRecords([dto.job])[0]),
+    exportWorkspace: (requestId, signal) => fetch(`${baseUrl}/build/workspace`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request_id: requestId }), signal,
+    }).then(readJson<BuildSubmissionDto>).then((dto) => jobRecords([dto.job])[0]),
     clearPreview: (signal) => fetch(`${applicationUrl}/api/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

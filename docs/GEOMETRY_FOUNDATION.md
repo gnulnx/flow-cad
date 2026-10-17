@@ -89,3 +89,13 @@ view needs neither a companion STL nor a STEP artifact to be displayed. Mesh-onl
 GLB views have approximate geometry capabilities; exact topology and measurement
 remain available only with STEP authority. Existing STL display selection is
 preserved when both STL and GLB exports are declared.
+
+### Portable workspaces
+
+Inspection-only projects show Export workspace in place of the production-only
+Build robot action. `/api/workbench/v1/build/workspace` submits a cancellable
+metadata/file packaging job; its completed job exposes a download URL. The
+archive includes project source/assets and only declared non-retired export
+artifacts. It excludes Git/runtime/dependency state, lists unavailable exports,
+and retains inspection/production status unchanged. It performs no CAD builds
+and is separate from the strict production build and release gates.

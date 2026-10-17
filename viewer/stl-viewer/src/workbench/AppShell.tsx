@@ -57,6 +57,8 @@ export default function AppShell({ client }: AppShellProps) {
   const savedMeasurementFingerprint = useRef<{ key: string; fingerprint: string } | null>(null)
   const measurementSaveTimer = useRef<number | null>(null)
   const parts = inventory?.parts ?? EMPTY_PARTS
+  const exportsPrototype = parts.length > 0 && !parts.some((part) => part.status === 'active')
+    && !!workbenchClient.exportWorkspace
   const activeAssemblyId = project?.activeAssemblyId ?? inventory?.activeAssemblyId ?? null
   const defaultVisiblePartUuids = useMemo(
     () => planAssemblyLoads(parts, activeAssemblyId, null).map((item) => item.part.uuid),
@@ -91,14 +93,16 @@ export default function AppShell({ client }: AppShellProps) {
     setProjectBuildSubmitting(true)
     setProjectActionError(null)
     try {
-      const job = await workbenchClient.buildProject(crypto.randomUUID())
+      const job = exportsPrototype
+        ? await workbenchClient.exportWorkspace!(crypto.randomUUID())
+        : await workbenchClient.buildProject(crypto.randomUUID())
       setWatchedBuildJobId(job.id)
     } catch (error: unknown) {
       setProjectActionError(error instanceof Error ? error.message : String(error))
     } finally {
       setProjectBuildSubmitting(false)
     }
-  }, [projectBuildSubmitting, workbenchClient])
+  }, [projectBuildSubmitting, workbenchClient, exportsPrototype])
   const showFullyAssembled = useCallback(async () => {
     setProjectActionError(null)
     try {
@@ -247,6 +251,7 @@ export default function AppShell({ client }: AppShellProps) {
             onShowFullyAssembled={() => void showFullyAssembled()}
             onBuildRobot={() => void buildRobot()}
             buildRobotSubmitting={projectBuildSubmitting}
+            buildRobotLabel={exportsPrototype ? 'Export workspace' : 'Build robot'}
             actionError={projectActionError}
           />
           <InspectorDock client={workbenchClient} part={activePart} onBuildSubmitted={buildSubmitted} />

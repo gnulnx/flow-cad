@@ -17,6 +17,7 @@ export function JobDrawer({ client, watchJobId = null, onWatchedJobTerminal }: J
 
   useEffect(() => {
     terminalNotification.current = null
+    if (watchJobId) setExpanded(true)
   }, [watchJobId])
 
   useEffect(() => {
@@ -62,6 +63,10 @@ export function JobDrawer({ client, watchJobId = null, onWatchedJobTerminal }: J
               <div><strong>{job.label}</strong><span>{job.phase} · {(job.elapsedMs / 1000).toFixed(1)}s</span></div>
               <progress value={job.progress ?? undefined} max={1} />
               <span>{job.state}</span>
+              {job.state === 'complete' && job.downloadUrl
+                ? <div><a href={job.downloadUrl} download>Download workspace</a>
+                    {job.missingArtifactCount ? <small> Includes available files; {job.missingArtifactCount} declared exports still need building.</small> : null}</div>
+                : null}
               {job.cancellable && (job.state === 'queued' || job.state === 'running')
                 ? <button type="button" onClick={() => void client.cancelJob(job.id)}>Cancel</button>
                 : null}
