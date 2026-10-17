@@ -1,3 +1,4 @@
+import { useViewerPreference } from '../../useViewerPreference'
 import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { applicationApiUrl } from '../../client'
 import type { ArtifactState, WorkbenchClient, WorkbenchPart, Point3 } from '../../contracts'
@@ -87,6 +88,7 @@ interface WorkbenchViewportProps {
 }
 
 export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visiblePartUuids = null, activeAssemblyId = null, backendRevision, threadId = null, onAssemblyStateChange, onMeasurementsChange, onViewportContextChange, onAskAgentAboutMarkup, measurementRestore = null, fitAssemblyRequest = 0 }: WorkbenchViewportProps) {
+  const [showroom, setShowroom] = useViewerPreference('showroom', false)
   const [components, setComponents] = useState<SceneComponent[]>([])
   const [peel, setPeel] = useState(false)
   const [annotationActive, setAnnotationActive] = useState(false)
@@ -362,6 +364,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
           <button type="button" className="tool-button" onClick={() => setFitRequest((request) => request + 1)}>Fit</button>
           <button type="button" className="tool-button" onClick={() => setFrameSelectedRequest((request) => request + 1)}>Frame part</button>
           <button type="button" className="tool-button" aria-pressed={dimensionsOpen} onClick={() => { setDimensionsOpen((open) => !open); setMeasureMode(false) }}>Dimensions</button>
+          <button type="button" className="tool-button" aria-pressed={showroom} title="Studio lighting and showroom floor · remembered in this browser" onClick={() => setShowroom(!showroom)}>Showroom</button>
           <MeasurementToolButton active={measureMode} state={measurementToolState} onToggle={toggleMeasureMode} />
         </div>
       </div>
@@ -386,6 +389,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
               </div>
             )}>
               <ModelCanvas
+                showroom={showroom}
                 models={assembly.models}
                 selectedPartUuid={part?.uuid ?? null}
                 onSelectPart={onSelectPart}

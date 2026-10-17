@@ -297,3 +297,23 @@ def test_glb_display_is_loadable_without_stl_and_keeps_authority_separate(tmp_pa
         assert response.headers["etag"] == f'"{digest}"'
         path.write_bytes(b'glTF' + b'\x01' * 16)
         assert client.get(part["model_url"]).status_code == 409
+
+
+def test_glb_mesh_study_is_served_without_exact_authority(tmp_path):
+    from dataclasses import replace
+    from flow_cad.sdk import load_manifest
+    root, *_ = _project(tmp_path)
+    target = root / 'exports' / 'study.glb'
+    target.write_bytes(b'glTF-test-content')
+    manifest = load_manifest(root / 'flowcad.project.yaml')
+    part = replace(manifest.parts[0], artifacts=(ArtifactSpec(kind='glb', path='exports/study.glb'),))
+    (root / 'flowcad.project.yaml').write_text(dump_manifest(replace(manifest, parts=(part,))))
+    sync_project(root)
+    with TestClient(create_workbench_app(root)) as client:
+        item = client.get('/api/parts').json()['parts'][0]
+        assert item['geometry_authority'] == 'mesh'
+        assert item['display_format'] == 'glb'
+        assert item['authority_url'] is None
+        response = client.get(item['model_url'])
+        assert response.content == target.read_bytes()
+        assert response.headers['content-type'] == 'model/gltf-binary'
