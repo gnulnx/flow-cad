@@ -64,8 +64,8 @@ class CadResources:
             value = getattr(self, name)
             if type(value) is not int or value < 1:
                 raise FlowCadConfigError(f'cad.{name} must be a positive integer')
-        if self.workers > 8:
-            raise FlowCadConfigError('cad.workers must not exceed 8')
+        if self.workers > 64:
+            raise FlowCadConfigError('cad.workers must not exceed 64')
 
 
 @dataclass(frozen=True)

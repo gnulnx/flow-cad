@@ -218,3 +218,40 @@ def test_jobs_package_import_does_not_load_cad_kernel(tmp_path: Path) -> None:
         ),
     ]
     subprocess.run(command, cwd=tmp_path, check=True, capture_output=True, text=True)
+
+
+def test_dead_job_owner_is_recovered_while_another_runtime_is_alive(tmp_path):
+    """A viewer must notice a killed CLI without requiring a viewer restart."""
+    import subprocess
+    import sys
+    from flow_cad.jobs import JobService, JobState
+
+    script = '''
+import sys,time
+from pathlib import Path
+from flow_cad.jobs import JobService
+with JobService(Path(sys.argv[1]), recover_interrupted=False) as jobs:
+    def work(context):
+        context.report("generate", .2, "Generating geometry")
+        time.sleep(300)
+    submission = jobs.submit(request_id="killed-cli", kind="part-build", work=work)
+    print(submission.job.job_id, flush=True)
+    time.sleep(300)
+'''
+    with JobService(tmp_path) as viewer:
+        child = subprocess.Popen([sys.executable, '-c', script, str(tmp_path)],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            job_id = child.stdout.readline().strip()
+            assert job_id.startswith('job_')
+            assert not viewer.get(job_id).state.terminal
+            child.kill()
+            child.wait(timeout=5)
+            record = viewer.get(job_id)
+            assert record.state is JobState.FAILED
+            assert 'owner process exited' in record.error
+            assert viewer.store.list()[0].state is JobState.FAILED
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)

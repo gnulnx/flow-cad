@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import closing, contextmanager
@@ -35,6 +37,11 @@ class InvalidJobTransitionError(JobStoreError):
 
 class UnsupportedJobsSchemaError(JobStoreError):
     pass
+
+
+# Keep native SQLite connection lifetimes serialized within the journal.
+# Some CAD-linked SQLite builds deadlock during concurrent connect/close.
+_JOURNAL_CONNECTION_LOCK = threading.RLock()
 
 
 class JobStore:
@@ -91,11 +98,32 @@ class JobStore:
             return self._record(row), True
 
     def get(self, job_id: str) -> JobRecord:
-        with closing(self._connect()) as connection:
+        with self._connection() as connection:
             row = connection.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if row is None:
             raise JobNotFoundError(f"job not found: {job_id}")
-        return self._record(row)
+        return self._recover_unowned(self._record(row))
+
+    def _recover_unowned(self, record: JobRecord) -> JobRecord:
+        if record.state.terminal:
+            return record
+        path = self.project_root / ".flow/job-owners" / record.job_id
+        try:
+            handle = path.open("r+b")
+        except FileNotFoundError:
+            return record  # Legacy records have no per-job ownership lease.
+        with handle:
+            if not handle.read(1):
+                return record
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return record
+            try:
+                return self.fail(record.job_id, "Build/job owner process exited before completion; retry the job")
+            except InvalidJobTransitionError:
+                with self._connection() as connection:
+                    return self._record(self._require(connection, record.job_id))
 
     def list(self, *, state: JobState | None = None, limit: int = 100) -> tuple[JobRecord, ...]:
         limit = _limit(limit)
@@ -104,9 +132,9 @@ class JobStore:
         else:
             sql = "SELECT * FROM jobs WHERE state = ? ORDER BY created_epoch DESC LIMIT ?"
             parameters = (state.value, limit)
-        with closing(self._connect()) as connection:
+        with self._connection() as connection:
             rows = connection.execute(sql, parameters).fetchall()
-        return tuple(self._record(row) for row in rows)
+        return tuple(self._recover_unowned(self._record(row)) for row in rows)
 
     def events(
         self,
@@ -127,7 +155,7 @@ class JobStore:
                 "ORDER BY sequence LIMIT ?"
             )
             parameters = (job_id, after_sequence, limit)
-        with closing(self._connect()) as connection:
+        with self._connection() as connection:
             rows = connection.execute(sql, parameters).fetchall()
         return tuple(self._event_record(row) for row in rows)
 
@@ -362,17 +390,21 @@ class JobStore:
         return connection
 
     @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        with _JOURNAL_CONNECTION_LOCK:
+            with closing(self._connect()) as connection:
+                yield connection
+
+    @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
-        connection = self._connect()
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            yield connection
-            connection.commit()
-        except BaseException:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+        with self._connection() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                yield connection
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
 
     @staticmethod
     def _require(connection: sqlite3.Connection, job_id: str) -> sqlite3.Row:

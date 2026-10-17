@@ -132,6 +132,11 @@ flow cad profile [options]
 
 ### `flow cad build` options
 
+- `--workers <1..64>`
+  Choose CAD worker processes for this invocation, one CPU thread per worker.
+  For example: `flow cad build --workers 20 --bundle --no-snapshots`.
+  Omit it to use the saved `[cad]` configuration.
+
 - `--profile <all|active|<version-id>>`
   Select which part profile to build. Default: `all`.
 

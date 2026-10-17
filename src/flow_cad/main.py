@@ -499,6 +499,15 @@ def _replacement_project_root(start: Path) -> Path | None:
     return manifest_path.parent
 
 
+def _build_runtime_config(project_root: Path, workers: int | None):
+    from dataclasses import replace
+    from flow_cad.config import load_flow_config
+    config = load_flow_config(project_root)
+    if workers is not None:
+        config = replace(config, cad=replace(config.cad, workers=workers, native_threads=1))
+    return config
+
+
 def _run_replacement_part_build(
     project_root: Path,
     *,
@@ -506,6 +515,7 @@ def _run_replacement_part_build(
     request_id: str | None,
     generate_stl: bool,
     generate_snapshots: bool,
+    workers: int | None = None,
 ) -> None:
     """Run the replacement job with visible phase progress for CLI callers."""
 
@@ -516,6 +526,7 @@ def _run_replacement_part_build(
     from flow_cad.jobs import JobService, JobState, JobStoreError
     from flow_cad.registry import sync_project
 
+    click.echo(f"CAD workers: {_build_runtime_config(project_root, workers).cad.workers}")
     resolved_request_id = request_id or f"cli-part-build-{uuid.uuid4().hex}"
     try:
         sync_project(project_root)
@@ -523,6 +534,7 @@ def _run_replacement_part_build(
             project_root,
             max_concurrency=1,
             recover_interrupted=False,
+            config=_build_runtime_config(project_root, workers),
         ) as jobs:
             submission = PartBuildService(project_root, jobs).submit(
                 request_id=resolved_request_id,
@@ -581,6 +593,7 @@ def _run_replacement_project_build(
     create_bundle: bool,
     generate_stl: bool,
     generate_snapshots: bool,
+    workers: int | None = None,
 ) -> None:
     """Run a strict active-project build with durable, visible progress."""
 
@@ -591,6 +604,7 @@ def _run_replacement_project_build(
     from flow_cad.jobs import JobService, JobState, JobStoreError
     from flow_cad.registry import sync_project
 
+    click.echo(f"CAD workers: {_build_runtime_config(project_root, workers).cad.workers}")
     resolved_request_id = request_id or f"cli-{mode}-build-{uuid.uuid4().hex}"
     try:
         sync_project(project_root)
@@ -598,6 +612,7 @@ def _run_replacement_project_build(
             project_root,
             max_concurrency=1,
             recover_interrupted=False,
+            config=_build_runtime_config(project_root, workers),
         ) as jobs:
             submission = ProjectBuildService(project_root, jobs).submit(
                 request_id=resolved_request_id,
@@ -619,10 +634,7 @@ def _run_replacement_project_build(
                     limit=200,
                 ):
                     cursor = event.sequence
-                    if event.message and (
-                        event.phase in {"plan", "assembly-preview", "report", "bundle", "publish"}
-                        or event.phase.endswith(":publish")
-                    ):
+                    if event.message:
                         click.echo(
                             f"[{event.phase}] {event.progress * 100:.0f}% {event.message}"
                         )
@@ -661,6 +673,7 @@ def cli():
 @click.option("--snapshots-only", is_flag=True, default=False, help="Only regenerate SVG snapshots without rebuilding STEP geometry.")
 @click.option("--run-tests", is_flag=True, default=False, help="Run project pytest after build.")
 @click.option("--part", default=None, help="Build one part and its direct facts.")
+@click.option("--workers", type=click.IntRange(1, 64), default=None, help="CAD worker processes for this build; one CPU thread each. Does not change saved settings.")
 @click.option("--request-id", default=None, help="Idempotency key for a replacement build job.")
 @click.option("--changed", is_flag=True, default=False, help="Rebuild parts whose source changed since the last cached build.")
 @click.option("--assembly-preview", is_flag=True, default=False, help="Rebuild placement data for an updated viewer cache without handoff packaging.")
@@ -678,6 +691,7 @@ def build(
     run_tests,
     part,
     request_id,
+    workers,
     changed,
     assembly_preview,
     profile,
@@ -705,6 +719,7 @@ def build(
                 replacement_root,
                 part=part,
                 request_id=request_id,
+                workers=workers,
                 generate_stl=bool(generate_stl),
                 generate_snapshots=bool(snapshots),
             )
@@ -713,6 +728,7 @@ def build(
                 replacement_root,
                 mode=build_mode,
                 request_id=request_id,
+                workers=workers,
                 create_report=bool(generate_reports),
                 create_bundle=bool(bundle and build_mode in {"default", "handoff"}),
                 generate_stl=bool(generate_stl),
@@ -720,6 +736,8 @@ def build(
             )
         return
 
+    if workers is not None:
+        raise click.ClickException("--workers requires a strict-manifest project.")
     project = load_project(Path.cwd())
     build_profile = (profile or "all").strip() or "all"
     profiler = FlowCadProfiler(

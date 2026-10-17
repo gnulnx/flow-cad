@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from flow_cad.config import FlowCadConfig
+
 import fcntl
 import threading
 import time
@@ -33,6 +35,7 @@ class JobSubmission:
 class _ActiveJob:
     cancel_event: threading.Event
     future: Future[None] | None = None
+    owner_lock: Any = None
 
 
 class JobContext:
@@ -79,13 +82,14 @@ class JobService:
         *,
         max_concurrency: int = 2,
         recover_interrupted: bool = True,
+        config: FlowCadConfig | None = None,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be at least 1")
         self.store = JobStore(project_root)
         from flow_cad.config import load_flow_config
         from flow_cad.workers.pool import CadWorkerPool
-        self.cad_pool = CadWorkerPool(project_root, load_flow_config(project_root))
+        self.cad_pool = CadWorkerPool(project_root, config or load_flow_config(project_root))
         self._runtime_lock = (self.store.project_root / ".flow/jobs.runtime.lock").open(
             "a+b"
         )
@@ -117,7 +121,13 @@ class JobService:
             job, created = self.store.create(request_id=request_id, kind=kind, payload=payload)
             if not created:
                 return JobSubmission(job=job, created=False)
-            active = _ActiveJob(cancel_event=threading.Event())
+            owner_dir = self.store.project_root / '.flow/job-owners'
+            owner_dir.mkdir(parents=True, exist_ok=True)
+            owner_lock = (owner_dir / job.job_id).open('w+b')
+            fcntl.flock(owner_lock.fileno(), fcntl.LOCK_EX)
+            owner_lock.write(b'owned\n')
+            owner_lock.flush()
+            active = _ActiveJob(cancel_event=threading.Event(), owner_lock=owner_lock)
             self._active[job.job_id] = active
             try:
                 active.future = self._executor.submit(self._run, job.job_id, work, active.cancel_event,
@@ -125,6 +135,7 @@ class JobService:
                     {'part-build': 0, 'exact-feature-extraction': 0, 'project-build': 20}.get(kind, 10))
             except BaseException as exc:
                 self._active.pop(job.job_id, None)
+                owner_lock.close()
                 self.store.fail(job.job_id, f"job dispatch failed: {type(exc).__name__}: {exc}")
                 raise
         return JobSubmission(job=self.store.get(job.job_id), created=True)
@@ -153,6 +164,7 @@ class JobService:
                 active.cancel_event.set()
                 if active.future is not None and active.future.cancel():
                     self._active.pop(job_id, None)
+                    active.owner_lock.close()
         return self.store.get(job_id) if not record.state.terminal else record
 
     def wait(self, job_id: str, *, timeout: float = 10.0) -> JobRecord:
@@ -200,7 +212,9 @@ class JobService:
             self.store.fail(job_id, f"{type(exc).__name__}: {exc}")
         finally:
             with self._lock:
-                self._active.pop(job_id, None)
+                active = self._active.pop(job_id, None)
+                if active is not None:
+                    active.owner_lock.close()
 
     def _acquire_runtime_lock(self, *, recover_interrupted: bool) -> None:
         """Recover only when no other live process owns this project journal."""

@@ -136,6 +136,7 @@ def prepare_scoped_part_build(plan: ScopedPartBuildPlan, work_dir: Path, *, cont
     context.checkpoint()
 
     phase_started = time.perf_counter()
+    context.report("generate", 0.20, f"Generating CAD geometry for {plan.part_key}")
     shape = generator(parameters)
     timings["generate_geometry"] = _elapsed_ms(phase_started)
     if shape is None:
@@ -161,6 +162,7 @@ def prepare_scoped_part_build(plan: ScopedPartBuildPlan, work_dir: Path, *, cont
     preview_warning = None
     try:
         from flow_cad.viewer.scene_export import export_shape_scene
+        context.report('display', 0.55, 'Preparing display mesh')
         preview_path = work_dir / 'display.glb'
         stats = export_shape_scene(shape, preview_path)
         preview = {'path': preview_path, 'stats': stats}

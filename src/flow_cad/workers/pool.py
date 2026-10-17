@@ -122,6 +122,8 @@ class CadWorkerPool:
                 worker.revision = revision
             worker.pipe.send((operation, arguments))
             started = time.monotonic()
+            last_heartbeat = started
+            last_report = ('prepare', 0.0, 'Preparing CAD worker')
             while True:
                 context.checkpoint()
                 if time.monotonic() - started > settings.timeout_seconds:
@@ -129,12 +131,21 @@ class CadWorkerPool:
                 rss = _rss_mb(worker.process.pid)
                 if rss > settings.memory_mb:
                     raise CadWorkerError(f'CAD worker exceeded {settings.memory_mb} MiB memory budget ({rss:.0f} MiB)')
+                now = time.monotonic()
+                if now - last_heartbeat >= 5.0:
+                    phase, progress, message = last_report
+                    context.report(phase, progress,
+                        f'{message} — CAD worker {worker.process.pid}, '
+                        f'{now - started:.0f}s elapsed, {rss:.0f} MiB RSS')
+                    last_heartbeat = now
                 if worker.pipe.poll(.05):
                     try:
                         kind, payload = worker.pipe.recv()
                     except EOFError as exc:
                         raise CadWorkerError('CAD worker exited without a result') from exc
                     if kind == 'report':
+                        last_report = payload
+                        last_heartbeat = time.monotonic()
                         context.report(*payload)
                     elif kind == 'result':
                         worker.tasks += 1
