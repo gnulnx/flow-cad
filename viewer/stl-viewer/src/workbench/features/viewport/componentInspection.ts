@@ -1,4 +1,21 @@
-import type { Bounds3 } from '../../contracts'
+import type { Bounds3, WorkbenchPart } from '../../contracts'
+
+/** Resolve explicit display links first, then unambiguous project catalog names. */
+export function componentCatalogPart(component: SceneComponent | null, parts: readonly WorkbenchPart[]): WorkbenchPart | null {
+  if (!component) return null
+  const catalog = parts.filter((part) => part.category !== 'view')
+  if (component.linkedPartUuid) {
+    return catalog.find((part) => part.uuid === component.linkedPartUuid) ?? null
+  }
+  const owner = catalog.find((part) => part.uuid === component.partUuid)
+  if (owner) return owner
+  // STEP exporters can exchange spaces and underscores in occurrence labels.
+  const normalize = (name: string) => name.replace(/_/g, ' ').trim().replace(/\s+/g, ' ')
+  const label = normalize(component.label)
+  if (!label) return null
+  const matches = catalog.filter((part) => [part.key, ...part.aliases].some((name) => normalize(name) === label))
+  return matches.length === 1 ? matches[0] : null
+}
 
 /** One selectable mesh occurrence inside a loaded display artifact. */
 export interface SceneComponent {

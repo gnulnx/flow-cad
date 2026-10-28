@@ -11,7 +11,7 @@ import type { ComponentProps } from 'react'
 const fixture = vi.hoisted(() => ({
   components: ['Cover', 'Motor'].map((label, index) => ({
     key: `mesh-${index}`, modelKey: 'view:rev', partUuid: 'view', occurrenceId: 'view-installed', label,
-    linkedPartUuid: index === 0 ? 'cover' : undefined,
+    linkedPartUuid: undefined,
     context: 'Robot view', bounds: { min: [0, 0, 0] as [number, number, number], max: [10, 10, 10] as [number, number, number] },
   })),
   queue: {} as Record<string, unknown>,
@@ -36,7 +36,7 @@ it('connects mesh clicks, peel mode, hidden list recovery and shortcuts without 
     authorityHash: 'step-rev', displayArtifact: { contentHash: 'rev', format: 'glb', url: '/display', revision: 1 }, bounds: null, warnings: [],
   }
   const cover: WorkbenchPart = { ...part, uuid: 'cover', key: 'printed_cover', category: 'make',
-    displayName: 'Printed cover', role: 'printable', downloads: [
+    displayName: 'Printed cover', aliases: ['Cover'], role: 'printable', downloads: [
       { kind: 'step', url: '/api/models/cover?download=true', filename: 'printed_cover.step' },
     ] }
   const models = [{ key: 'view:rev', part, occurrences: part.occurrences, artifactBytes: new ArrayBuffer(0) }]

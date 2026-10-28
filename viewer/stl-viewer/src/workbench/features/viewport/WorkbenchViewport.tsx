@@ -26,7 +26,7 @@ import { planAssemblyLoads, transformExactFeature } from './assembly'
 import { ComponentInspector } from './ComponentInspector'
 import { ComponentContextMenu, type ContextAction } from './ComponentContextMenu'
 import type { ComponentContextRequest } from './componentContext'
-import { inspectionShortcut, type SceneComponent } from './componentInspection'
+import { componentCatalogPart, inspectionShortcut, type SceneComponent } from './componentInspection'
 import { useComponentInspection } from './useComponentInspection'
 import type { RotationMode } from './navigation'
 import { useAgentScreenCapture, type LiveCanvasCaptureMetadata, type LiveViewportSource } from './agentScreen'
@@ -122,8 +122,7 @@ export function WorkbenchViewport({ client, onSelectPart, parts = [], part, visi
   [parts, activeAssemblyId, part?.uuid, visiblePartUuids])
   const inspection = useComponentInspection(components, inspectionScope)
   const { dispatch: inspect, select: selectComponent, hiddenKeys, selected: selectedComponent } = inspection
-  const selectedCatalogPart = selectedComponent ? parts.find((candidate) => candidate.uuid ===
-    (selectedComponent.linkedPartUuid ?? selectedComponent.partUuid) && candidate.category !== 'view') ?? null : null
+  const selectedCatalogPart = componentCatalogPart(selectedComponent, parts)
   const inspectionDisabled = measureMode || annotationActive
   const openContextMenu = useCallback((request: ComponentContextRequest) => {
     if (inspectionDisabled) return
