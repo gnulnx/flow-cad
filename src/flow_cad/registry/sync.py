@@ -151,8 +151,8 @@ def _populate(
                 family, version, compatible_versions_json,
                 shell_count, infill_density, mass_kg, center_of_mass_mm_json,
                 inertia_kg_m2_json, mass_source, metadata_status, metadata_notes,
-                category, display_name
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                category, display_name, review_assembly
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 part_uuid,
@@ -181,6 +181,7 @@ def _populate(
                 part.mass_properties.notes if part.mass_properties is not None else None,
                 part.category.value if part.category is not None else None,
                 part.display_name,
+                part.review_assembly,
             ),
         )
         module, separator, symbol = part.generator.partition(":")

@@ -211,6 +211,7 @@ def _parse_part(raw: Any, source: str | Path, location: str) -> ManifestPart:
             "material",
             "category",
             "display_name",
+            "review_assembly",
             "family",
             "version",
             "compatible_versions",
@@ -284,6 +285,8 @@ def _parse_part(raw: Any, source: str | Path, location: str) -> ManifestPart:
         if data.get("category") is not None else None,
         display_name=_nonempty_string(data["display_name"], source, f"{location}.display_name")
         if data.get("display_name") is not None else None,
+        review_assembly=_identifier(data["review_assembly"], source, f"{location}.review_assembly")
+        if data.get("review_assembly") is not None else None,
     )
 
 
@@ -489,6 +492,12 @@ def _validate_occurrences(
     source: str | Path,
 ) -> None:
     known_part_uuids = {part.uuid for part in parts}
+    by_key = {assembly.key: assembly for assembly in assemblies}
+    for index, part in enumerate(parts):
+        if part.review_assembly is not None:
+            review = by_key.get(part.review_assembly)
+            if review is None or not any(occurrence.part_uuid == part.uuid for occurrence in review.occurrences):
+                _fail(source, f"parts[{index}].review_assembly", "must name an assembly containing this part")
     for assembly in assemblies:
         for index, occurrence in enumerate(assembly.occurrences):
             if occurrence.part_uuid not in known_part_uuids:
@@ -512,6 +521,8 @@ def _dump_part(part: ManifestPart) -> dict[str, Any]:
         payload["category"] = part.category.value
     if part.display_name is not None:
         payload["display_name"] = part.display_name
+    if part.review_assembly is not None:
+        payload["review_assembly"] = part.review_assembly
     if part.material is not None:
         payload["material"] = part.material
     if part.family is not None:

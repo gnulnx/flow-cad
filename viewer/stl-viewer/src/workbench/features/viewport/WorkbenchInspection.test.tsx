@@ -46,8 +46,9 @@ it('connects mesh clicks, peel mode, hidden list recovery and shortcuts without 
   const client = createTestWorkbenchClient()
   const onSelectPart = vi.fn()
   const onAssemblyStateChange = vi.fn()
+  const onInspectedPartChange = vi.fn()
   render(<WorkbenchViewport client={client} parts={[part, cover]} part={part} visiblePartUuids={['view']}
-    backendRevision={1} onSelectPart={onSelectPart} onAssemblyStateChange={onAssemblyStateChange} />)
+    backendRevision={1} onSelectPart={onSelectPart} onInspectedPartChange={onInspectedPartChange} onAssemblyStateChange={onAssemblyStateChange} />)
   await screen.findByRole('button', { name: 'Geometry Cover' })
   fireEvent.contextMenu(screen.getByRole('button', { name: 'Geometry Cover' }))
   expect(screen.getByRole('menu', { name: 'Part actions' })).toBeVisible()
@@ -92,6 +93,7 @@ it('connects mesh clicks, peel mode, hidden list recovery and shortcuts without 
   expect(screen.getByText('Printed cover')).toBeVisible()
   expect(screen.getByRole('link', { name: 'Download STEP' })).toHaveAttribute('href', '/api/models/cover?download=true')
   expect(onSelectPart).toHaveBeenLastCalledWith('view')
+  expect(onInspectedPartChange).toHaveBeenLastCalledWith('cover')
   await user.click(screen.getByRole('button', { name: 'Open part' }))
   expect(onSelectPart).toHaveBeenLastCalledWith('cover')
 })

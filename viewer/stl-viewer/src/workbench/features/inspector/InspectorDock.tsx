@@ -39,6 +39,7 @@ export function InspectorDock({ client, part, onBuildSubmitted }: InspectorDockP
           <h2 id="inspector-title">Inspector</h2>
         </div>
       </div>
+      {part ? <PartFileActions key={part.uuid} part={part} /> : null}
       {part ? (
         <dl className="inspector-facts">
           <div><dt>Part</dt><dd title={part.key}>{part.displayName ?? part.key}</dd></div>
@@ -62,7 +63,6 @@ export function InspectorDock({ client, part, onBuildSubmitted }: InspectorDockP
           {buildError ? <span role="alert">{buildError}</span> : null}
         </div>
       ) : null}
-      {part && part.category !== 'view' ? <PartFileActions key={part.uuid} part={part} /> : null}
     </section>
   )
 }

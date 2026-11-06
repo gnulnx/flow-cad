@@ -3,17 +3,17 @@ import type { Bounds3, WorkbenchPart } from '../../contracts'
 /** Resolve explicit display links first, then unambiguous project catalog names. */
 export function componentCatalogPart(component: SceneComponent | null, parts: readonly WorkbenchPart[]): WorkbenchPart | null {
   if (!component) return null
-  const catalog = parts.filter((part) => part.category !== 'view')
   if (component.linkedPartUuid) {
-    return catalog.find((part) => part.uuid === component.linkedPartUuid) ?? null
+    return parts.find((part) => part.uuid === component.linkedPartUuid) ?? null
   }
-  const owner = catalog.find((part) => part.uuid === component.partUuid)
-  if (owner) return owner
+  const owner = parts.find((part) => part.uuid === component.partUuid)
+  if (owner && (owner.category !== 'view' || component.modelComponentCount === 1)) return owner
+  const catalog = parts.filter((part) => part.category !== 'view')
   // STEP exporters can exchange spaces and underscores in occurrence labels.
   const normalize = (name: string) => name.replace(/_/g, ' ').trim().replace(/\s+/g, ' ')
-  const label = normalize(component.label)
+  const label = normalize(component.sourceLabel ?? component.label)
   if (!label) return null
-  const matches = catalog.filter((part) => [part.key, ...part.aliases].some((name) => normalize(name) === label))
+  const matches = catalog.filter((part) => [part.key, ...part.aliases, ...part.occurrenceIds].some((name) => normalize(name) === label))
   return matches.length === 1 ? matches[0] : null
 }
 
@@ -25,6 +25,8 @@ export interface SceneComponent {
   linkedPartUuid?: string
   occurrenceId: string
   label: string
+  sourceLabel?: string
+  modelComponentCount?: number
   context: string
   bounds: Bounds3
 }

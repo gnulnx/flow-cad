@@ -1,5 +1,23 @@
  # Flow CAD Geometry Foundation Reset
 
+## Project-owned review relationships and selected files
+
+A part may declare `review_assembly: <assembly-key>` in the public project
+manifest. The named assembly must exist and contain that part. Selecting its
+row opens that assembly for review; the visibility circle still isolates the
+part. Assembly membership alone never implies this behavior. Projects without
+this optional declaration retain ordinary additive selection.
+
+The metadata index and inventory API carry this relationship without executing
+project geometry. Product names, component identities, and transforms belong
+in the project manifest. Runtime behavior does not depend on robot names.
+
+View categorization controls organization, not access to built STEP/STL files.
+Selecting a mesh resolves its explicit catalog UUID, individual model owner,
+or unambiguous declared key, alias, or occurrence identity. The selected catalog
+part supplies both the Inspector and download actions. A component in a multi-part
+view must not silently download the parent assembly as if it were that component.
+
   ## Summary
 
   Build a STEP-first, kernel-backed geometry authority layer so the viewer, measurements, exports, and future

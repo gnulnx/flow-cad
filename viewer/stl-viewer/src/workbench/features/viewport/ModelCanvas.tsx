@@ -306,6 +306,8 @@ export function describeComponents(model: LoadedAssemblyPart, items: DisplayComp
       key: componentKey(model.key, occurrence.id, item.id, index), modelKey: model.key,
       partUuid: model.part.uuid, occurrenceId: occurrence.id,
       linkedPartUuid: item.linkedPartUuid,
+      sourceLabel: item.label,
+      modelComponentCount: items.length,
       label: `${label}${totals.get(label)! > 1 ? ` (${ordinal})` : ''}`,
       context: `${name}${model.occurrences.length > 1 ? ` · occurrence ${occurrenceIndex + 1}` : ''}`,
       bounds: transformBounds(geometryBounds(item.geometry), occurrence),

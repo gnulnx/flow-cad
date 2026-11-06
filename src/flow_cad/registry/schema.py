@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-DATABASE_SCHEMA_VERSION = 3
+DATABASE_SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -32,6 +32,7 @@ CREATE TABLE parts (
     material TEXT,
     category TEXT,
     display_name TEXT,
+    review_assembly TEXT,
     family TEXT,
     version TEXT,
     compatible_versions_json TEXT NOT NULL DEFAULT '[]',

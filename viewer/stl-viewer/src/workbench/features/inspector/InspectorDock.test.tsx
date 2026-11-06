@@ -24,6 +24,18 @@ const ACTIVE_PART: WorkbenchPart = {
 }
 
 describe('InspectorDock scoped build', () => {
+  it('offers existing STEP and STL downloads for inspection views as well as printable parts', () => {
+    render(<InspectorDock client={createTestWorkbenchClient()} part={{ ...ACTIVE_PART,
+      category: 'view', role: 'inspection', status: 'inspection',
+      downloads: [
+        { kind: 'step', url: '/models/study-step?download=true', filename: 'study.step' },
+        { kind: 'stl', url: '/models/study-stl?download=true', filename: 'study.stl' },
+      ],
+    }} />)
+    expect(screen.getByRole('link', { name: 'Download STEP' })).toHaveAttribute('download', 'study.step')
+    expect(screen.getByRole('link', { name: 'Download STL' })).toHaveAttribute('download', 'study.stl')
+    expect(screen.queryByRole('button', { name: 'Build selected part' })).not.toBeInTheDocument()
+  })
   it('submits only the selected active part and exposes the durable job', async () => {
     const user = userEvent.setup()
     const buildPart = vi.fn(async (_partIdentity: string, _requestId: string) => ({

@@ -29,6 +29,16 @@ it('keeps embedded UUID links authoritative, including unresolved links', () => 
 it('keeps individually loaded catalog parts linked to their owner', () => {
   expect(componentCatalogPart({ ...component, partUuid: 'bracket' }, [bracket])).toBe(bracket)
 })
+it('links a single-part study to its own files while leaving assembly components individually identified', () => {
+  const study = { ...part('view', 'study'), category: 'view' as const }
+  expect(componentCatalogPart({ ...component, modelComponentCount: 1 }, [study])).toBe(study)
+  expect(componentCatalogPart({ ...component, modelComponentCount: 2 }, [study])).toBeNull()
+  expect(componentCatalogPart({ ...component, linkedPartUuid: 'view' }, [study])).toBe(study)
+})
+it('resolves repeated display labels through the original source label and declared occurrence identity', () => {
+  const placed = { ...bracket, aliases: [], occurrenceIds: ['left_support'] }
+  expect(componentCatalogPart({ ...component, label: 'left support (2)', sourceLabel: 'left_support' }, [placed])).toBe(placed)
+})
 it('rejects ambiguous aliases and excludes the view record itself', () => {
   expect(componentCatalogPart(component, [bracket, part('other', 'other', ['front bracket 2'])])).toBeNull()
   const view = { ...part('view', 'robot', ['front bracket 2']), category: 'view' as const }

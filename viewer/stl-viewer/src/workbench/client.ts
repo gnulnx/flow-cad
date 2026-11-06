@@ -47,6 +47,7 @@ interface PartDto {
   aliases: string[]
   category?: 'make' | 'purchased' | 'hardware' | 'view' | 'reference' | null
   display_name?: string | null
+  review_assembly?: string | null
   family?: string | null
   material?: string | null
   role: 'printable' | 'reference' | 'inspection' | 'legacy'
@@ -482,6 +483,7 @@ export function createHttpWorkbenchClient(baseUrl = `${API_ROOT}${CONTRACT_ROOT}
         aliases: part.aliases,
         category: part.category ?? null,
         displayName: part.display_name ?? null,
+        reviewAssemblyId: part.review_assembly ?? null,
         family: part.family ?? null,
         material: part.material ?? null,
         role: part.role,

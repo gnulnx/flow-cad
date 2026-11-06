@@ -37,11 +37,13 @@ describe('progressive active assembly planning', () => {
   it('places a review alternative at its assembly datum with only its declared context', () => {
     const body = part('body', 'printable', [occurrence('body')])
     const placed = { ...occurrence('lid', [0, 0, 341]), assemblyId: 'review-lid' }
-    const lid = part('lid', 'inspection', [placed])
+    const lid = { ...part('lid', 'inspection', [placed]), reviewAssemblyId: 'review-lid' }
     const context = part('context', 'inspection', [{ ...occurrence('context'), assemblyId: 'review-lid' }])
     const parts = [body, context, lid]
     expect(reviewAssemblyForPart(body, 'active')).toBeNull()
     expect(reviewAssemblyForPart(lid, 'active')).toBe('review-lid')
+    expect(reviewAssemblyForPart({ ...lid, reviewAssemblyId: null }, 'active')).toBeNull()
+    expect(reviewAssemblyForPart({ ...lid, reviewAssemblyId: 'missing' }, 'active')).toBeNull()
     expect(reviewAssemblyForPart({ ...context, occurrences: [...context.occurrences,
       { ...occurrence('other-context'), assemblyId: 'review-other' }] }, 'active')).toBeNull()
     expect(planAssemblyLoads(parts, 'active', null).map((item) => item.part.key)).toEqual(['body'])

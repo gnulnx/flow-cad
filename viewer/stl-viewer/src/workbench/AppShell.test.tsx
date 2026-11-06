@@ -144,8 +144,8 @@ describe('replacement AppShell', () => {
       revision: 10, activeAssemblyId: 'active', parts: [
         part('body', { displayArtifact: artifact('body') }),
         part('context', { displayArtifact: artifact('context'), occurrences: [placed('review-a', 'context'), placed('review-b', 'context')] }),
-        part('lid-a', { displayArtifact: artifact('lid-a'), occurrences: [placed('review-a', 'lid-a', 341)] }),
-        part('lid-b', { displayArtifact: artifact('lid-b'), occurrences: [placed('review-b', 'lid-b', 341)] }),
+        part('lid-a', { reviewAssemblyId: 'review-a', displayArtifact: artifact('lid-a'), occurrences: [placed('review-a', 'lid-a', 341)] }),
+        part('lid-b', { reviewAssemblyId: 'review-b', displayArtifact: artifact('lid-b'), occurrences: [placed('review-b', 'lid-b', 341)] }),
       ],
     }, clearPreview })} />)
     const body = await screen.findByRole('option', { name: /body/ })

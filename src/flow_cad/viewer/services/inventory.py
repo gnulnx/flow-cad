@@ -122,13 +122,17 @@ class InventoryService:
             if limit is not None:
                 limit_sql = " LIMIT ?"
                 parameters.append(limit)
+            # Older project indexes remain readable before their next sync.
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(parts)")}
+            review_column = "p.review_assembly" if "review_assembly" in columns else "NULL"
             parts = connection.execute(
                 f"""
                 SELECT p.uuid, p.key, p.generator, p.role, p.status, p.material,
                        p.family, p.version, p.compatible_versions_json, p.category, p.display_name,
                        p.shell_count, p.infill_density, p.mass_kg,
                        p.center_of_mass_mm_json, p.inertia_kg_m2_json,
-                       p.mass_source, p.metadata_status, p.metadata_notes
+                       p.mass_source, p.metadata_status, p.metadata_notes,
+                       {review_column} AS review_assembly
                 FROM parts p
                 {where}
                 ORDER BY p.key
@@ -287,6 +291,7 @@ def _part_payload(row, *, aliases, artifacts, occurrences) -> dict[str, Any]:
         "status": str(row["status"]),
         "category": row["category"],
         "display_name": row["display_name"],
+        "review_assembly": row["review_assembly"],
         "material": str(row["material"]) if row["material"] is not None else None,
         "family": str(row["family"]) if row["family"] is not None else None,
         "version": str(row["version"]) if row["version"] is not None else None,

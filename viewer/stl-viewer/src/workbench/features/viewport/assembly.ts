@@ -23,9 +23,9 @@ const IDENTITY_OCCURRENCE_SUFFIX = ':inspection'
 
 /** Unplaced alternatives can name a review assembly without changing production. */
 export function reviewAssemblyForPart(part: WorkbenchPart, primaryAssemblyId: string | null): string | null {
-  const assemblies = [...new Set(part.occurrences.map((occurrence) => occurrence.assemblyId))]
-  if (assemblies.includes(primaryAssemblyId ?? '') || assemblies.length !== 1) return null
-  return assemblies[0]
+  const review = part.reviewAssemblyId
+  return review && review !== primaryAssemblyId && part.occurrences.some((occurrence) => occurrence.assemblyId === review)
+    ? review : null
 }
 
 export function resolveActiveAssemblyId(

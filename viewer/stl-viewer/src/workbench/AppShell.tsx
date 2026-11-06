@@ -36,6 +36,7 @@ export default function AppShell({ client }: AppShellProps) {
     explicitVisiblePartUuids: null,
   })
   const [reviewAssemblyId, setReviewAssemblyId] = useState<string | null>(null)
+  const [inspectedPartUuid, setInspectedPartUuid] = useState<string | null>(null)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [chatProviderStatus, setChatProviderStatus] = useState<ChatProviderStatus | null>(null)
   const [chatProviderRefreshToken, setChatProviderRefreshToken] = useState(0)
@@ -66,7 +67,9 @@ export default function AppShell({ client }: AppShellProps) {
   )
   const visiblePartUuids = selection.explicitVisiblePartUuids ?? defaultVisiblePartUuids
   const activePart = parts.find((part) => part.uuid === selection.activePartUuid) ?? null
+  const inspectedPart = parts.find((part) => part.uuid === inspectedPartUuid) ?? activePart
   const selectPart = useCallback((part: WorkbenchPart, mode: PartSelectionMode) => {
+    if (mode !== 'focus') setInspectedPartUuid(null)
     const review = reviewAssemblyForPart(part, primaryAssemblyId)
     if (mode === 'toggle' && review && !visiblePartUuids.includes(part.uuid)) {
       setReviewAssemblyId(review)
@@ -259,10 +262,12 @@ export default function AppShell({ client }: AppShellProps) {
             buildRobotSubmitting={projectBuildSubmitting}
             actionError={projectActionError}
           />
-          <InspectorDock client={workbenchClient} part={activePart} onBuildSubmitted={buildSubmitted} />
+          <InspectorDock client={workbenchClient} part={inspectedPart} onBuildSubmitted={buildSubmitted} />
         </aside>
         <main className="workbench-main">
           <WorkbenchViewport
+            onInspectedPartChange={setInspectedPartUuid}
+            onOpenPart={(uuid) => { const part = parts.find((item) => item.uuid === uuid); if (part) selectPart(part, 'replace') }}
             onSelectPart={(uuid) => { const part = parts.find((item) => item.uuid === uuid); if (part) selectPart(part, 'focus') }}
             client={workbenchClient}
             parts={inventory?.parts ?? EMPTY_PARTS}

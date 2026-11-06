@@ -101,6 +101,7 @@ class ManifestPart:
     mass_properties: MassProperties | None = None
     category: PartCategory | None = None
     display_name: str | None = None
+    review_assembly: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
