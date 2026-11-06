@@ -10,7 +10,7 @@ import type { MeasurementResult } from './features/measurement/measurement'
 import { measurementFingerprint, restoredMeasurements, savedLabels } from './features/measurement/persistence'
 import { ProjectStatusBar } from './features/project/ProjectStatusBar'
 import { WorkbenchViewport, type AssemblyViewportSnapshot } from './features/viewport/WorkbenchViewport'
-import { planAssemblyLoads } from './features/viewport/assembly'
+import { planAssemblyLoads, reviewAssemblyForPart } from './features/viewport/assembly'
 import type { WorkbenchViewportContext } from './features/viewport/viewportContext'
 import './workbench.css'
 import { useViewerPreference } from './useViewerPreference'
@@ -35,6 +35,7 @@ export default function AppShell({ client }: AppShellProps) {
     activePartUuid: null,
     explicitVisiblePartUuids: null,
   })
+  const [reviewAssemblyId, setReviewAssemblyId] = useState<string | null>(null)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [chatProviderStatus, setChatProviderStatus] = useState<ChatProviderStatus | null>(null)
   const [chatProviderRefreshToken, setChatProviderRefreshToken] = useState(0)
@@ -57,7 +58,8 @@ export default function AppShell({ client }: AppShellProps) {
   const savedMeasurementFingerprint = useRef<{ key: string; fingerprint: string } | null>(null)
   const measurementSaveTimer = useRef<number | null>(null)
   const parts = inventory?.parts ?? EMPTY_PARTS
-  const activeAssemblyId = project?.activeAssemblyId ?? inventory?.activeAssemblyId ?? null
+  const primaryAssemblyId = project?.activeAssemblyId ?? inventory?.activeAssemblyId ?? null
+  const activeAssemblyId = reviewAssemblyId ?? primaryAssemblyId
   const defaultVisiblePartUuids = useMemo(
     () => planAssemblyLoads(parts, activeAssemblyId, null).map((item) => item.part.uuid),
     [activeAssemblyId, parts],
@@ -65,9 +67,16 @@ export default function AppShell({ client }: AppShellProps) {
   const visiblePartUuids = selection.explicitVisiblePartUuids ?? defaultVisiblePartUuids
   const activePart = parts.find((part) => part.uuid === selection.activePartUuid) ?? null
   const selectPart = useCallback((part: WorkbenchPart, mode: PartSelectionMode) => {
-    const effectiveMode = part.previewOfUuid && mode === 'replace' ? 'focus' : mode
-    setSelection((current) => applyPartSelection(current, part.uuid, effectiveMode, defaultVisiblePartUuids))
-  }, [defaultVisiblePartUuids])
+    const review = reviewAssemblyForPart(part, primaryAssemblyId)
+    if (mode === 'toggle' && review && !visiblePartUuids.includes(part.uuid)) {
+      setReviewAssemblyId(review)
+      setSelection({ activePartUuid: part.uuid, explicitVisiblePartUuids:
+        planAssemblyLoads(parts, review, part.uuid).map((item) => item.part.uuid) })
+      return
+    }
+    if (mode === 'replace') setReviewAssemblyId(review)
+    setSelection((current) => applyPartSelection(current, part.uuid, mode, defaultVisiblePartUuids))
+  }, [defaultVisiblePartUuids, parts, primaryAssemblyId, visiblePartUuids])
   const projectChanged = useCallback((nextProject: ProjectSummary | null) => {
     observedProjectState.current = projectStateKey(nextProject)
     setProject(nextProject)
@@ -108,6 +117,7 @@ export default function AppShell({ client }: AppShellProps) {
       return
     }
     setSelection({ activePartUuid: null, explicitVisiblePartUuids: null })
+    setReviewAssemblyId(null)
     setInventoryRefreshToken((value) => value + 1)
     setFitAssemblyRequest((value) => value + 1)
   }, [workbenchClient])

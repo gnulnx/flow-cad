@@ -180,7 +180,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
             ? `${filtered.length} of ${categoryParts.length} listed · ${visiblePartUuids.length} visible in scene`
             : 'Loading metadata…'}
       </div>
-      <div className="inventory-selection-hint">Click isolates · Ctrl/Cmd-click adds or removes</div>
+      <div className="inventory-selection-hint">Circle shows only this part · Row adds or removes</div>
       {deleting ? <div role="status">Deleting part…</div> : null}
       {deleteError ? <div role="alert">{deleteError}</div> : null}
       {deleteMessage ? <div role="status">{deleteMessage}</div> : null}
@@ -223,6 +223,7 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
                   className="part-row"
                   key={part.uuid}
                   aria-busy={deleting === part.uuid}
+                  onClick={() => onSelect(part, 'toggle')}
                   onContextMenu={(event) => {
                     event.preventDefault()
                     if (!deleting) setContextMenu({ part, x: event.clientX, y: event.clientY })
@@ -240,7 +241,6 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
                     role="option"
                     aria-selected={visible}
                     className="part-row__select"
-                    onClick={(event) => onSelect(part, event.ctrlKey || event.metaKey ? 'toggle' : 'replace')}
                   >
                     <span className={`artifact-state artifact-state--${displayState}`} title={statusLabel(part, loadStates)} aria-label={statusLabel(part, loadStates)} />
                     <span className="part-row__identity">
@@ -255,11 +255,12 @@ export function PartInventoryDock({ client, activePartUuid, visiblePartUuids = [
                   <button
                     type="button"
                     className="part-visibility-toggle"
-                    aria-label={`${visible ? 'Hide' : 'Show'} ${part.displayName ?? part.key}`}
+                    aria-label={`${visible && visiblePartUuids.length === 1 ? 'Hide' : 'Show only'} ${part.displayName ?? part.key}`}
                     aria-pressed={visible}
+                    title="Show only this part; click again to hide when shown alone"
                     onClick={(event) => {
                       event.stopPropagation()
-                      onSelect(part, 'toggle')
+                      onSelect(part, 'replace')
                     }}
                   >
                     <span aria-hidden="true">{visible ? '◉' : '○'}</span>

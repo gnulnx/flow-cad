@@ -5,7 +5,7 @@ const initial: PartSelectionState = { activePartUuid: 'body', explicitVisiblePar
 const assembly = ['body', 'lid', 'wheel']
 
 describe('part visibility selection', () => {
-  it('uses a plain click to isolate a part and a second click to hide the sole part', () => {
+  it('uses circle selection to isolate a part and a second click to hide the sole part', () => {
     const isolated = applyPartSelection(initial, 'lid', 'replace', assembly)
     expect(isolated).toEqual({ activePartUuid: 'lid', explicitVisiblePartUuids: ['lid'] })
     expect(applyPartSelection(isolated, 'lid', 'replace', assembly)).toEqual({
@@ -14,7 +14,7 @@ describe('part visibility selection', () => {
     })
   })
 
-  it('uses Ctrl or Command selection to add and remove parts from the shown set', () => {
+  it('uses row selection to add and remove parts from the shown set', () => {
     const lidOnly = applyPartSelection(initial, 'lid', 'replace', assembly)
     const lidAndWheel = applyPartSelection(lidOnly, 'wheel', 'toggle', assembly)
     expect(lidAndWheel).toEqual({ activePartUuid: 'wheel', explicitVisiblePartUuids: ['lid', 'wheel'] })

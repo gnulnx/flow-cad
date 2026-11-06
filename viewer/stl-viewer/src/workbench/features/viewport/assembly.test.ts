@@ -4,6 +4,7 @@ import {
   nextAssemblyLoadBatch,
   planAssemblyLoads,
   reconcileLoadRecords,
+  reviewAssemblyForPart,
   transformExactFeature,
   transformPoint,
 } from './assembly'
@@ -33,6 +34,22 @@ const occurrence = (id: string, translationMm: [number, number, number] = [0, 0,
 })
 
 describe('progressive active assembly planning', () => {
+  it('places a review alternative at its assembly datum with only its declared context', () => {
+    const body = part('body', 'printable', [occurrence('body')])
+    const placed = { ...occurrence('lid', [0, 0, 341]), assemblyId: 'review-lid' }
+    const lid = part('lid', 'inspection', [placed])
+    const context = part('context', 'inspection', [{ ...occurrence('context'), assemblyId: 'review-lid' }])
+    const parts = [body, context, lid]
+    expect(reviewAssemblyForPart(body, 'active')).toBeNull()
+    expect(reviewAssemblyForPart(lid, 'active')).toBe('review-lid')
+    expect(reviewAssemblyForPart({ ...context, occurrences: [...context.occurrences,
+      { ...occurrence('other-context'), assemblyId: 'review-other' }] }, 'active')).toBeNull()
+    expect(planAssemblyLoads(parts, 'active', null).map((item) => item.part.key)).toEqual(['body'])
+    const plan = planAssemblyLoads(parts, 'review-lid', lid.uuid)
+    expect(plan.map((item) => item.part.key)).toEqual(['lid', 'context'])
+    expect(plan[0].occurrences).toEqual([placed])
+    expect(planAssemblyLoads(parts, 'review-lid', lid.uuid, [lid.uuid])).toHaveLength(1)
+  })
   it('loads the selected part first, shares one fetch across repetitions, and includes the complete assembly', () => {
     const selected = part('selected', 'printable', [occurrence('selected-left'), occurrence('selected-right')])
     const other = part('other', 'printable', [occurrence('other-main')])

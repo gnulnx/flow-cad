@@ -102,7 +102,7 @@ describe('replacement AppShell', () => {
     expect(inventory.getByText('Missing')).toBeInTheDocument()
   })
 
-  it('keeps assembly context visible when an in-place preview is selected', async () => {
+  it('allows the circle to isolate even an in-place preview and hide it again', async () => {
     const user = userEvent.setup()
     render(<AppShell client={createTestWorkbenchClient({
       inventory: {
@@ -123,11 +123,56 @@ describe('replacement AppShell', () => {
     expect(context).toHaveAttribute('aria-selected', 'true')
     expect(preview).toHaveAttribute('aria-selected', 'true')
 
-    await user.click(preview)
+    await user.click(screen.getByRole('button', { name: 'Show only preview' }))
 
-    expect(context).toHaveAttribute('aria-selected', 'true')
+    expect(context).toHaveAttribute('aria-selected', 'false')
     expect(preview).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('heading', { name: 'preview' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Hide preview' }))
+    expect(preview).toHaveAttribute('aria-selected', 'false')
+    expect(context).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('fits row-selected alternatives in their review assembly, swaps choices, and restores production', async () => {
+    const user = userEvent.setup()
+    const artifact = (key: string) => ({ contentHash: key, format: 'stl' as const, url: `/models/${key}`, revision: 10 })
+    const placed = (assemblyId: string, id: string, z = 0) => ({
+      assemblyId, id, translationMm: [0, 0, z] as [number, number, number], rotationDeg: [0, 0, 0] as [number, number, number],
+    })
+    const clearPreview = vi.fn(async () => undefined)
+    render(<AppShell client={createTestWorkbenchClient({ inventory: {
+      revision: 10, activeAssemblyId: 'active', parts: [
+        part('body', { displayArtifact: artifact('body') }),
+        part('context', { displayArtifact: artifact('context'), occurrences: [placed('review-a', 'context'), placed('review-b', 'context')] }),
+        part('lid-a', { displayArtifact: artifact('lid-a'), occurrences: [placed('review-a', 'lid-a', 341)] }),
+        part('lid-b', { displayArtifact: artifact('lid-b'), occurrences: [placed('review-b', 'lid-b', 341)] }),
+      ],
+    }, clearPreview })} />)
+    const body = await screen.findByRole('option', { name: /body/ })
+    const context = screen.getByRole('option', { name: /context/ })
+    const lidA = screen.getByRole('option', { name: /lid-a/ })
+    const lidB = screen.getByRole('option', { name: /lid-b/ })
+    const shown = (...rows: HTMLElement[]) => {
+      for (const row of [body, context, lidA, lidB]) expect(row).toHaveAttribute('aria-selected', String(rows.includes(row)))
+    }
+    shown(body)
+    await user.click(lidA)
+    shown(context, lidA)
+    await user.click(lidB)
+    shown(context, lidB)
+    await user.click(lidB)
+    shown(context)
+    for (let i = 0; i < 3; i++) {
+      await user.click(lidA)
+      shown(context, lidA)
+      await user.click(screen.getByRole('button', { name: 'Show only lid-a' }))
+      shown(lidA)
+      await user.click(screen.getByRole('button', { name: 'Hide lid-a' }))
+      shown()
+    }
+    await user.click(screen.getByRole('button', { name: 'Show fully assembled' }))
+    await waitFor(() => expect(clearPreview).toHaveBeenCalledOnce())
+    shown(body)
   })
 
   it('restores the complete assembly and submits a robot build from the parts dock', async () => {
@@ -167,7 +212,7 @@ describe('replacement AppShell', () => {
     expect(body).toHaveAttribute('aria-selected', 'true')
     expect(reference).toHaveAttribute('aria-selected', 'true')
 
-    await user.click(body)
+    await user.click(screen.getByRole('button', { name: 'Show only body' }))
     expect(body).toHaveAttribute('aria-selected', 'true')
     expect(reference).toHaveAttribute('aria-selected', 'false')
 

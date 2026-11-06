@@ -96,7 +96,7 @@ describe('PartInventoryDock refresh', () => {
     await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ authorityHash: 'new-sha' }), 'focus'))
   })
 
-  it('emits replace for click and toggle for Ctrl or Command click', async () => {
+  it('adds or removes from the whole row, including its background and keyboard activation', async () => {
     const user = userEvent.setup()
     const client = createTestWorkbenchClient({ inventory: { revision: 1, activeAssemblyId: 'active', parts: [part('sha')] } })
     const onSelect = vi.fn()
@@ -105,14 +105,15 @@ describe('PartInventoryDock refresh', () => {
     onSelect.mockClear()
 
     await user.click(option)
-    expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ uuid: 'guard-uuid' }), 'replace')
-    await user.keyboard('{Control>}')
-    await user.click(option)
-    await user.keyboard('{/Control}')
+    expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ uuid: 'guard-uuid' }), 'toggle')
+    await user.click(option.closest('.part-row')!)
+    option.focus()
+    await user.keyboard('{Enter}')
+    expect(onSelect).toHaveBeenCalledTimes(3)
     expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ uuid: 'guard-uuid' }), 'toggle')
   })
 
-  it('exposes an explicit visibility toggle independent of row selection', async () => {
+  it('isolates with the circle without also firing the row action', async () => {
     const user = userEvent.setup()
     const active = { ...part('sha'), family: 'compute', material: 'PETG' }
     const client = createTestWorkbenchClient({ inventory: { revision: 1, activeAssemblyId: 'active', parts: [active] } })
@@ -124,7 +125,7 @@ describe('PartInventoryDock refresh', () => {
     onSelect.mockClear()
     await user.click(screen.getByRole('button', { name: 'Hide arch_guard' }))
     expect(onSelect).toHaveBeenCalledOnce()
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ uuid: 'guard-uuid' }), 'toggle')
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ uuid: 'guard-uuid' }), 'replace')
   })
 
   it('collapses sections without changing visibility and reveals search matches', async () => {
@@ -171,18 +172,18 @@ describe('PartInventoryDock refresh', () => {
     expect(screen.getByRole('tab', { name: /Parts to make/ })).toHaveAttribute('aria-selected', 'true')
     await user.selectOptions(screen.getByLabelText('Filter by material'), 'PETG')
     expect(rows()).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'Hide Arch guard' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show only Arch guard' })).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: /Purchased/ }))
-    expect(screen.getByRole('button', { name: 'Hide Wheel motor' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show only Wheel motor' })).toBeInTheDocument()
     expect(screen.getByLabelText('Filter by material')).toHaveValue('')
     await user.click(screen.getByRole('tab', { name: /Hardware/ }))
     expect(rows()).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'Show m3_screw' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show only m3_screw' })).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: /^All/ }))
     expect(rows()).toHaveLength(6)
     await user.type(screen.getByRole('searchbox'), 'head PETG')
     expect(rows()).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'Hide Arch guard' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show only Arch guard' })).toBeInTheDocument()
     expect(onSelect).not.toHaveBeenCalled()
     await user.clear(screen.getByRole('searchbox'))
     await user.click(screen.getByRole('tab', { name: /Views/ }))

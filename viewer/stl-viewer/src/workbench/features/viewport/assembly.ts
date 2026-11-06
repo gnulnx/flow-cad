@@ -21,6 +21,13 @@ export type AssemblyLoadRecords = Record<string, AssemblyLoadRecord>
 
 const IDENTITY_OCCURRENCE_SUFFIX = ':inspection'
 
+/** Unplaced alternatives can name a review assembly without changing production. */
+export function reviewAssemblyForPart(part: WorkbenchPart, primaryAssemblyId: string | null): string | null {
+  const assemblies = [...new Set(part.occurrences.map((occurrence) => occurrence.assemblyId))]
+  if (assemblies.includes(primaryAssemblyId ?? '') || assemblies.length !== 1) return null
+  return assemblies[0]
+}
+
 export function resolveActiveAssemblyId(
   parts: WorkbenchPart[],
   preferred: string | null,
