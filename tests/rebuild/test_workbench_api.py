@@ -178,6 +178,7 @@ def test_model_endpoint_verifies_and_immutably_serves_exact_step(tmp_path: Path)
     assert response.content == content
     assert response.headers["content-type"].startswith("model/step")
     assert response.headers["etag"] == f'"{digest}"'
+    assert "origin" in {value.strip().lower() for value in response.headers["vary"].split(",")}
     assert response.headers["x-content-sha256"] == digest
     assert response.headers["x-flow-cad-geometry-authority"] == "step_kernel"
     assert response.headers["x-flow-cad-artifact-kind"] == "step"
@@ -203,6 +204,23 @@ def test_model_endpoint_verifies_and_immutably_serves_exact_step(tmp_path: Path)
     )
     assert unchanged.status_code == 304
     assert unchanged.content == b""
+
+
+@pytest.mark.parametrize("origin", [None, "http://localhost:3001", "http://127.0.0.1:3001"])
+def test_download_cache_varies_by_origin_including_direct_navigation_and_304(tmp_path: Path, origin) -> None:
+    root, _content, digest, _display_content, display_digest = _project(tmp_path)
+    client = TestClient(create_workbench_app(root))
+    headers = {"Origin": origin} if origin else {}
+    for artifact_digest in (digest, display_digest):
+        response = client.get(f"/api/models/{artifact_digest}?download=true", headers=headers)
+        assert response.status_code == 200
+        assert "origin" in {value.strip().lower() for value in response.headers["vary"].split(",")}
+        if origin:
+            assert response.headers["access-control-allow-origin"] == origin
+        cached = client.get(f"/api/models/{artifact_digest}?download=true",
+                            headers={**headers, "If-None-Match": f'"{artifact_digest}"'})
+        assert cached.status_code == 304
+        assert "origin" in {value.strip().lower() for value in cached.headers["vary"].split(",")}
 
 
 def test_model_endpoint_refuses_changed_bytes(tmp_path: Path) -> None:

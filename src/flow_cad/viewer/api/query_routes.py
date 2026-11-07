@@ -101,6 +101,7 @@ def _immutable_headers(
 ) -> dict[str, str]:
     return {
         "Cache-Control": "public, max-age=31536000, immutable",
+        "Vary": "Origin",
         "ETag": f'"{digest}"',
         "X-Content-SHA256": digest,
         "X-Flow-CAD-Artifact-Kind": kind,
